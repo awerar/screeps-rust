@@ -1,18 +1,15 @@
 use log::*;
-use screeps::{
-    constants::{Part, ResourceType}, game, objects::Creep, prelude::*
-};
+use screeps::{constants::Part, game, prelude::*};
 use wasm_bindgen::prelude::*;
 
-use crate::{memory::{HarvesterData, HarvesterTarget, Memory, Role, SourceDistribution, deserialize_memory, serialize_memory}, names::get_new_creep_name};
+use crate::{harvester::{HarvesterData, do_harvester_creep}, memory::{Memory, Role, deserialize_memory, serialize_memory}, names::get_new_creep_name};
 
 mod logging;
 mod names;
 mod memory;
+mod harvester;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
-
-
 
 #[wasm_bindgen(js_name = loop)]
 pub fn game_loop() {
@@ -62,62 +59,4 @@ fn do_creeps(memory: &mut Memory) {
             },
         };
     }
-}
-
-fn do_harvester_creep(creep: &Creep, source_distribution: &mut SourceDistribution, data: &mut HarvesterData) -> Option<()> {
-    if data.harvesting {
-        if creep.store().get_free_capacity(None) == 0 {
-            data.harvesting = false;
-            data.target = None;
-        }
-    } else {
-        if creep.store().get_used_capacity(None) == 0 {
-            data.harvesting = true;
-        }
-    }
-
-    if data.harvesting {
-        if let Some((pos, source)) = source_distribution.get_assignmemnt(&creep) {
-            let move_result = creep.move_to(pos);
-
-            if creep.pos() == pos || move_result.is_err() {
-                let source = source.resolve()?;
-                creep.harvest(&source).ok();
-            }
-        } else {
-            warn!("Creep {} has no assignment", creep.name())
-        }
-    } else {
-        if data.target.is_none() {
-            let room = creep.room()?;
-            if room.energy_available() < room.energy_capacity_available() {
-                data.target = Some(HarvesterTarget::Spawn(game::spawns().values().next()?.id()));
-            } else {
-                data.target = Some(HarvesterTarget::Controller(room.controller()?.id()));
-            }
-        }
-
-        if let Some(target) = &data.target {
-            match target {
-                HarvesterTarget::Controller(target) => {
-                    let target = target.resolve()?;
-                    creep.move_to(&target).ok();
-
-                    if creep.pos().is_near_to(target.pos()) {
-                        creep.upgrade_controller(&target).ok();
-                    }
-                },
-                HarvesterTarget::Spawn(target) => {
-                    let target = target.resolve()?;
-                    creep.move_to(&target).ok();
-
-                    if creep.pos().is_near_to(target.pos()) {
-                        creep.transfer(&target, ResourceType::Energy, None).ok();
-                    }
-                },
-            }
-        }
-    }
-
-    Some(())
 }
