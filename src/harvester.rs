@@ -9,14 +9,10 @@ use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 
 #[derive(Serialize, Deserialize)]
-pub enum HarvesterTarget {
-    Controller(ObjectId<StructureController>), Spawn(ObjectId<StructureSpawn>)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct HarvesterData {
-    pub harvesting: bool,
-    pub target: Option<HarvesterTarget>
+pub struct SourceDistribution {
+    #[serde(with = "any_key_map")] 
+    pub harvest_positions: HashMap<ObjectId<Source>, SourceData>,
+    pub creep_assignments: HashMap<String, (Position, ObjectId<Source>)>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -40,13 +36,6 @@ impl SourceData {
         self.0.get_mut(&free_pos).unwrap().assigned.insert(creep.name());
         Some(free_pos)
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SourceDistribution {
-    #[serde(with = "any_key_map")] 
-    pub harvest_positions: HashMap<ObjectId<Source>, SourceData>,
-    pub creep_assignments: HashMap<String, (Position, ObjectId<Source>)>
 }
 
 impl SourceDistribution {
@@ -106,6 +95,17 @@ impl SourceDistribution {
             }
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HarvesterData {
+    pub harvesting: bool,
+    pub target: Option<HarvesterTarget>
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum HarvesterTarget {
+    Controller(ObjectId<StructureController>), Spawn(ObjectId<StructureSpawn>)
 }
 
 pub fn do_harvester_creep(creep: &Creep, source_distribution: &mut SourceDistribution, data: &mut HarvesterData) -> Option<()> {
