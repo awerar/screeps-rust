@@ -7,7 +7,9 @@ use screeps::{game};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::harvester::{HarvesterData, SourceDistribution};
+use crate::harvester::{HarvesterState, SourceDistribution};
+
+extern crate serde_json_path_to_error as serde_json;
 
 #[derive(Serialize, Deserialize)]
 pub struct Memory {
@@ -27,7 +29,7 @@ pub struct Memory {
 
 #[derive(Serialize, Deserialize)]
 pub enum Role {
-    Worker(HarvesterData)
+    Worker(HarvesterState)
 }
 
 pub fn deserialize_memory() -> Memory {

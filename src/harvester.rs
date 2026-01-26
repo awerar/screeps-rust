@@ -8,11 +8,13 @@ use screeps::{
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 
+type HarvestAssignment = (Position, ObjectId<Source>);
+
 #[derive(Serialize, Deserialize)]
 pub struct SourceDistribution {
     #[serde(with = "any_key_map")] 
     pub harvest_positions: HashMap<ObjectId<Source>, SourceData>,
-    pub creep_assignments: HashMap<String, (Position, ObjectId<Source>)>
+    pub creep_assignments: HashMap<String, HarvestAssignment>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -97,71 +99,90 @@ impl SourceDistribution {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct HarvesterData {
-    pub harvesting: bool,
-    pub target: Option<HarvesterTarget>
+#[derive(Serialize, Deserialize, Clone)]
+pub enum HarvesterState {
+    Idle,
+    Harvesting(HarvestAssignment),
+    Distributing(DistributionTarget)
 }
 
-#[derive(Serialize, Deserialize)]
-pub enum HarvesterTarget {
+#[derive(Serialize, Deserialize, Clone)]
+pub enum DistributionTarget {
     Controller(ObjectId<StructureController>), Spawn(ObjectId<StructureSpawn>)
 }
 
-pub fn do_harvester_creep(creep: &Creep, source_distribution: &mut SourceDistribution, data: &mut HarvesterData) -> Option<()> {
-    if data.harvesting {
-        if creep.store().get_free_capacity(None) == 0 {
-            data.harvesting = false;
-            data.target = None;
-        }
+fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
+    let room = creep.room()?;
+    if room.energy_available() < room.energy_capacity_available() {
+        Some(DistributionTarget::Spawn(game::spawns().values().next()?.id()))
     } else {
-        if creep.store().get_used_capacity(None) == 0 {
-            data.harvesting = true;
+        Some(DistributionTarget::Controller(room.controller()?.id()))
+    }
+}
+
+fn is_full(creep: &Creep) -> bool {
+    creep.store().get_free_capacity(None) == 0
+}
+
+fn is_empty(creep: &Creep) -> bool {
+    creep.store().get_used_capacity(None) == 0
+}
+
+fn get_idle_state_transition(creep: &Creep, source_distribution: &mut SourceDistribution) -> HarvesterState {
+    if !is_empty(creep) {
+        if let Some(target) = get_distribution_target(creep) {
+            return HarvesterState::Distributing(target)
         }
     }
 
-    if data.harvesting {
-        if let Some((pos, source)) = source_distribution.get_assignmemnt(&creep) {
-            let move_result = creep.move_to(pos);
+    if !is_full(creep) {
+        if let Some(assignment) = source_distribution.get_assignmemnt(creep) {
+            return HarvesterState::Harvesting(assignment)
+        } else {
+            warn!("{} has no harvest assignment. Idling.", creep.name());
+        }
+    }
 
-            if creep.pos() == pos || move_result.is_err() {
+    HarvesterState::Idle
+}
+
+pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_distribution: &mut SourceDistribution) -> Option<HarvesterState> {
+    match &curr_state {
+        HarvesterState::Idle => Some(get_idle_state_transition(creep, source_distribution)),
+        HarvesterState::Harvesting((pos, source)) => {
+            creep.move_to(*pos).ok();
+            if creep.pos().is_near_to(*pos) {
                 let source = source.resolve()?;
                 creep.harvest(&source).ok();
             }
-        } else {
-            warn!("Creep {} has no assignment", creep.name())
-        }
-    } else {
-        if data.target.is_none() {
-            let room = creep.room()?;
-            if room.energy_available() < room.energy_capacity_available() {
-                data.target = Some(HarvesterTarget::Spawn(game::spawns().values().next()?.id()));
-            } else {
-                data.target = Some(HarvesterTarget::Controller(room.controller()?.id()));
-            }
-        }
 
-        if let Some(target) = &data.target {
+            if is_full(creep) { Some(get_idle_state_transition(creep, source_distribution)) }
+            else { Some(curr_state) }
+        },
+        HarvesterState::Distributing(target) => {
             match target {
-                HarvesterTarget::Controller(target) => {
+                DistributionTarget::Controller(target) => {
                     let target = target.resolve()?;
                     creep.move_to(&target).ok();
 
                     if creep.pos().is_near_to(target.pos()) {
                         creep.upgrade_controller(&target).ok();
                     }
+
+                    if is_empty(creep) { Some(get_idle_state_transition(creep, source_distribution)) }
+                    else { Some(curr_state) }
                 },
-                HarvesterTarget::Spawn(target) => {
+                DistributionTarget::Spawn(target) => {
                     let target = target.resolve()?;
                     creep.move_to(&target).ok();
 
                     if creep.pos().is_near_to(target.pos()) {
                         creep.transfer(&target, ResourceType::Energy, None).ok();
                     }
+
+                    Some(get_idle_state_transition(creep, source_distribution))
                 },
             }
-        }
+        },
     }
-
-    Some(())
 }
