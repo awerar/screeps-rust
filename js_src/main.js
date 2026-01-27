@@ -80,5 +80,8 @@ module.exports.loop = function() {
     // replace this function with the post-load loop for next tick
     module.exports.loop = loaded_loop;
     global.reset_memory = bot.reset_memory;
+    global.reset_planning = bot.reset_planning;
+    global.clear_pending_roads = bot.clear_pending_roads;
+    global.plan_main_roads = bot.plan_main_roads;
     console.log(`loading complete, CPU used: ${Game.cpu.getUsed()}`)
 }

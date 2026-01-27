@@ -3,12 +3,14 @@ use std::{collections::{HashMap, HashSet}, ops::Add};
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    Position, ResourceType, Room, StructureController, StructureSpawn, Terrain, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, Room, StructureController, StructureSpawn, Terrain, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 
 type HarvestAssignment = (Position, ObjectId<Source>);
+
+extern crate serde_json_path_to_error as serde_json;
 
 #[derive(Serialize, Deserialize)]
 pub struct SourceDistribution {
@@ -108,16 +110,51 @@ pub enum HarvesterState {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum DistributionTarget {
-    Controller(ObjectId<StructureController>), Spawn(ObjectId<StructureSpawn>)
+    Controller(ObjectId<StructureController>), 
+    Spawn(ObjectId<StructureSpawn>),
+    ConstructionSite(ObjectId<ConstructionSite>)
+}
+
+impl DistributionTarget {
+    fn pos(&self) -> Option<Position> {
+        match &self {
+            DistributionTarget::Controller(object_id) => object_id.resolve().map(|x| x.pos()),
+            DistributionTarget::Spawn(object_id) => object_id.resolve().map(|x| x.pos()),
+            DistributionTarget::ConstructionSite(object_id) => object_id.resolve().map(|x| x.pos()),
+        }
+    }
+
+    fn distribute(&self, creep: &Creep) -> Option<()> {
+        match &self {
+            DistributionTarget::Controller(controller) => 
+                creep.upgrade_controller(&controller.resolve()?).ok(),
+            DistributionTarget::Spawn(spawn) => 
+                creep.transfer(&spawn.resolve()?, ResourceType::Energy, None).ok(),
+            DistributionTarget::ConstructionSite(site) => 
+            creep.build(&site.resolve()?).ok(),
+        }
+    }
 }
 
 fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
     let room = creep.room()?;
-    if room.energy_available() < room.energy_capacity_available() {
-        Some(DistributionTarget::Spawn(game::spawns().values().next()?.id()))
-    } else {
-        Some(DistributionTarget::Controller(room.controller()?.id()))
+    if room.controller()?.ticks_to_downgrade()? < 1000 {
+        return Some(DistributionTarget::Controller(room.controller()?.id()))
     }
+
+    if room.energy_available() < room.energy_capacity_available() {
+        return Some(DistributionTarget::Spawn(game::spawns().values().next()?.id()))
+    }
+
+    let site = room.find(find::CONSTRUCTION_SITES, None).into_iter()
+        .min_by_key(|site| site.pos().get_range_to(creep.pos()));
+    if let Some(site) = site { 
+        if let Some(site_id) = site.try_id() { 
+            return Some(DistributionTarget::ConstructionSite(site_id)); 
+        }
+    }
+
+    Some(DistributionTarget::Controller(room.controller()?.id()))
 }
 
 fn is_full(creep: &Creep) -> bool {
@@ -160,29 +197,23 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
             else { Some(curr_state) }
         },
         HarvesterState::Distributing(target) => {
-            match target {
-                DistributionTarget::Controller(target) => {
-                    let target = target.resolve()?;
-                    creep.move_to(&target).ok();
+            let target_pos = target.pos()?;
+            creep.move_to(target_pos).ok();
 
-                    if creep.pos().is_near_to(target.pos()) {
-                        creep.upgrade_controller(&target).ok();
-                    }
-
-                    if is_empty(creep) { Some(get_idle_state_transition(creep, source_distribution)) }
-                    else { Some(curr_state) }
-                },
-                DistributionTarget::Spawn(target) => {
-                    let target = target.resolve()?;
-                    creep.move_to(&target).ok();
-
-                    if creep.pos().is_near_to(target.pos()) {
-                        creep.transfer(&target, ResourceType::Energy, None).ok();
-                    }
-
-                    Some(get_idle_state_transition(creep, source_distribution))
-                },
+            if creep.pos().is_near_to(target_pos) {
+                if target.distribute(creep).is_none() {
+                    return Some(get_idle_state_transition(creep, source_distribution))
+                }
             }
+
+            if let DistributionTarget::ConstructionSite(site) = target {
+                if site.resolve().is_none() {
+                    return Some(get_idle_state_transition(creep, source_distribution))
+                }
+            }
+
+            if is_empty(creep) { Some(get_idle_state_transition(creep, source_distribution)) }
+            else { Some(curr_state) }
         },
     }
 }

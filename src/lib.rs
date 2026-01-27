@@ -8,6 +8,7 @@ mod logging;
 mod names;
 mod memory;
 mod harvester;
+mod planning;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -23,6 +24,7 @@ pub fn game_loop() {
 
     do_spawns(&memory);
     memory = do_creeps(memory);
+    memory.road_plan.update_plan();
 
     serialize_memory(memory);
 }
@@ -55,7 +57,8 @@ fn do_creeps(mut memory: Memory) -> Memory {
                 if let Some(new_state) = new_state {
                     *state = new_state;
                 } else {
-                    warn!("Creep {} failed", creep.name());
+                    warn!("Creep {} failed. Idling.", creep.name());
+                    *state = HarvesterState::Idle;
                 }
             },
         };

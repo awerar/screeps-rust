@@ -7,7 +7,7 @@ use screeps::{game};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::harvester::{HarvesterState, SourceDistribution};
+use crate::{harvester::{HarvesterState, SourceDistribution}, planning::RoadPlan};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -25,11 +25,29 @@ pub struct Memory {
 
     #[serde(default = "SourceDistribution::default")]
     pub source_distribution: SourceDistribution,
+
+    #[serde(default)]
+    pub road_plan: RoadPlan
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum Role {
     Worker(HarvesterState)
+}
+
+thread_local! {
+    static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
+    static RESET_PLANNING: RefCell<bool> = RefCell::new(false);
+}
+
+#[wasm_bindgen]
+pub fn reset_memory() {
+    RESET_MEMORY.replace(true);
+}
+
+#[wasm_bindgen]
+pub fn reset_planning() {
+    RESET_PLANNING.replace(true);
 }
 
 pub fn deserialize_memory() -> Memory {
@@ -45,6 +63,15 @@ pub fn deserialize_memory() -> Memory {
     let memory = screeps::raw_memory::get();
     let mut memory: Memory = serde_json::from_str(&String::from(memory)).expect("Memory should follow correct schema");
     clean_memory(&mut memory);
+
+    RESET_PLANNING.with_borrow_mut(|reset| {
+        if *reset {
+            memory.road_plan = RoadPlan::default();
+            *reset = false;
+
+            info!("Reset road plan by command!");
+        }
+    });
 
     memory
 }
@@ -88,13 +115,4 @@ fn clean_memory(memory: &mut Memory) {
 
         memory.last_alive_creeps = alive_creeps;
     }
-}
-
-thread_local! {
-    static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
-}
-
-#[wasm_bindgen]
-pub fn reset_memory() {
-    RESET_MEMORY.replace(true);
 }
