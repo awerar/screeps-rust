@@ -83,5 +83,6 @@ module.exports.loop = function() {
     global.reset_planning = bot.reset_planning;
     global.clear_pending_roads = bot.clear_pending_roads;
     global.plan_main_roads = bot.plan_main_roads;
+    global.plan_spawn_extensions = bot.plan_spawn_extensions;
     console.log(`loading complete, CPU used: ${Game.cpu.getUsed()}`)
 }

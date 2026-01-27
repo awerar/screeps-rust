@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, HashSet}, ops::Add};
+use std::{collections::{HashMap, HashSet}, ops::Add, sync::LazyLock};
 
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, Room, StructureController, StructureSpawn, Terrain, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, Room, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureType, Terrain, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
@@ -11,6 +11,18 @@ use serde_json_any_key::*;
 type HarvestAssignment = (Position, ObjectId<Source>);
 
 extern crate serde_json_path_to_error as serde_json;
+
+static BUILDING_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
+    use StructureType::*;
+    let priority = vec![Extension, Road];
+    priority.into_iter().rev().enumerate().map(|(a, b)| (b, a as i32)).collect()
+});
+
+static FILL_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
+    use StructureType::*;
+    let priority = vec![Spawn, Extension, Storage];
+    priority.into_iter().rev().enumerate().map(|(a, b)| (b, a as i32)).collect()
+});
 
 #[derive(Serialize, Deserialize)]
 pub struct SourceDistribution {
@@ -112,6 +124,7 @@ pub enum HarvesterState {
 pub enum DistributionTarget {
     Controller(ObjectId<StructureController>), 
     Spawn(ObjectId<StructureSpawn>),
+    Extension(ObjectId<StructureExtension>),
     ConstructionSite(ObjectId<ConstructionSite>)
 }
 
@@ -120,6 +133,7 @@ impl DistributionTarget {
         match &self {
             DistributionTarget::Controller(object_id) => object_id.resolve().map(|x| x.pos()),
             DistributionTarget::Spawn(object_id) => object_id.resolve().map(|x| x.pos()),
+            DistributionTarget::Extension(object_id) => object_id.resolve().map(|x| x.pos()),
             DistributionTarget::ConstructionSite(object_id) => object_id.resolve().map(|x| x.pos()),
         }
     }
@@ -129,6 +143,8 @@ impl DistributionTarget {
             DistributionTarget::Controller(controller) => 
                 creep.upgrade_controller(&controller.resolve()?).ok(),
             DistributionTarget::Spawn(spawn) => 
+                creep.transfer(&spawn.resolve()?, ResourceType::Energy, None).ok(),
+            DistributionTarget::Extension(spawn) => 
                 creep.transfer(&spawn.resolve()?, ResourceType::Energy, None).ok(),
             DistributionTarget::ConstructionSite(site) => 
             creep.build(&site.resolve()?).ok(),
@@ -143,10 +159,28 @@ fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
     }
 
     if room.energy_available() < room.energy_capacity_available() {
+        let target = room.find(find::MY_STRUCTURES, None).into_iter()
+            .filter(|structure| {
+                let Some(has_store) = structure.as_has_store() else { return false };
+                has_store.store().get_free_capacity(Some(ResourceType::Energy)) > 0
+            })
+            .max_by_key(|structure| FILL_PRIORITY.get(&structure.structure_type()).unwrap_or(&-1));
+            
+        if let Some(target) = target {
+            let target = match target {
+                StructureObject::StructureSpawn(spawn) => DistributionTarget::Spawn(spawn.id()),
+                StructureObject::StructureExtension(extension) => DistributionTarget::Extension(extension.id()),
+                _ => return None
+            };
+
+            return Some(target)
+        }
+
         return Some(DistributionTarget::Spawn(game::spawns().values().next()?.id()))
     }
 
     let site = room.find(find::CONSTRUCTION_SITES, None).into_iter()
+        .max_set_by_key(|site| BUILDING_PRIORITY.get(&site.structure_type()).unwrap_or(&-1)).into_iter()
         .min_by_key(|site| site.pos().get_range_to(creep.pos()));
     if let Some(site) = site { 
         if let Some(site_id) = site.try_id() { 

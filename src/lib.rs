@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use log::*;
 use screeps::{constants::Part, game, prelude::*};
 use wasm_bindgen::prelude::*;
@@ -29,12 +31,47 @@ pub fn game_loop() {
     serialize_memory(memory);
 }
 
+const HARVESTER_TEMPLATE: LazyLock<Vec<Part>> = LazyLock::new(|| vec![Part::Carry, Part::Move, Part::Work]);
+
+
+fn scale_body(template: &Vec<Part>, min_parts: Option<usize>, energy: u32) -> Option<Vec<Part>> {
+    let mut counts: Vec<usize> = vec![0; template.len()];
+    let mut cost = 0;
+
+    let min_parts = min_parts.unwrap_or(template.len());
+
+    loop {
+        for (i, part )in template.iter().enumerate() {
+            cost += part.cost();
+
+            if cost > energy {
+                let body: Vec<_> = template.iter()
+                    .zip(counts.into_iter())
+                    .flat_map(|(part, count)| vec![part.clone(); count].into_iter())
+                    .collect();
+                
+                if body.len() > min_parts {
+                    return Some(body);
+                } else {
+                    return None;
+                }
+            }
+
+            counts[i] += 1;
+        }
+    }
+}
+
 fn do_spawns(memory: &Memory) {
     if game::creeps().keys().count() >= memory.source_distribution.max_creeps() { return; }
 
     for spawn in game::spawns().values() {
-        let body = [Part::Move, Part::Move, Part::Carry, Part::Work];
-        if spawn.room().unwrap().energy_available() >= body.iter().map(|p| p.cost()).sum() {
+        let room = spawn.room().unwrap();
+
+        let energy = room.energy_capacity_available();
+        let body = scale_body(&HARVESTER_TEMPLATE, None, energy).unwrap();
+
+        if room.energy_available() >= energy {
             let name = get_new_creep_name();
             info!("Spawning new creep: {name}");
 
