@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, HashSet}};
 
 use js_sys::{JsString, Reflect};
 use log::*;
-use screeps::{game};
+use screeps::game;
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;

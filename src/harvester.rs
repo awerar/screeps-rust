@@ -120,6 +120,15 @@ pub enum HarvesterState {
     Distributing(DistributionTarget)
 }
 
+impl HarvesterState {
+    fn is_idle(&self) -> bool {
+        match self {
+            HarvesterState::Idle => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub enum DistributionTarget {
     Controller(ObjectId<StructureController>), 
@@ -164,7 +173,8 @@ fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
                 let Some(has_store) = structure.as_has_store() else { return false };
                 has_store.store().get_free_capacity(Some(ResourceType::Energy)) > 0
             })
-            .max_by_key(|structure| FILL_PRIORITY.get(&structure.structure_type()).unwrap_or(&-1));
+            .max_set_by_key(|structure| FILL_PRIORITY.get(&structure.structure_type()).unwrap_or(&-1)).into_iter()
+            .min_by_key(|site| site.pos().get_range_to(creep.pos()));
             
         if let Some(target) = target {
             let target = match target {
@@ -199,54 +209,59 @@ fn is_empty(creep: &Creep) -> bool {
     creep.store().get_used_capacity(None) == 0
 }
 
-fn get_idle_state_transition(creep: &Creep, source_distribution: &mut SourceDistribution) -> HarvesterState {
-    if !is_empty(creep) {
-        if let Some(target) = get_distribution_target(creep) {
-            return HarvesterState::Distributing(target)
-        }
-    }
-
-    if !is_full(creep) {
-        if let Some(assignment) = source_distribution.get_assignmemnt(creep) {
-            return HarvesterState::Harvesting(assignment)
-        } else {
-            warn!("{} has no harvest assignment. Idling.", creep.name());
-        }
-    }
-
-    HarvesterState::Idle
-}
-
 pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_distribution: &mut SourceDistribution) -> Option<HarvesterState> {
+    use HarvesterState::*;
+    
     match &curr_state {
-        HarvesterState::Idle => Some(get_idle_state_transition(creep, source_distribution)),
-        HarvesterState::Harvesting((pos, source)) => {
+        Idle => {
+            let mut next_state = Idle;
+
+            if !is_empty(creep) {
+                if let Some(target) = get_distribution_target(creep) {
+                    next_state = Distributing(target)
+                }
+            }
+
+            if next_state.is_idle() && !is_full(creep) {
+                if let Some(assignment) = source_distribution.get_assignmemnt(creep) {
+                    next_state = Harvesting(assignment)
+                }
+            }
+
+            match next_state {
+                Idle => warn!("{} has no assignment. Idling.", creep.name()),
+                _ => next_state = do_harvester_creep(creep, next_state, source_distribution)?
+            }
+
+            Some(next_state)
+        },
+        Harvesting((pos, source)) => {
             creep.move_to(*pos).ok();
             if creep.pos().is_near_to(*pos) {
                 let source = source.resolve()?;
                 creep.harvest(&source).ok();
             }
 
-            if is_full(creep) { Some(get_idle_state_transition(creep, source_distribution)) }
+            if is_full(creep) { do_harvester_creep(creep, Idle, source_distribution) }
             else { Some(curr_state) }
         },
-        HarvesterState::Distributing(target) => {
+        Distributing(target) => {
             let target_pos = target.pos()?;
             creep.move_to(target_pos).ok();
 
             if creep.pos().is_near_to(target_pos) {
                 if target.distribute(creep).is_none() {
-                    return Some(get_idle_state_transition(creep, source_distribution))
+                    return do_harvester_creep(creep, Idle, source_distribution)
                 }
             }
 
             if let DistributionTarget::ConstructionSite(site) = target {
                 if site.resolve().is_none() {
-                    return Some(get_idle_state_transition(creep, source_distribution))
+                    return do_harvester_creep(creep, Idle, source_distribution)
                 }
             }
 
-            if is_empty(creep) { Some(get_idle_state_transition(creep, source_distribution)) }
+            if is_empty(creep) { do_harvester_creep(creep, Idle, source_distribution) }
             else { Some(curr_state) }
         },
     }
