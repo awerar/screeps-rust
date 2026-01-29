@@ -38,11 +38,17 @@ pub enum Role {
 thread_local! {
     static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
     static RESET_PLANNING: RefCell<bool> = RefCell::new(false);
+    static RESET_SOURCE_DISTRIBUTION: RefCell<bool> = RefCell::new(false);
 }
 
 #[wasm_bindgen]
 pub fn reset_memory() {
     RESET_MEMORY.replace(true);
+}
+
+#[wasm_bindgen]
+pub fn reset_source_distribution() {
+    RESET_SOURCE_DISTRIBUTION.replace(true);
 }
 
 #[wasm_bindgen]
@@ -70,6 +76,15 @@ pub fn deserialize_memory() -> Memory {
             *reset = false;
 
             info!("Reset road plan by command!");
+        }
+    });
+
+    RESET_SOURCE_DISTRIBUTION.with_borrow_mut(|reset| {
+        if *reset {
+            memory.source_distribution = SourceDistribution::default();
+            *reset = false;
+
+            info!("Reset source distribution by command");
         }
     });
 

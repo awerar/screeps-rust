@@ -81,6 +81,7 @@ module.exports.loop = function() {
     module.exports.loop = loaded_loop;
     global.reset_memory = bot.reset_memory;
     global.reset_planning = bot.reset_planning;
+    global.reset_source_distribution = bot.reset_source_distribution;
     global.clear_pending_roads = bot.clear_pending_roads;
     global.plan_main_roads = bot.plan_main_roads;
     global.plan_spawn_extensions = bot.plan_spawn_extensions;

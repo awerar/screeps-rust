@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, ops::Add, sync::LazyLock};
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, Room, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureType, Terrain, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, Room, Structure, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureType, Terrain, find, game, local::ObjectId, look::{self, LookResult, PositionedLookResult}, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
@@ -23,6 +23,8 @@ static FILL_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
     let priority = vec![Spawn, Extension, Storage];
     priority.into_iter().rev().enumerate().map(|(a, b)| (b, a as i32)).collect()
 });
+
+const REPAIR_THRESHOLD: f32 = 0.8;
 
 #[derive(Serialize, Deserialize)]
 pub struct SourceDistribution {
@@ -64,7 +66,7 @@ impl SourceDistribution {
 
             let source_data = SourceData(
                 free_positions.into_iter()
-                    .map(|pos| (pos, HarvestPositionData { assigned: HashSet::new(), capacity: 2 }))
+                    .map(|pos| (pos, HarvestPositionData { assigned: HashSet::new(), capacity: 1 }))
                     .collect()
             );
 
@@ -209,6 +211,31 @@ fn is_empty(creep: &Creep) -> bool {
     creep.store().get_used_capacity(None) == 0
 }
 
+fn try_repair(creep: &Creep) -> Option<()> {
+    let room = creep.room()?;
+
+    let min_pos: (u8, u8) = (creep.pos() - (3, 3)).into();
+    let max_pos: (u8, u8) = (creep.pos() + (3, 3)).into();
+    let repair_structures: Vec<_> = room.look_for_at_area(look::STRUCTURES, min_pos.1, min_pos.0, max_pos.1, max_pos.0).into_iter()
+        .map(|look| {
+            let LookResult::Structure(structure) = look.look_result else { unreachable!() };
+            structure
+        })
+        .filter(|structure| if let StructureType::Road = structure.structure_type() { true } else { false })
+        .filter(|structure| structure.hits() <= ((structure.hits_max() as f32) * REPAIR_THRESHOLD) as u32)
+        .collect();
+
+    for structure in repair_structures {
+        let structure = StructureObject::from(structure);
+        let Some(repairable) = structure.as_repairable() else { continue; };
+        if creep.repair(repairable).is_err() {
+            break;
+        }
+    }
+
+    Some(())
+}
+
 pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_distribution: &mut SourceDistribution) -> Option<HarvesterState> {
     use HarvesterState::*;
     
@@ -246,6 +273,8 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
             else { Some(curr_state) }
         },
         Distributing(target) => {
+            try_repair(creep);
+
             let target_pos = target.pos()?;
             creep.move_to(target_pos).ok();
 
