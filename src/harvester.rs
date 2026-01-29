@@ -8,6 +8,8 @@ use screeps::{
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 
+use crate::movement::smart_move_creep_to;
+
 type HarvestAssignment = (Position, ObjectId<Source>);
 
 extern crate serde_json_path_to_error as serde_json;
@@ -277,7 +279,7 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
             Some(next_state)
         },
         Harvesting((pos, source)) => {
-            creep.move_to(*pos).ok();
+            smart_move_creep_to(creep, *pos).ok();
             if creep.pos().is_near_to(*pos) {
                 let source = source.resolve()?;
                 creep.harvest(&source).ok();
@@ -290,7 +292,7 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
             try_repair(creep);
 
             let target_pos = target.pos()?;
-            creep.move_to(target_pos).ok();
+            smart_move_creep_to(creep, target_pos).ok();
 
             if creep.pos().get_range_to(target_pos) <= target.range() {
                 if target.distribute(creep).is_none() {

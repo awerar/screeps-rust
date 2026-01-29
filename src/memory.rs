@@ -7,7 +7,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{harvester::{HarvesterState, SourceDistribution}, planning::RoadPlan};
+use crate::{harvester::{HarvesterState, SourceDistribution}, movement::{MovementData, MOVEMENT_DATA}, planning::RoadPlan};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -25,6 +25,9 @@ pub struct Memory {
 
     #[serde(default = "SourceDistribution::default")]
     pub source_distribution: SourceDistribution,
+
+    #[serde(default)]
+    movement_data: MovementData,
 
     #[serde(default)]
     pub road_plan: RoadPlan
@@ -88,6 +91,8 @@ pub fn deserialize_memory() -> Memory {
         }
     });
 
+    MOVEMENT_DATA.replace(std::mem::take(&mut memory.movement_data));
+
     memory
 }
 
@@ -96,6 +101,8 @@ pub fn serialize_memory(mut memory: Memory) {
     let new_internal_creeps = Reflect::get(&screeps::memory::ROOT, &JsString::from("creeps")).ok();
     let new_internal_creeps: Option<serde_json::Value> = new_internal_creeps.map(|x| serde_wasm_bindgen::from_value(x).unwrap());
     memory._internal_creeps = new_internal_creeps;
+
+    memory.movement_data = MOVEMENT_DATA.take();
 
     let memory = serde_json::to_string(&memory).unwrap();
     screeps::raw_memory::set(&JsString::from(memory));
@@ -113,6 +120,7 @@ fn clean_memory(memory: &mut Memory) {
 
             memory.creeps.remove(&dead_creep);
             memory.source_distribution.cleanup_dead_creep(&dead_creep);
+            memory.movement_data.creeps_data.remove(&dead_creep);
         }
 
         #[allow(deprecated)]

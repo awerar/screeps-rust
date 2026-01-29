@@ -4,7 +4,7 @@ use log::*;
 use screeps::{StructureObject, constants::Part, game, prelude::*};
 use wasm_bindgen::prelude::*;
 
-use crate::{harvester::{HarvesterState, do_harvester_creep}, memory::{Memory, Role, deserialize_memory, serialize_memory}, names::get_new_creep_name, tower::do_tower};
+use crate::{harvester::{HarvesterState, do_harvester_creep}, memory::{Memory, Role, deserialize_memory, serialize_memory}, movement::{update_movement_tick_end, update_movement_tick_start}, names::get_new_creep_name, tower::do_tower};
 
 mod logging;
 mod names;
@@ -12,6 +12,7 @@ mod memory;
 mod harvester;
 mod planning;
 mod tower;
+mod movement;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -24,6 +25,7 @@ pub fn game_loop() {
     info!("=== Starting tick {} ===", game::time());
 
     let mut memory = deserialize_memory();
+    update_movement_tick_start();
 
     do_spawns(&memory);
     memory = do_creeps(memory);
@@ -31,6 +33,7 @@ pub fn game_loop() {
 
     do_towers();
 
+    update_movement_tick_end();
     serialize_memory(memory);
 }
 
