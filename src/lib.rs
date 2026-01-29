@@ -1,16 +1,17 @@
 use std::sync::LazyLock;
 
 use log::*;
-use screeps::{constants::Part, game, prelude::*};
+use screeps::{StructureObject, constants::Part, game, prelude::*};
 use wasm_bindgen::prelude::*;
 
-use crate::{harvester::{HarvesterState, do_harvester_creep}, memory::{Memory, Role, deserialize_memory, serialize_memory}, names::get_new_creep_name};
+use crate::{harvester::{HarvesterState, do_harvester_creep}, memory::{Memory, Role, deserialize_memory, serialize_memory}, names::get_new_creep_name, tower::do_tower};
 
 mod logging;
 mod names;
 mod memory;
 mod harvester;
 mod planning;
+mod tower;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -27,6 +28,8 @@ pub fn game_loop() {
     do_spawns(&memory);
     memory = do_creeps(memory);
     memory.road_plan.update_plan();
+
+    do_towers();
 
     serialize_memory(memory);
 }
@@ -102,4 +105,12 @@ fn do_creeps(mut memory: Memory) -> Memory {
     }
 
     memory
+}
+
+fn do_towers() {
+    for structure in game::structures().values() {
+        if let StructureObject::StructureTower(tower)  = structure {
+            do_tower(&tower);
+        }
+    }
 }
