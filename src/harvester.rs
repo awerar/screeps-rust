@@ -25,7 +25,7 @@ static FILL_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
 
 const REPAIR_THRESHOLD: f32 = 0.8;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SourceAssignments {
     assignments: HashMap<String, ObjectId<Source>>,
     sources: HashMap<ObjectId<Source>, SourceData>
@@ -68,7 +68,7 @@ impl Default for SourceAssignments {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct SourceData {
     capacity: usize,
     assigned: HashSet<String>
@@ -80,7 +80,7 @@ impl Default for SourceData {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum HarvesterState {
     Idle,
     Harvesting(ObjectId<Source>),
@@ -96,7 +96,13 @@ impl HarvesterState {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+impl Default for HarvesterState {
+    fn default() -> Self {
+        HarvesterState::Idle
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum DistributionTarget {
     Controller(ObjectId<StructureController>), 
     Spawn(ObjectId<StructureSpawn>),

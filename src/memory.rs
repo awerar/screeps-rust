@@ -7,7 +7,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{harvester::{HarvesterState, SourceAssignments}, movement::{MovementData, MOVEMENT_DATA}, planning::RoadPlan};
+use crate::{creeps::Role, harvester::{SourceAssignments}, movement::{MOVEMENT_DATA, MovementData}, planning::RoadPlan};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -30,12 +30,9 @@ pub struct Memory {
     movement_data: MovementData,
 
     #[serde(default)]
-    pub road_plan: RoadPlan
-}
+    pub road_plan: RoadPlan,
 
-#[derive(Serialize, Deserialize)]
-pub enum Role {
-    Worker(HarvesterState)
+    pub claimer_creep: Option<String>
 }
 
 thread_local! {
@@ -121,6 +118,12 @@ fn clean_memory(memory: &mut Memory) {
             memory.creeps.remove(&dead_creep);
             memory.source_assignments.remove(&dead_creep);
             memory.movement_data.creeps_data.remove(&dead_creep);
+            
+            if let Some(claimer_creep) = &memory.claimer_creep {
+                if claimer_creep == &dead_creep {
+                    memory.claimer_creep = None;
+                }
+            }
         }
 
         #[allow(deprecated)]

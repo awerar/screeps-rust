@@ -1,9 +1,17 @@
 use log::*;
-use screeps::{StructureTower, find, prelude::*};
+use screeps::{StructureObject, StructureTower, find, game, prelude::*};
 
 const FIX_THRESHOLD: f32 = 0.5;
 
-pub fn do_tower(tower: &StructureTower) -> Option<()> {
+pub fn do_towers() {
+    for structure in game::structures().values() {
+        if let StructureObject::StructureTower(tower)  = structure {
+            do_tower(&tower);
+        }
+    }
+}
+
+fn do_tower(tower: &StructureTower) -> Option<()> {
     let room = tower.room()?;
 
     let hostile_creeps = room.find(find::HOSTILE_CREEPS, None);
