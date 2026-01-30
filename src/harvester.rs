@@ -1,16 +1,13 @@
-use std::{collections::{HashMap, HashSet}, ops::Add, sync::LazyLock};
+use std::{collections::{HashMap, HashSet}, sync::LazyLock};
 
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, Room, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureTower, StructureType, Terrain, find, game, local::ObjectId, look::{self, LookResult}, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureTower, StructureType, find, game, local::ObjectId, look::{self, LookResult}, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
-use serde_json_any_key::*;
 
 use crate::movement::smart_move_creep_to;
-
-type HarvestAssignment = (Position, ObjectId<Source>);
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -29,98 +26,64 @@ static FILL_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
 const REPAIR_THRESHOLD: f32 = 0.8;
 
 #[derive(Serialize, Deserialize)]
-pub struct SourceDistribution {
-    #[serde(with = "any_key_map")] 
-    pub harvest_positions: HashMap<ObjectId<Source>, SourceData>,
-    pub creep_assignments: HashMap<String, HarvestAssignment>
+pub struct SourceAssignments {
+    assignments: HashMap<String, ObjectId<Source>>,
+    sources: HashMap<ObjectId<Source>, SourceData>
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct HarvestPositionData {
-    pub capacity: usize,
-    pub assigned: HashSet<String>
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SourceData(#[serde(with = "any_key_map")] HashMap<Position, HarvestPositionData>);
-
-impl SourceData {
-    pub fn try_assign(&mut self, creep: &Creep) -> Option<Position> {
-        let free_pos = self.0.iter()
-            .map(|(pos, pos_data)| (pos_data.capacity - pos_data.assigned.len(), pos))
-            .filter(|(free_space, _)| *free_space > 0)
-            .sorted()
-            .map(|(_, pos)| pos)
-            .next()?.clone();
-
-        self.0.get_mut(&free_pos).unwrap().assigned.insert(creep.name());
-        Some(free_pos)
-    }
-}
-
-impl SourceDistribution {
-    pub fn new(room: Room) -> SourceDistribution {
-        let harvest_positions = room.find(find::SOURCES, None).into_iter().map(|source| {
-            let free_positions: Vec<_> = 
-                (-1..=1).cartesian_product(-1..=1)
-                .map(|offset| source.pos().add(offset))
-                .filter(|pos| room.get_terrain().get_xy(pos.xy()) != Terrain::Wall).collect();
-
-            let source_data = SourceData(
-                free_positions.into_iter()
-                    .map(|pos| (pos, HarvestPositionData { assigned: HashSet::new(), capacity: 1 }))
-                    .collect()
-            );
-
-            (source.id(), source_data)
-        }).collect();
-
-        Self { harvest_positions, creep_assignments: HashMap::new() }
-    }
-
-    pub fn default() -> SourceDistribution {
-        Self::new(game::spawns().values().next().expect("There should be at least one spawn").room().unwrap())
-    }
-
-    pub fn get_assignmemnt(&mut self, creep: &Creep) -> Option<(Position, ObjectId<Source>)> {
-        if let Some(assignment) = self.creep_assignments.get(&creep.name()) { return Some(assignment.clone()) };
-
-        let mut assignment = None;
-        for (source, harvest_positions) in self.harvest_positions.iter_mut() {
-            assignment = harvest_positions.try_assign(creep).map(|pos| (pos, source.clone()));
-            if assignment.is_some() { break; }
-        }
+impl SourceAssignments {
+    fn get_assignmemnt(&mut self, creep: &Creep) -> Option<ObjectId<Source>> {
+        if let assignment@Some(_) = self.assignments.get(&creep.name()) { return assignment.cloned() }
+        
+        let assignment = self.sources.iter()
+            .filter(|(_, source_data)| source_data.assigned.len() < source_data.capacity)
+            .map(|(source,_ )| source).next().cloned();
 
         if let Some(assignment) = assignment {
-            info!("Assigning {} to source {}, pos={}", creep.name(), assignment.1, assignment.0);
+            self.assignments.insert(creep.name(), assignment);
+            self.sources.get_mut(&assignment).unwrap().assigned.insert(creep.name());
+        }
 
-            self.creep_assignments.insert(creep.name(), assignment);
-            self.creep_assignments.get(&creep.name()).cloned()
-        } else { None }
+        assignment
+    }
+
+    pub fn remove(&mut self, creep_name: &str) {
+        self.assignments.remove(creep_name);
+        for source_data in self.sources.values_mut() {
+            source_data.assigned.remove(creep_name);
+        }
     }
 
     pub fn max_creeps(&self) -> usize {
-        self.harvest_positions.values()
-            .flat_map(|source_data| source_data.0.values())
-            .map(|harvest_pos| harvest_pos.capacity)
-            .sum()
+        self.sources.values().map(|source_data| source_data.capacity).sum()
     }
+}
 
-    pub fn cleanup_dead_creep(&mut self, dead_creep: &str) {
-        self.creep_assignments.remove(dead_creep);
+impl Default for SourceAssignments {
+    fn default() -> Self {
+        let room = game::spawns().values().next().unwrap().room().unwrap();
+        let sources = room.find(find::SOURCES, None).into_iter()
+            .map(|source| (source.id(), SourceData::default())).collect();
+        Self { assignments: HashMap::new(), sources: sources }
+    }
+}
 
-        for source_data in self.harvest_positions.values_mut() {
-            for harvest_data in source_data.0.values_mut() {
-                harvest_data.assigned.remove(dead_creep);
-            }
-        }
+#[derive(Serialize, Deserialize)]
+struct SourceData {
+    capacity: usize,
+    assigned: HashSet<String>
+}
+
+impl Default for SourceData {
+    fn default() -> Self {
+        Self { capacity: 4, assigned: Default::default() }
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum HarvesterState {
     Idle,
-    Harvesting(HarvestAssignment),
+    Harvesting(ObjectId<Source>),
     Distributing(DistributionTarget)
 }
 
@@ -252,7 +215,7 @@ fn try_repair(creep: &Creep) -> Option<()> {
     Some(())
 }
 
-pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_distribution: &mut SourceDistribution) -> Option<HarvesterState> {
+pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_distribution: &mut SourceAssignments) -> Option<HarvesterState> {
     use HarvesterState::*;
     
     match &curr_state {
@@ -272,16 +235,17 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
             }
 
             match next_state {
-                Idle => warn!("{} has no assignment. Idling.", creep.name()),
+                Idle => info!("{} has no assignment. Idling.", creep.name()),
                 _ => next_state = do_harvester_creep(creep, next_state, source_distribution)?
             }
 
             Some(next_state)
         },
-        Harvesting((pos, source)) => {
-            smart_move_creep_to(creep, *pos).ok();
-            if creep.pos().is_near_to(*pos) {
-                let source = source.resolve()?;
+        Harvesting(source) => {
+            let source = source.resolve()?;
+
+            smart_move_creep_to(creep, &source).ok();
+            if creep.pos().is_near_to(source.pos()) {
                 creep.harvest(&source).ok();
             }
 

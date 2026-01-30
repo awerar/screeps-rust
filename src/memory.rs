@@ -7,7 +7,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{harvester::{HarvesterState, SourceDistribution}, movement::{MovementData, MOVEMENT_DATA}, planning::RoadPlan};
+use crate::{harvester::{HarvesterState, SourceAssignments}, movement::{MovementData, MOVEMENT_DATA}, planning::RoadPlan};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -23,8 +23,8 @@ pub struct Memory {
     #[serde(default)]
     pub last_alive_creeps: HashSet<String>,
 
-    #[serde(default = "SourceDistribution::default")]
-    pub source_distribution: SourceDistribution,
+    #[serde(default)]
+    pub source_assignments: SourceAssignments,
 
     #[serde(default)]
     movement_data: MovementData,
@@ -41,7 +41,7 @@ pub enum Role {
 thread_local! {
     static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
     static RESET_PLANNING: RefCell<bool> = RefCell::new(false);
-    static RESET_SOURCE_DISTRIBUTION: RefCell<bool> = RefCell::new(false);
+    static RESET_SOURCE_ASSIGNMENTS: RefCell<bool> = RefCell::new(false);
 }
 
 #[wasm_bindgen]
@@ -50,8 +50,8 @@ pub fn reset_memory() {
 }
 
 #[wasm_bindgen]
-pub fn reset_source_distribution() {
-    RESET_SOURCE_DISTRIBUTION.replace(true);
+pub fn reset_source_assignments() {
+    RESET_SOURCE_ASSIGNMENTS.replace(true);
 }
 
 #[wasm_bindgen]
@@ -82,12 +82,12 @@ pub fn deserialize_memory() -> Memory {
         }
     });
 
-    RESET_SOURCE_DISTRIBUTION.with_borrow_mut(|reset| {
+    RESET_SOURCE_ASSIGNMENTS.with_borrow_mut(|reset| {
         if *reset {
-            memory.source_distribution = SourceDistribution::default();
+            memory.source_assignments = SourceAssignments::default();
             *reset = false;
 
-            info!("Reset source distribution by command");
+            info!("Reset source assignments by command");
         }
     });
 
@@ -119,19 +119,21 @@ fn clean_memory(memory: &mut Memory) {
             info!("Cleaning up dead creep {}", dead_creep);
 
             memory.creeps.remove(&dead_creep);
-            memory.source_distribution.cleanup_dead_creep(&dead_creep);
+            memory.source_assignments.remove(&dead_creep);
             memory.movement_data.creeps_data.remove(&dead_creep);
         }
 
         #[allow(deprecated)]
         if let Ok(internal_creeps) = Reflect::get(&screeps::memory::ROOT, &JsString::from("creeps")) {
             let internal_creeps_dict: js_sys::Object = internal_creeps.unchecked_into();
-            for creep_name_js in js_sys::Object::keys(&internal_creeps_dict).iter() {
-                let creep_name = String::from(creep_name_js.dyn_ref::<JsString>().unwrap());
+            if !internal_creeps_dict.is_null_or_undefined() { 
+                for creep_name_js in js_sys::Object::keys(&internal_creeps_dict).iter() {
+                    let creep_name = String::from(creep_name_js.dyn_ref::<JsString>().unwrap());
 
-                if !alive_creeps.contains(&creep_name) {
-                    info!("Internally cleaning up dead creep {}", creep_name);
-                    let _ = Reflect::delete_property(&internal_creeps_dict, &creep_name_js);
+                    if !alive_creeps.contains(&creep_name) {
+                        info!("Internally cleaning up dead creep {}", creep_name);
+                        let _ = Reflect::delete_property(&internal_creeps_dict, &creep_name_js);
+                    }
                 }
             }
         }

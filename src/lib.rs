@@ -69,7 +69,7 @@ fn scale_body(template: &Vec<Part>, min_parts: Option<usize>, energy: u32) -> Op
 }
 
 fn do_spawns(memory: &Memory) {
-    if game::creeps().keys().count() >= memory.source_distribution.max_creeps() { return; }
+    if game::creeps().keys().count() >= memory.source_assignments.max_creeps() { return; }
 
     for spawn in game::spawns().values() {
         let room = spawn.room().unwrap();
@@ -96,7 +96,7 @@ fn do_creeps(mut memory: Memory) -> Memory {
         
         match role {
             Role::Worker(state) => {
-                let new_state = do_harvester_creep(&creep, state.clone(), &mut memory.source_distribution);
+                let new_state = do_harvester_creep(&creep, state.clone(), &mut memory.source_assignments);
                 if let Some(new_state) = new_state {
                     *state = new_state;
                 } else {
