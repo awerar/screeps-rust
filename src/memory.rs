@@ -49,11 +49,6 @@ pub fn reset_source_assignments() {
     RESET_SOURCE_ASSIGNMENTS.replace(true);
 }
 
-#[wasm_bindgen]
-pub fn reset_tile_usage() {
-    RESET_TILE_USAGE.replace(true);
-}
-
 impl Memory {
     pub fn screeps_deserialize() -> Self {
         RESET_MEMORY.with_borrow_mut(|reset| {
@@ -68,15 +63,6 @@ impl Memory {
         let memory = screeps::raw_memory::get();
         let mut memory: Memory = serde_json::from_str(&String::from(memory)).expect("Memory should follow correct schema");
         memory._internal_creeps = None; // This is deserialized separately in JS
-
-        RESET_TILE_USAGE.with_borrow_mut(|reset| {
-            if *reset {
-                memory.movement_data.as_mut().unwrap().tile_usage.clear();
-                *reset = false;
-
-                info!("Reset road plan by command!");
-            }
-        });
 
         RESET_SOURCE_ASSIGNMENTS.with_borrow_mut(|reset| {
             if *reset {

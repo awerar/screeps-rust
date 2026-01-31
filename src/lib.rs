@@ -2,7 +2,7 @@ use log::*;
 use screeps::game;
 use wasm_bindgen::prelude::*;
 
-use crate::{creeps::do_creeps, memory::Memory, movement::{update_movement_tick_end, update_movement_tick_start, visualize_tile_usage}, spawn::do_spawns, tower::do_towers};
+use crate::{creeps::do_creeps, memory::Memory, movement::{update_movement_tick_end, update_movement_tick_start}, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -35,7 +35,6 @@ pub fn game_loop() {
     do_towers();
 
     update_movement_tick_end();
-    visualize_tile_usage();
 
     memory.handle_callbacks();
     memory.screeps_serialize();
