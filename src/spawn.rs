@@ -67,7 +67,6 @@ pub fn do_spawns(memory: &mut Memory) {
 
         let room = spawn.room().unwrap();
         let queue = room_queues.entry(room.name()).or_insert_with(|| get_missing_roles(memory, &room).into_iter());
-        info!("Spawn queue: {queue:?}");
 
         let Some(role) = queue.next() else { continue; };
 

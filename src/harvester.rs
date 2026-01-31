@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, sync::LazyLock};
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureTower, StructureType, find, game, local::ObjectId, look::{self, LookResult}, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureTower, StructureType, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 
@@ -32,7 +32,7 @@ pub struct SourceAssignments {
 }
 
 impl SourceAssignments {
-    fn get_assignmemnt(&mut self, creep: &Creep) -> Option<ObjectId<Source>> {
+    fn get_assignment(&mut self, creep: &Creep) -> Option<ObjectId<Source>> {
         if let assignment@Some(_) = self.assignments.get(&creep.name()) { return assignment.cloned() }
         
         let assignment = self.sources.iter()
@@ -197,22 +197,14 @@ fn is_empty(creep: &Creep) -> bool {
 }
 
 fn try_repair(creep: &Creep) -> Option<()> {
-    let room = creep.room()?;
-
-    let min_pos: (u8, u8) = (creep.pos() - (3, 3)).into();
-    let max_pos: (u8, u8) = (creep.pos() + (3, 3)).into();
-    let repair_structures: Vec<_> = room.look_for_at_area(look::STRUCTURES, min_pos.1, min_pos.0, max_pos.1, max_pos.0).into_iter()
-        .map(|look| {
-            let LookResult::Structure(structure) = look.look_result else { unreachable!() };
-            structure
-        })
+    let structures = creep.pos().find_in_range(find::MY_STRUCTURES, 3);
+    let repair_structures: Vec<_> = structures.iter()
         .filter(|structure| if let StructureType::Road = structure.structure_type() { true } else { false })
-        .filter(|structure| structure.hits() <= ((structure.hits_max() as f32) * REPAIR_THRESHOLD) as u32)
+        .flat_map(|structure| structure.as_repairable())
+        .filter(|repairable| repairable.hits() <= ((repairable.hits_max() as f32) * REPAIR_THRESHOLD) as u32)
         .collect();
 
-    for structure in repair_structures {
-        let structure = StructureObject::from(structure);
-        let Some(repairable) = structure.as_repairable() else { continue; };
+    for repairable in repair_structures {
         if creep.repair(repairable).is_err() {
             break;
         }
@@ -221,7 +213,7 @@ fn try_repair(creep: &Creep) -> Option<()> {
     Some(())
 }
 
-pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_distribution: &mut SourceAssignments) -> Option<HarvesterState> {
+pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_assignments: &mut SourceAssignments) -> Option<HarvesterState> {
     use HarvesterState::*;
     
     match &curr_state {
@@ -235,14 +227,14 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
             }
 
             if next_state.is_idle() && !is_full(creep) {
-                if let Some(assignment) = source_distribution.get_assignmemnt(creep) {
+                if let Some(assignment) = source_assignments.get_assignment(creep) {
                     next_state = Harvesting(assignment)
                 }
             }
 
             match next_state {
                 Idle => info!("{} has no assignment. Idling.", creep.name()),
-                _ => next_state = do_harvester_creep(creep, next_state, source_distribution)?
+                _ => next_state = do_harvester_creep(creep, next_state, source_assignments)?
             }
 
             Some(next_state)
@@ -255,7 +247,7 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
                 creep.harvest(&source).ok();
             }
 
-            if is_full(creep) { do_harvester_creep(creep, Idle, source_distribution) }
+            if is_full(creep) { do_harvester_creep(creep, Idle, source_assignments) }
             else { Some(curr_state) }
         },
         Distributing(target) => {
@@ -266,17 +258,17 @@ pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_dist
 
             if creep.pos().get_range_to(target_pos) <= target.range() {
                 if target.distribute(creep).is_none() {
-                    return do_harvester_creep(creep, Idle, source_distribution)
+                    return do_harvester_creep(creep, Idle, source_assignments)
                 }
             }
 
             if let DistributionTarget::ConstructionSite(site) = target {
                 if site.resolve().is_none() {
-                    return do_harvester_creep(creep, Idle, source_distribution)
+                    return do_harvester_creep(creep, Idle, source_assignments)
                 }
             }
 
-            if is_empty(creep) { do_harvester_creep(creep, Idle, source_distribution) }
+            if is_empty(creep) { do_harvester_creep(creep, Idle, source_assignments) }
             else { Some(curr_state) }
         },
     }

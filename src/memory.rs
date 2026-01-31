@@ -7,7 +7,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{creeps::Role, harvester::{SourceAssignments}, movement::{MOVEMENT_DATA, MovementData}, planning::RoadPlan};
+use crate::{creeps::Role, harvester::{SourceAssignments}, movement::{MOVEMENT_DATA, MovementData}};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -29,15 +29,12 @@ pub struct Memory {
     #[serde(default)]
     movement_data: MovementData,
 
-    #[serde(default)]
-    pub road_plan: RoadPlan,
-
     pub claimer_creep: Option<String>
 }
 
 thread_local! {
     static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
-    static RESET_PLANNING: RefCell<bool> = RefCell::new(false);
+    static RESET_TILE_USAGE: RefCell<bool> = RefCell::new(false);
     static RESET_SOURCE_ASSIGNMENTS: RefCell<bool> = RefCell::new(false);
 }
 
@@ -52,8 +49,8 @@ pub fn reset_source_assignments() {
 }
 
 #[wasm_bindgen]
-pub fn reset_planning() {
-    RESET_PLANNING.replace(true);
+pub fn reset_tile_usage() {
+    RESET_TILE_USAGE.replace(true);
 }
 
 pub fn deserialize_memory() -> Memory {
@@ -70,9 +67,9 @@ pub fn deserialize_memory() -> Memory {
     let mut memory: Memory = serde_json::from_str(&String::from(memory)).expect("Memory should follow correct schema");
     clean_memory(&mut memory);
 
-    RESET_PLANNING.with_borrow_mut(|reset| {
+    RESET_TILE_USAGE.with_borrow_mut(|reset| {
         if *reset {
-            memory.road_plan = RoadPlan::default();
+            memory.movement_data.tile_usage.clear();
             *reset = false;
 
             info!("Reset road plan by command!");

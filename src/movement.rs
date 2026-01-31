@@ -1,9 +1,17 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, sync::LazyLock};
 
 use js_sys::Math::random;
-use screeps::{Creep, Position, action_error_codes::CreepMoveToErrorCode, game, prelude::*};
+use screeps::{CircleStyle, Creep, Position, StructureType, action_error_codes::{CreepMoveToErrorCode, RoomPositionCreateConstructionSiteErrorCode}, game, prelude::*};
 use serde::{Deserialize, Serialize};
+use serde_json_any_key::*;
 use log::*;
+
+extern crate serde_json_path_to_error as serde_json;
+
+const HALF_TIME: f32 = 100.0;
+const USAGE_PER_HALF_TIME_THRESHOLD: f32 = 7.5;
+
+static TICK_DECAY: LazyLock<f32> = LazyLock::new(|| 0.5_f32.powf(1.0 / HALF_TIME));
 
 thread_local! {
     pub static MOVEMENT_DATA: RefCell<MovementData> = RefCell::default();
@@ -11,7 +19,10 @@ thread_local! {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementData {
-    pub creeps_data: HashMap<String, CreepMovementData>
+    #[serde(default)]
+    pub creeps_data: HashMap<String, CreepMovementData>,
+    #[serde(with = "any_key_map", default)]
+    pub tile_usage: HashMap<Position, TileUsage>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,6 +57,49 @@ pub fn smart_move_creep_to<T>(creep: &Creep, target: T) -> Result<(), CreepMoveT
             return Ok(()) 
         }
         creep.move_to(target)
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TileUsage {
+    usage: f32,
+    last_update_tick: u32,
+}
+
+impl Default for TileUsage {
+    fn default() -> Self {
+        Self { usage: 0.0, last_update_tick: game::time() }
+    }
+}
+
+impl TileUsage {
+    fn update(&mut self) -> f32 {
+        if self.last_update_tick == game::time() { return self.usage; }
+
+        self.usage *= TICK_DECAY.powi((game::time() - self.last_update_tick) as i32);
+        self.last_update_tick = game::time();
+        self.usage
+    }
+
+    pub fn add_usage(&mut self, amnt: f32) -> f32 {
+        self.update();
+        self.usage += amnt;
+        self.usage
+    }
+}
+
+pub fn visualize_tile_usage() {
+    MOVEMENT_DATA.with(|movement_data| {
+        for (pos, usage) in movement_data.borrow_mut().tile_usage.iter_mut() {
+            let usage = usage.update();
+
+            let visual = game::rooms().get(pos.room_name()).unwrap().visual();
+            visual.circle(
+                pos.x().u8().into(), 
+                pos.y().u8().into(), 
+                Some(CircleStyle::default().radius(0.5 * (usage / USAGE_PER_HALF_TIME_THRESHOLD).min(1.0)))
+            );
+        }
     })
 }
 
@@ -85,6 +139,24 @@ pub fn update_movement_tick_start() {
 pub fn update_movement_tick_end() {
     MOVEMENT_DATA.with(|movement_data| {
         let mut movement_data = movement_data.borrow_mut();
+
+        for (creep_name, creep) in game::creeps().entries() {
+            let creep_data = movement_data.creeps_data.entry(creep_name.clone()).or_default();
+
+            if let Some(last_pos) = creep_data.last_pos {
+                let did_move = creep.pos() != last_pos;
+                if did_move {
+                    let usage = movement_data.tile_usage.entry(creep.pos()).or_default().add_usage(1.0);
+                    if usage > USAGE_PER_HALF_TIME_THRESHOLD {
+                        match creep.pos().create_construction_site(StructureType::Road, None) {
+                            Ok(()) => info!("Creating road at {}", creep.pos()),
+                            Err(RoomPositionCreateConstructionSiteErrorCode::InvalidTarget) => (),
+                            Err(err) => warn!("Couldn't create road at {}: {}", creep.pos(), err),
+                        }
+                    }
+                }
+            }
+        }
 
         for (creep_name, creep) in game::creeps().entries() {
             let creep_data = movement_data.creeps_data.entry(creep_name.clone()).or_default();
