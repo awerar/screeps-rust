@@ -2,7 +2,7 @@ use log::*;
 use screeps::game;
 use wasm_bindgen::prelude::*;
 
-use crate::{creeps::do_creeps, memory::{deserialize_memory, serialize_memory}, movement::{update_movement_tick_end, update_movement_tick_start, visualize_tile_usage}, spawn::do_spawns, tower::do_towers};
+use crate::{creeps::do_creeps, memory::Memory, movement::{update_movement_tick_end, update_movement_tick_start, visualize_tile_usage}, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -14,6 +14,7 @@ mod movement;
 mod claimer;
 mod spawn;
 mod creeps;
+mod callbacks;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -25,7 +26,7 @@ pub fn game_loop() {
 
     info!("=== Starting tick {} ===", game::time());
 
-    let mut memory = deserialize_memory();
+    let mut memory = Memory::screeps_deserialize();
     update_movement_tick_start();
 
     do_spawns(&mut memory);
@@ -36,5 +37,6 @@ pub fn game_loop() {
     update_movement_tick_end();
     visualize_tile_usage();
 
-    serialize_memory(memory);
+    memory.handle_callbacks();
+    memory.screeps_serialize();
 }

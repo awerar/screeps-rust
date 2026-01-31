@@ -21,6 +21,7 @@ pub fn get_missing_roles(memory: &Memory, room: &Room) -> Vec<Role> {
             } else { false }
         }).count();
 
+        
     let missing_harvester_count = (memory.source_assignments.max_creeps() - harvester_count).max(0);
     result.extend((0..missing_harvester_count).map(|_| Role::Worker(HarvesterState::Idle)));
 

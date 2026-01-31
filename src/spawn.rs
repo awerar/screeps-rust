@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::{Deref, DerefMut}, sync::LazyLock};
 use log::*;
 use screeps::{Part, game, prelude::*};
 
-use crate::{creeps::{Role, get_missing_roles}, memory::Memory, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{Role, get_missing_roles}, memory::Memory, names::get_new_creep_name};
 
 #[derive(Clone)]
 pub struct BodyTemplate(Vec<Part>);
@@ -54,6 +54,14 @@ impl BodyTemplate {
     pub fn energy_required(&self) -> u32 {
         self.iter().map(|part| part.cost()).sum()
     }
+
+    pub fn time_to_live(&self) -> u32 {
+        if self.contains(&Part::Claim) { 600 } else { 1500 }
+    }
+
+    pub fn time_to_spawn(&self) -> u32 {
+        (self.len() * 3) as u32
+    }
 }
 
 pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Carry, Part::Move, Part::Work]));
@@ -95,7 +103,10 @@ pub fn do_spawns(memory: &mut Memory) {
                 memory.claimer_creep = Some(name.clone());
             }
 
-            memory.creeps.insert(name, role);
+            memory.creeps.insert(name.clone(), role);
+
+            let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
+            memory.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
         }
     }
 }
