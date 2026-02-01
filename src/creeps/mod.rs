@@ -11,9 +11,9 @@ pub mod harvester;
 pub mod bootstrap;
 
 pub trait CreepState<D> where Self : Sized + Default {
-    fn execute(self, data: &mut D, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
+    fn execute(self, data: &D, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
 
-    fn transition(&mut self, data: &mut D, creep: &Creep, memory: &mut SharedMemory) {
+    fn transition(&mut self, data: &D, creep: &Creep, memory: &mut SharedMemory) {
         let new_state = mem::take(self).execute(data, creep, memory);
         if let Some(new_state) = new_state {
             *self = new_state;
@@ -28,7 +28,7 @@ pub trait DatalessCreepState where Self : Sized + Default {
 }
 
 impl<T> CreepState<()> for T where T : DatalessCreepState {
-    fn execute(self, _: &mut (), creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+    fn execute(self, _: &(), creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         self.execute(creep, memory)
     }
 }
@@ -66,8 +66,8 @@ pub fn do_creeps(memory: &mut Memory) {
         let role = memory.creeps.entry(creep.name()).or_insert(CreepRole::Worker(HarvesterState::Idle));
         let memory = &mut memory.shared;
         match role {
-            CreepRole::Worker(state) => state.transition(&mut (), &creep, memory),
-            CreepRole::Claimer(state) => state.transition(&mut (), &creep, memory),
+            CreepRole::Worker(state) => state.transition(&(), &creep, memory),
+            CreepRole::Claimer(state) => state.transition(&(), &creep, memory),
             CreepRole::BootstrapCarrier(state, data) => state.transition(data, &creep, memory),
         }
     }

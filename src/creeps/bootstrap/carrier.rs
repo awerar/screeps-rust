@@ -25,7 +25,7 @@ impl Default for BootstrapCarrierState {
 }
 
 impl CreepState<RoomName> for BootstrapCarrierState {
-    fn execute(self, home: &mut RoomName, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+    fn execute(self, home: &RoomName, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         todo!()
     }
 }
