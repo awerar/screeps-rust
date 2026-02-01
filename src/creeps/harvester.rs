@@ -7,7 +7,7 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::SharedMemory};
+use crate::{creeps::PureCreepState, memory::SharedMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -219,7 +219,7 @@ fn try_repair(creep: &Creep) -> Option<()> {
     Some(())
 }
 
-impl CreepState for HarvesterState {
+impl PureCreepState for HarvesterState {
     fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         use HarvesterState::*;
     
