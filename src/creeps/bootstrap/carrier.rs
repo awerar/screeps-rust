@@ -7,18 +7,12 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{CreepData, transition}, memory::SharedMemory};
+use crate::{creeps::CreepState, memory::SharedMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct BootstrapCarrier {
-    home: RoomName,
-    state: BootstrapCarrierState
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum BootstrapCarrierState {
+pub enum BootstrapCarrierState {
     Idle,
     Refilling,
     Bootstrapping(Position)
@@ -30,16 +24,8 @@ impl Default for BootstrapCarrierState {
     }
 }
 
-impl BootstrapCarrierState {
-    fn execute(self, creep: &Creep, memory: &mut SharedMemory, home: &RoomName) -> Option<Self> {
+impl CreepState<RoomName> for BootstrapCarrierState {
+    fn execute(self, home: &mut RoomName, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         todo!()
-    }
-}
-
-impl CreepData for BootstrapCarrier {
-    fn perform(&mut self, creep: &Creep, memory: &mut SharedMemory) {
-        transition(&mut self.state, creep, memory, 
-            |state, creep, memory| state.execute(creep, memory, &self.home)
-        );
     }
 }

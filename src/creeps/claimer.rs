@@ -2,7 +2,7 @@ use screeps::{Creep, Flag, game, prelude::*};
 use log::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::PureCreepState, memory::SharedMemory};
+use crate::{creeps::CreepState, memory::SharedMemory};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClaimerState {
@@ -30,8 +30,8 @@ pub fn get_claim_request() -> Option<Flag> {
     Some(flag)
 }
 
-impl PureCreepState for ClaimerState {
-    fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+impl CreepState<()> for ClaimerState {
+    fn execute(self, _: &mut (), creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         match &self {
             ClaimerState::Idle => {
                 if let Some(flag) = get_claim_request() {

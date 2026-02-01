@@ -82,7 +82,7 @@ pub fn do_spawns(memory: &mut Memory) {
         let body = match role {
             CreepRole::Worker(_) => HARVESTER_TEMPLATE.scaled(room.energy_capacity_available(), None),
             CreepRole::Claimer(_) => Some(CLAIMER_TEMPLATE.clone()),
-            CreepRole::BootstrapCarrier(_) => Some(BOOTSTRAP_CARRIER_TEMPLATE.clone())
+            CreepRole::BootstrapCarrier(_, _) => Some(BOOTSTRAP_CARRIER_TEMPLATE.clone())
         };
 
         let Some(body) = body else { continue; };
@@ -91,7 +91,7 @@ pub fn do_spawns(memory: &mut Memory) {
             let prefix = match role {
                 CreepRole::Worker(_) => "Worker",
                 CreepRole::Claimer(_) => "Claimer",
-                CreepRole::BootstrapCarrier(_) => "BootstrapCarrier"
+                CreepRole::BootstrapCarrier(_, _) => "BootstrapCarrier"
             };
 
             let name = format!("{prefix} {}", get_new_creep_name());
