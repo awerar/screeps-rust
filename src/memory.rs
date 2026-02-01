@@ -2,12 +2,12 @@ use std::{cell::RefCell, collections::{HashMap, HashSet}};
 
 use js_sys::{JsString, Reflect};
 use log::*;
-use screeps::game;
+use screeps::{Position, RoomName, game};
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, creeps::CreepRole, creeps::harvester::SourceAssignments, movement::Movement};
+use crate::{callbacks::Callbacks, creeps::{CreepRole, harvester::SourceAssignments}, movement::Movement, room::RoomData};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -19,6 +19,9 @@ pub struct Memory {
     #[serde(default, rename = "creeps_data")]
     pub creeps: HashMap<String, CreepRole>,
 
+    #[serde(default, rename = "rooms_data")]
+    pub rooms: HashMap<RoomName, RoomData>,
+
     #[serde(default)]
     pub shared: SharedMemory
 }
@@ -28,8 +31,10 @@ pub struct SharedMemory {
     pub last_alive_creeps: HashSet<String>,
     pub source_assignments: SourceAssignments,
     pub callbacks: Callbacks,
-    pub claimer_creep: Option<String>,
     pub movement: Movement,
+
+    #[serde(default)]
+    pub claim_requests: HashSet<Position>
 }
 
 thread_local! {
@@ -94,12 +99,6 @@ impl Memory {
         self.shared.source_assignments.remove(name);
         self.shared.last_alive_creeps.remove(name);
         self.shared.movement.creeps_data.remove(name);
-        
-        if let Some(claimer_creep) = &self.shared.claimer_creep {
-            if claimer_creep == name {
-                self.shared.claimer_creep = None;
-            }
-        }
     }
 
     pub fn periodic_cleanup(&mut self) {

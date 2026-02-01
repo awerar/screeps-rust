@@ -2,8 +2,10 @@ use std::{collections::{HashMap, HashSet, VecDeque}, sync::LazyLock};
 
 use itertools::Itertools;
 use log::*;
-use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomName, StructureObject, StructureProperties, StructureType, Terrain, find, game, look, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomName, StructureObject, StructureProperties, StructureType, Terrain, find, game::{self, rooms}, look, pathfinder::SingleRoomCostResult};
 use wasm_bindgen::prelude::wasm_bindgen;
+
+use crate::room::RoomData;
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -41,7 +43,7 @@ pub fn delete_roads_in(room_name: String) {
     }
 }
 
-#[wasm_bindgen]
+/*#[wasm_bindgen]
 pub fn plan_center_in_wasm(room_name: String) {
     let Ok(room_name) = RoomName::new(&room_name) else {
         error!("Invalid room name {room_name}");
@@ -54,11 +56,11 @@ pub fn plan_center_in_wasm(room_name: String) {
     };
 
     plan_center_in(&room);
-}
+}*/
 
-pub fn plan_center_in(room: &Room) {
-    let spawn = room.find(find::MY_SPAWNS, None).into_iter().next().unwrap();
-    let controller_level = room.controller().unwrap().level() as u32;
+pub fn plan_center_in(room_data: &RoomData) -> Option<()> {
+    let room = room_data.room()?;
+    let controller_level = room.controller()?.level() as u32;
 
     let already_built: Vec<_> = room.find(find::MY_STRUCTURES, None).into_iter()
         .map(|structure| structure.structure_type())
@@ -73,7 +75,7 @@ pub fn plan_center_in(room: &Room) {
         *already_planned_count.entry(structure_type).or_default() += 1;
     }
 
-    let mut plan_queue: VecDeque<_> = CENTER_STRUCTURE_TYPES.iter()
+    let plan_queue: Vec<_> = CENTER_STRUCTURE_TYPES.iter()
         .flat_map(|structure_type| {
             let total = structure_type.controller_structures(controller_level);
             let already_planned = already_planned_count.get(structure_type).unwrap_or(&0);
@@ -81,11 +83,16 @@ pub fn plan_center_in(room: &Room) {
 
             (0..left).map(|_| structure_type.clone())
         }).collect();
-    
-    let origin = spawn.pos();
+
+    plan_center_structures_in(room_data, plan_queue)
+}
+
+pub fn plan_center_structures_in(room_data: &RoomData, plan_queue: Vec<StructureType>) -> Option<()> {
+    let mut plan_queue = VecDeque::from(plan_queue);
+
     'plan_loop: for radius in 1_u32..5 {
         let mut direction = Direction::Left;
-        let mut curr_pos = origin + ((radius % 2) as i32, radius as i32);
+        let mut curr_pos = room_data.center + ((radius % 2) as i32, radius as i32);
         let mut positions = HashSet::new();
 
         while !positions.contains(&curr_pos) {
@@ -93,19 +100,17 @@ pub fn plan_center_in(room: &Room) {
                 positions.insert(curr_pos);
             }
             
-            if origin.get_range_to(curr_pos + direction) > radius {
+            if room_data.center.get_range_to(curr_pos + direction) > radius {
                 direction = direction.multi_rot(2);
             }
 
             curr_pos = curr_pos + direction;
         }
 
-        debug!("{positions:?}");
-
         'pos_loop: for pos in positions {
             let Some(structure) = plan_queue.front() else { break 'plan_loop };
 
-            let sites = pos.look_for(look::CONSTRUCTION_SITES).unwrap();
+            let sites = pos.look_for(look::CONSTRUCTION_SITES).ok()?;
             for site in sites {
                 if site.structure_type() == StructureType::Road {
                     site.remove().ok();
@@ -114,7 +119,7 @@ pub fn plan_center_in(room: &Room) {
                 }
             }
 
-            let structures = pos.look_for(look::STRUCTURES).unwrap();
+            let structures = pos.look_for(look::STRUCTURES).ok()?;
             for structure in structures {
                 if structure.structure_type() == StructureType::Road {
                     structure.destroy().ok();
@@ -134,6 +139,9 @@ pub fn plan_center_in(room: &Room) {
 
     if plan_queue.len() > 0 {
         error!("Unable to plan all structures within given space");
+        None
+    } else {
+        Some(())
     }
 }
 

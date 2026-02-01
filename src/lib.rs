@@ -1,3 +1,5 @@
+#![feature(map_try_insert)]
+
 use log::*;
 use screeps::game;
 use wasm_bindgen::prelude::*;
@@ -13,6 +15,7 @@ mod movement;
 mod spawn;
 mod creeps;
 mod callbacks;
+mod room;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

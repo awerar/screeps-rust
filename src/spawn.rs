@@ -75,7 +75,7 @@ pub fn do_spawns(memory: &mut Memory) {
         if spawn.spawning().is_some() { continue; }
 
         let room = spawn.room().unwrap();
-        let queue = room_queues.entry(room.name()).or_insert_with(|| get_missing_roles(memory, &room).into_iter());
+        let queue = room_queues.entry(room.name()).or_insert_with(|| get_missing_roles(memory).into_iter());
 
         let Some(role) = queue.next() else { continue; };
 
@@ -88,22 +88,12 @@ pub fn do_spawns(memory: &mut Memory) {
         let Some(body) = body else { continue; };
 
         if room.energy_available() >= body.energy_required() {
-            let prefix = match role {
-                CreepRole::Worker(_) => "Worker",
-                CreepRole::Claimer(_) => "Claimer",
-                CreepRole::BootstrapCarrier(_, _) => "BootstrapCarrier"
-            };
-
-            let name = format!("{prefix} {}", get_new_creep_name());
+            let name = format!("{} {}", role.prefix(), get_new_creep_name());
             info!("Spawning new creep: {name}");
 
             if let Err(err) = spawn.spawn_creep(&body, &name) {
                 warn!("Couldn't spawn creep: {}", err);
                 continue;
-            }
-
-            if matches!(role, CreepRole::Claimer(_)) {
-                memory.shared.claimer_creep = Some(name.clone());
             }
 
             memory.creeps.insert(name.clone(), role);
