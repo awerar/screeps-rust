@@ -7,7 +7,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, creeps::Role, harvester::SourceAssignments, movement::{MOVEMENT_DATA, MovementData}};
+use crate::{callbacks::Callbacks, creeps::CreepRole, creeps::harvester::SourceAssignments, movement::{MOVEMENT_DATA, MovementData}};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -17,19 +17,20 @@ pub struct Memory {
     _internal_creeps: Option<serde_json::Value>,
 
     #[serde(default, rename = "creeps_data")]
-    pub creeps: HashMap<String, Role>,
+    pub creeps: HashMap<String, CreepRole>,
+
     #[serde(default)]
+    pub movement_data: Option<MovementData>,
+
+    #[serde(default)]
+    pub shared: SharedMemory
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct SharedMemory {
     pub last_alive_creeps: HashSet<String>,
-
-    #[serde(default)]
     pub source_assignments: SourceAssignments,
-
-    #[serde(default)]
-    movement_data: Option<MovementData>,
-
-    #[serde(default)]
     pub callbacks: Callbacks,
-
     pub claimer_creep: Option<String>
 }
 
@@ -66,7 +67,7 @@ impl Memory {
 
         RESET_SOURCE_ASSIGNMENTS.with_borrow_mut(|reset| {
             if *reset {
-                memory.source_assignments = SourceAssignments::default();
+                memory.shared.source_assignments = SourceAssignments::default();
                 *reset = false;
 
                 info!("Reset source assignments by command");
@@ -98,8 +99,8 @@ impl Memory {
         info!("Cleaning up dead creep {}", name);
 
         self.creeps.remove(name);
-        self.source_assignments.remove(name);
-        self.last_alive_creeps.remove(name);
+        self.shared.source_assignments.remove(name);
+        self.shared.last_alive_creeps.remove(name);
 
         if let Some(movement_data) = &mut self.movement_data {
             movement_data.creeps_data.remove(name);
@@ -107,16 +108,16 @@ impl Memory {
             MOVEMENT_DATA.with(|movement_data| movement_data.borrow_mut().creeps_data.remove(name));
         }
         
-        if let Some(claimer_creep) = &self.claimer_creep {
+        if let Some(claimer_creep) = &self.shared.claimer_creep {
             if claimer_creep == name {
-                self.claimer_creep = None;
+                self.shared.claimer_creep = None;
             }
         }
     }
 
     pub fn periodic_cleanup(&mut self) {
         let alive_creeps: HashSet<_> = game::creeps().keys().collect();
-        let dead_creeps: HashSet<_> = self.last_alive_creeps.difference(&alive_creeps).cloned().collect();
+        let dead_creeps: HashSet<_> = self.shared.last_alive_creeps.difference(&alive_creeps).cloned().collect();
 
         for dead_creep in &dead_creeps {
             self.cleanup_creep(dead_creep);
@@ -132,6 +133,6 @@ impl Memory {
             }
         }
 
-        self.last_alive_creeps = alive_creeps;
+        self.shared.last_alive_creeps = alive_creeps;
     }
 }

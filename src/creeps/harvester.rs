@@ -7,7 +7,7 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::movement::smart_move_creep_to;
+use crate::{creeps::CreepState, memory::SharedMemory, movement::smart_move_creep_to};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -219,63 +219,65 @@ fn try_repair(creep: &Creep) -> Option<()> {
     Some(())
 }
 
-pub fn do_harvester_creep(creep: &Creep, curr_state: HarvesterState, source_assignments: &mut SourceAssignments) -> Option<HarvesterState> {
-    use HarvesterState::*;
+impl CreepState for HarvesterState {
+    fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+        use HarvesterState::*;
     
-    match &curr_state {
-        Idle => {
-            let mut next_state = Idle;
+        match &self {
+            Idle => {
+                let mut next_state = Idle;
 
-            if !is_empty(creep) {
-                if let Some(target) = get_distribution_target(creep) {
-                    next_state = Distributing(target)
+                if !is_empty(creep) {
+                    if let Some(target) = get_distribution_target(creep) {
+                        next_state = Distributing(target)
+                    }
                 }
-            }
 
-            if next_state.is_idle() && !is_full(creep) {
-                if let Some(assignment) = source_assignments.get_assignment(creep) {
-                    next_state = Harvesting(assignment)
+                if next_state.is_idle() && !is_full(creep) {
+                    if let Some(assignment) = memory.source_assignments.get_assignment(creep) {
+                        next_state = Harvesting(assignment)
+                    }
                 }
-            }
 
-            match next_state {
-                Idle => info!("{} has no assignment. Idling.", creep.name()),
-                _ => next_state = do_harvester_creep(creep, next_state, source_assignments)?
-            }
-
-            Some(next_state)
-        },
-        Harvesting(source) => {
-            let source = source.resolve()?;
-
-            smart_move_creep_to(creep, &source).ok();
-            if creep.pos().is_near_to(source.pos()) {
-                creep.harvest(&source).ok();
-            }
-
-            if is_full(creep) { do_harvester_creep(creep, Idle, source_assignments) }
-            else { Some(curr_state) }
-        },
-        Distributing(target) => {
-            try_repair(creep);
-
-            let target_pos = target.pos()?;
-            smart_move_creep_to(creep, target_pos).ok();
-
-            if creep.pos().get_range_to(target_pos) <= target.range() {
-                if target.distribute(creep).is_none() {
-                    return do_harvester_creep(creep, Idle, source_assignments)
+                match next_state {
+                    Idle => info!("{} has no assignment. Idling.", creep.name()),
+                    _ => next_state = next_state.execute(creep, memory)?
                 }
-            }
 
-            if let DistributionTarget::ConstructionSite(site) = target {
-                if site.resolve().is_none() {
-                    return do_harvester_creep(creep, Idle, source_assignments)
+                Some(next_state)
+            },
+            Harvesting(source) => {
+                let source = source.resolve()?;
+
+                smart_move_creep_to(creep, &source).ok();
+                if creep.pos().is_near_to(source.pos()) {
+                    creep.harvest(&source).ok();
                 }
-            }
 
-            if is_empty(creep) { do_harvester_creep(creep, Idle, source_assignments) }
-            else { Some(curr_state) }
-        },
+                if is_full(creep) { Idle.execute(creep, memory) }
+                else { Some(self) }
+            },
+            Distributing(target) => {
+                try_repair(creep);
+
+                let target_pos = target.pos()?;
+                smart_move_creep_to(creep, target_pos).ok();
+
+                if creep.pos().get_range_to(target_pos) <= target.range() {
+                    if target.distribute(creep).is_none() {
+                        return Idle.execute(creep, memory)
+                    }
+                }
+
+                if let DistributionTarget::ConstructionSite(site) = target {
+                    if site.resolve().is_none() {
+                        return Idle.execute(creep, memory)
+                    }
+                }
+
+                if is_empty(creep) { Idle.execute(creep, memory) }
+                else { Some(self) }
+            },
+        }
     }
 }

@@ -7,11 +7,9 @@ use crate::{creeps::do_creeps, memory::Memory, movement::{update_movement_tick_e
 mod logging;
 mod names;
 mod memory;
-mod harvester;
 mod planning;
 mod tower;
 mod movement;
-mod claimer;
 mod spawn;
 mod creeps;
 mod callbacks;

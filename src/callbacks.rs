@@ -69,14 +69,14 @@ impl Callbacks {
 impl Memory {
     pub fn handle_callbacks(&mut self) {
         loop {
-            let Some(callback) = self.callbacks.scheduled.peek() else { break };
+            let Some(callback) = self.shared.callbacks.scheduled.peek() else { break };
             if game::time() < callback.0.0 { break; }
-            let callback = self.callbacks.scheduled.pop().unwrap();
+            let callback = self.shared.callbacks.scheduled.pop().unwrap();
             callback.1.execute(self);
         }
 
         for (callback, delay) in PERIODIC_CALLBACKS.iter() {
-            let last_time = self.callbacks.last_periodic.entry(callback.clone())
+            let last_time = self.shared.callbacks.last_periodic.entry(callback.clone())
                 .or_insert(0);
 
             if game::time() < *last_time + *delay { continue; }

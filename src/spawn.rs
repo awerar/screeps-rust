@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::{Deref, DerefMut}, sync::LazyLock};
 use log::*;
 use screeps::{Part, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::{Role, get_missing_roles}, memory::Memory, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{CreepRole, get_missing_roles}, memory::Memory, names::get_new_creep_name};
 
 #[derive(Clone)]
 pub struct BodyTemplate(Vec<Part>);
@@ -79,16 +79,16 @@ pub fn do_spawns(memory: &mut Memory) {
         let Some(role) = queue.next() else { continue; };
 
         let body = match role {
-            Role::Worker(_) => HARVESTER_TEMPLATE.scaled(room.energy_capacity_available(), None),
-            Role::Claimer(_) => Some(CLAIMER_TEMPLATE.clone()),
+            CreepRole::Worker(_) => HARVESTER_TEMPLATE.scaled(room.energy_capacity_available(), None),
+            CreepRole::Claimer(_) => Some(CLAIMER_TEMPLATE.clone()),
         };
 
         let Some(body) = body else { continue; };
 
         if room.energy_available() >= body.energy_required() {
             let prefix = match role {
-                Role::Worker(_) => "Worker",
-                Role::Claimer(_) => "Claimer",
+                CreepRole::Worker(_) => "Worker",
+                CreepRole::Claimer(_) => "Claimer",
             };
 
             let name = format!("{prefix} {}", get_new_creep_name());
@@ -99,14 +99,14 @@ pub fn do_spawns(memory: &mut Memory) {
                 continue;
             }
 
-            if matches!(role, Role::Claimer(_)) {
-                memory.claimer_creep = Some(name.clone());
+            if matches!(role, CreepRole::Claimer(_)) {
+                memory.shared.claimer_creep = Some(name.clone());
             }
 
             memory.creeps.insert(name.clone(), role);
 
             let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
-            memory.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
+            memory.shared.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
         }
     }
 }
