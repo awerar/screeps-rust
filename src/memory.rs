@@ -7,7 +7,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, creeps::CreepRole, creeps::harvester::SourceAssignments, movement::{MOVEMENT_DATA, MovementData}};
+use crate::{callbacks::Callbacks, creeps::CreepRole, creeps::harvester::SourceAssignments, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -20,9 +20,6 @@ pub struct Memory {
     pub creeps: HashMap<String, CreepRole>,
 
     #[serde(default)]
-    pub movement_data: Option<MovementData>,
-
-    #[serde(default)]
     pub shared: SharedMemory
 }
 
@@ -31,7 +28,8 @@ pub struct SharedMemory {
     pub last_alive_creeps: HashSet<String>,
     pub source_assignments: SourceAssignments,
     pub callbacks: Callbacks,
-    pub claimer_creep: Option<String>
+    pub claimer_creep: Option<String>,
+    pub movement: Movement,
 }
 
 thread_local! {
@@ -74,11 +72,6 @@ impl Memory {
             }
         });
 
-        if let Some(movement_data) = &mut memory.movement_data {
-            MOVEMENT_DATA.replace(std::mem::take(movement_data));
-            memory.movement_data = None;
-        }
-
         memory
     }
 
@@ -88,7 +81,6 @@ impl Memory {
         let new_internal_creeps: Option<serde_json::Value> = new_internal_creeps.map(|x| serde_wasm_bindgen::from_value(x).unwrap());
         self._internal_creeps = new_internal_creeps;
 
-        self.movement_data = Some(MOVEMENT_DATA.take());
         self.periodic_cleanup();
 
         let memory = serde_json::to_string(&self).unwrap();
@@ -101,12 +93,7 @@ impl Memory {
         self.creeps.remove(name);
         self.shared.source_assignments.remove(name);
         self.shared.last_alive_creeps.remove(name);
-
-        if let Some(movement_data) = &mut self.movement_data {
-            movement_data.creeps_data.remove(name);
-        } else {
-            MOVEMENT_DATA.with(|movement_data| movement_data.borrow_mut().creeps_data.remove(name));
-        }
+        self.shared.movement.creeps_data.remove(name);
         
         if let Some(claimer_creep) = &self.shared.claimer_creep {
             if claimer_creep == name {

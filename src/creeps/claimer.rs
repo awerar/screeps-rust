@@ -2,7 +2,7 @@ use screeps::{Creep, Flag, game, prelude::*};
 use log::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::SharedMemory, movement::smart_move_creep_to};
+use crate::{creeps::CreepState, memory::SharedMemory};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClaimerState {
@@ -31,7 +31,7 @@ pub fn get_claim_request() -> Option<Flag> {
 }
 
 impl CreepState for ClaimerState {
-    fn execute(self, creep: &Creep, _: &mut SharedMemory) -> Option<Self> {
+    fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         match &self {
             ClaimerState::Idle => {
                 if let Some(flag) = get_claim_request() {
@@ -45,7 +45,7 @@ impl CreepState for ClaimerState {
                 let controller = flag.room().and_then(|room| room.controller());
 
                 if let Some(controller) = controller {
-                    smart_move_creep_to(creep, &controller).ok();
+                    memory.movement.smart_move_creep_to(creep, &controller).ok();
                     if creep.pos().is_near_to(controller.pos()) {
                         if creep.claim_controller(&controller).is_ok() {
                             info!("Sucessfully claimed controller!");
@@ -54,7 +54,7 @@ impl CreepState for ClaimerState {
                         }
                     }
                 } else {
-                    smart_move_creep_to(creep, &flag).ok();
+                    memory.movement.smart_move_creep_to(creep, &flag).ok();
                 }
 
                 Some(self)

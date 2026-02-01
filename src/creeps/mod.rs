@@ -67,12 +67,7 @@ pub fn get_missing_roles(memory: &Memory, room: &Room) -> Vec<CreepRole> {
 
 pub fn do_creeps(memory: &mut Memory) {
     for creep in game::creeps().values() {
-        let role = memory.creeps.get_mut(&creep.name());
-        match role {
-            None => {
-                error!("Creep {} has no role", creep.name())
-            },
-            Some(role) => role.perform(&creep, &mut memory.shared),
-        }
+        let role = memory.creeps.entry(creep.name()).or_insert(CreepRole::Worker(HarvesterState::Idle));
+        role.perform(&creep, &mut memory.shared);
     }
 }

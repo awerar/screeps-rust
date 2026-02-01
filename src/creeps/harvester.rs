@@ -7,7 +7,7 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::SharedMemory, movement::smart_move_creep_to};
+use crate::{creeps::CreepState, memory::SharedMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -249,7 +249,7 @@ impl CreepState for HarvesterState {
             Harvesting(source) => {
                 let source = source.resolve()?;
 
-                smart_move_creep_to(creep, &source).ok();
+                memory.movement.smart_move_creep_to(creep, &source).ok();
                 if creep.pos().is_near_to(source.pos()) {
                     creep.harvest(&source).ok();
                 }
@@ -261,7 +261,7 @@ impl CreepState for HarvesterState {
                 try_repair(creep);
 
                 let target_pos = target.pos()?;
-                smart_move_creep_to(creep, target_pos).ok();
+                memory.movement.smart_move_creep_to(creep, target_pos).ok();
 
                 if creep.pos().get_range_to(target_pos) <= target.range() {
                     if target.distribute(creep).is_none() {

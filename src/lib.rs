@@ -2,7 +2,7 @@ use log::*;
 use screeps::game;
 use wasm_bindgen::prelude::*;
 
-use crate::{creeps::do_creeps, memory::Memory, movement::{update_movement_tick_end, update_movement_tick_start}, spawn::do_spawns, tower::do_towers};
+use crate::{creeps::do_creeps, memory::Memory, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -25,14 +25,14 @@ pub fn game_loop() {
     info!("=== Starting tick {} ===", game::time());
 
     let mut memory = Memory::screeps_deserialize();
-    update_movement_tick_start();
+    memory.shared.movement.update_tick_start();
 
     do_spawns(&mut memory);
     do_creeps(&mut memory);
 
     do_towers();
 
-    update_movement_tick_end();
+    memory.shared.movement.update_tick_end();
 
     memory.handle_callbacks();
     memory.screeps_serialize();

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::collections::HashMap;
 
 use js_sys::Math::random;
 use screeps::{Creep, Position, action_error_codes::CreepMoveToErrorCode, game, prelude::*};
@@ -7,12 +7,8 @@ use log::*;
 
 extern crate serde_json_path_to_error as serde_json;
 
-thread_local! {
-    pub static MOVEMENT_DATA: RefCell<MovementData> = RefCell::default();
-}
-
 #[derive(Serialize, Deserialize, Default)]
-pub struct MovementData {
+pub struct Movement {
     #[serde(default)]
     pub creeps_data: HashMap<String, CreepMovementData>,
 }
@@ -36,28 +32,22 @@ enum MoveState {
     Sleeping(u32)
 }
 
-pub fn smart_move_creep_to<T>(creep: &Creep, target: T) -> Result<(), CreepMoveToErrorCode>
-    where 
-        T: HasPosition
-{
-    MOVEMENT_DATA.with(|movement_data| {
-        let mut movement_data = movement_data.borrow_mut();
-        let creep_data = movement_data.creeps_data.entry(creep.name()).or_default();
+impl Movement {
+    pub fn smart_move_creep_to<T>(&mut self, creep: &Creep, target: T) -> Result<(), CreepMoveToErrorCode>
+        where T: HasPosition
+    {
+        let creep_data = self.creeps_data.entry(creep.name()).or_default();
 
         if let MoveState::Sleeping(_) = creep_data.move_state {
             info!("{} is sleeping... ZZZ", creep.name());
             return Ok(()) 
         }
         creep.move_to(target)
-    })
-}
+    }
 
-pub fn update_movement_tick_start() {
-    MOVEMENT_DATA.with(|movement_data| {
-        let mut movement_data = movement_data.borrow_mut();
-
+    pub fn update_tick_start(&mut self) {
         for (creep_name, creep) in game::creeps().entries() {
-            let creep_data = movement_data.creeps_data.entry(creep_name.clone()).or_default();
+            let creep_data = self.creeps_data.entry(creep_name.clone()).or_default();
             
             let new_state = match creep_data.move_state {
                 MoveState::Sleeping(awake_time) => {
@@ -82,18 +72,14 @@ pub fn update_movement_tick_start() {
 
             if let Some(new_state) = new_state { creep_data.move_state = new_state }
         }
-    })
-}
+    }
 
-pub fn update_movement_tick_end() {
-    MOVEMENT_DATA.with(|movement_data| {
-        let mut movement_data = movement_data.borrow_mut();
-
+    pub fn update_tick_end(&mut self) {
         for (creep_name, creep) in game::creeps().entries() {
-            let creep_data = movement_data.creeps_data.entry(creep_name.clone()).or_default();
+            let creep_data = self.creeps_data.entry(creep_name.clone()).or_default();
 
             creep_data.snd_last_pos = creep_data.last_pos;
             creep_data.last_pos = Some(creep.pos());
         }
-    })
+    }
 }
