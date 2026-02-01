@@ -23,6 +23,16 @@ pub trait CreepState<D> where Self : Sized + Default {
     }
 }
 
+pub trait DatalessCreepState where Self : Sized + Default {
+    fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
+}
+
+impl<T> CreepState<()> for T where T : DatalessCreepState {
+    fn execute(self, _: &mut (), creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+        self.execute(creep, memory)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CreepRole {
     Worker(HarvesterState), Claimer(ClaimerState), BootstrapCarrier(BootstrapCarrierState, RoomName)

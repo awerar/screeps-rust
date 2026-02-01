@@ -7,7 +7,7 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::SharedMemory};
+use crate::{creeps::DatalessCreepState, memory::SharedMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -219,8 +219,8 @@ fn try_repair(creep: &Creep) -> Option<()> {
     Some(())
 }
 
-impl CreepState<()> for HarvesterState {
-    fn execute(self, data: &mut (), creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+impl DatalessCreepState for HarvesterState {
+    fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
         use HarvesterState::*;
     
         match &self {
@@ -241,7 +241,7 @@ impl CreepState<()> for HarvesterState {
 
                 match next_state {
                     Idle => info!("{} has no assignment. Idling.", creep.name()),
-                    _ => next_state = next_state.execute(data, creep, memory)?
+                    _ => next_state = next_state.execute(creep, memory)?
                 }
 
                 Some(next_state)
@@ -254,7 +254,7 @@ impl CreepState<()> for HarvesterState {
                     creep.harvest(&source).ok();
                 }
 
-                if is_full(creep) { Idle.execute(data, creep, memory) }
+                if is_full(creep) { Idle.execute(creep, memory) }
                 else { Some(self) }
             },
             Distributing(target) => {
@@ -265,17 +265,17 @@ impl CreepState<()> for HarvesterState {
 
                 if creep.pos().get_range_to(target_pos) <= target.range() {
                     if target.distribute(creep).is_none() {
-                        return Idle.execute(data, creep, memory)
+                        return Idle.execute(creep, memory)
                     }
                 }
 
                 if let DistributionTarget::ConstructionSite(site) = target {
                     if site.resolve().is_none() {
-                        return Idle.execute(data, creep, memory)
+                        return Idle.execute(creep, memory)
                     }
                 }
 
-                if is_empty(creep) { Idle.execute(data, creep, memory) }
+                if is_empty(creep) { Idle.execute(creep, memory) }
                 else { Some(self) }
             },
         }
