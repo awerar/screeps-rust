@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, sync::LazyLock};
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureTower, StructureType, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTower, StructureType, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +13,7 @@ extern crate serde_json_path_to_error as serde_json;
 
 static BUILDING_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
     use StructureType::*;
-    let priority = vec![Extension, Road];
+    let priority = vec![Extension, Tower, Road, Storage];
     priority.into_iter().rev().enumerate().map(|(a, b)| (b, a as i32)).collect()
 });
 
@@ -76,7 +76,7 @@ struct SourceData {
 
 impl Default for SourceData {
     fn default() -> Self {
-        Self { capacity: 4, assigned: Default::default() }
+        Self { capacity: 3, assigned: Default::default() }
     }
 }
 
@@ -108,7 +108,8 @@ pub enum DistributionTarget {
     Spawn(ObjectId<StructureSpawn>),
     Extension(ObjectId<StructureExtension>),
     Tower(ObjectId<StructureTower>),
-    ConstructionSite(ObjectId<ConstructionSite>)
+    Storage(ObjectId<StructureStorage>),
+    ConstructionSite(ObjectId<ConstructionSite>),
 }
 
 impl DistributionTarget {
@@ -118,7 +119,8 @@ impl DistributionTarget {
             DistributionTarget::Spawn(object_id) => object_id.resolve().map(|x| x.pos()),
             DistributionTarget::Extension(object_id) => object_id.resolve().map(|x| x.pos()),
             DistributionTarget::ConstructionSite(object_id) => object_id.resolve().map(|x| x.pos()),
-            DistributionTarget::Tower(object_id) => object_id.resolve().map(|x| x.pos())
+            DistributionTarget::Tower(object_id) => object_id.resolve().map(|x| x.pos()),
+            DistributionTarget::Storage(object_id) => object_id.resolve().map(|x| x.pos()),
         }
     }
 
@@ -132,6 +134,8 @@ impl DistributionTarget {
                 creep.transfer(&extension.resolve()?, ResourceType::Energy, None).ok(),
             DistributionTarget::Tower(tower) => 
                 creep.transfer(&tower.resolve()?, ResourceType::Energy, None).ok(),
+            DistributionTarget::Storage(storage) => 
+                creep.transfer(&storage.resolve()?, ResourceType::Energy, None).ok(),
             DistributionTarget::ConstructionSite(site) => 
             creep.build(&site.resolve()?).ok(),
         }
@@ -143,6 +147,7 @@ impl DistributionTarget {
             DistributionTarget::Controller(_) => 3,
             DistributionTarget::Spawn(_) |
             DistributionTarget::Extension(_) |
+            DistributionTarget::Storage(_) |
             DistributionTarget::Tower(_) => 1,
         }
     }
@@ -167,6 +172,7 @@ fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
             StructureObject::StructureSpawn(spawn) => DistributionTarget::Spawn(spawn.id()),
             StructureObject::StructureExtension(extension) => DistributionTarget::Extension(extension.id()),
             StructureObject::StructureTower(tower) => DistributionTarget::Tower(tower.id()),
+            StructureObject::StructureStorage(storage) => DistributionTarget::Storage(storage.id()),
             _ => {
                 warn!("Unknown structure to fill: {}", fill_target.structure_type());
                 return None

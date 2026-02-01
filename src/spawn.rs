@@ -64,7 +64,7 @@ impl BodyTemplate {
     }
 }
 
-pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Carry, Part::Move, Part::Work]));
+pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Move, Part::Carry, Part::Work]));
 pub const CLAIMER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Claim, Part::Move]));
 
 pub fn do_spawns(memory: &mut Memory) {

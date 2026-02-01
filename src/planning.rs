@@ -1,11 +1,16 @@
-use std::collections::HashSet;
+use std::{collections::{HashMap, HashSet, VecDeque}, sync::LazyLock};
 
 use itertools::Itertools;
 use log::*;
-use screeps::{CostMatrix, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomName, StructureObject, StructureProperties, StructureType, Terrain, find, game, look, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomName, StructureObject, StructureProperties, StructureType, Terrain, find, game, look, pathfinder::SingleRoomCostResult};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 extern crate serde_json_path_to_error as serde_json;
+
+const CENTER_STRUCTURE_TYPES: LazyLock<Vec<StructureType>> = LazyLock::new(|| {
+    use StructureType::*;
+    vec![Spawn, Storage, Extension, Tower]
+});
 
 #[wasm_bindgen]
 pub fn clear_pending_roads() {
@@ -37,49 +42,98 @@ pub fn delete_roads_in(room_name: String) {
 }
 
 #[wasm_bindgen]
-pub fn plan_main_roads_in_wasm(room_name: String) {
-    if RoomName::new(&room_name).ok()
-        .and_then(|room_name| game::rooms().get(room_name))
-        .map(|room | plan_main_roads_in(&room)).is_none() {
-        
-        error!("Unable to plan main roads")
-    }
+pub fn plan_center_in_wasm(room_name: String) {
+    let Ok(room_name) = RoomName::new(&room_name) else {
+        error!("Invalid room name {room_name}");
+        return;
+    };
+
+    let Some(room) = game::rooms().get(room_name) else { 
+        error!("Not visible room: {room_name}");
+        return;
+    };
+
+    plan_center_in(&room);
 }
 
-#[wasm_bindgen]
-pub fn plan_spawn_extensions() {
-    let spawn = game::spawns().values().next().unwrap();
-    let room = spawn.room().unwrap();
-    let controller = room.controller().unwrap();
-    let max_spawn_extensions = StructureType::Extension.controller_structures(controller.level() as u32);
+pub fn plan_center_in(room: &Room) {
+    let spawn = room.find(find::MY_SPAWNS, None).into_iter().next().unwrap();
+    let controller_level = room.controller().unwrap().level() as u32;
+
+    let already_built: Vec<_> = room.find(find::MY_STRUCTURES, None).into_iter()
+        .map(|structure| structure.structure_type())
+        .collect();
+
+    let already_sited: Vec<_> = room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
+        .map(|site| site.structure_type())
+        .collect();
+
+    let mut already_planned_count = HashMap::new();
+    for structure_type in already_built.into_iter().chain(already_sited.into_iter()) {
+        *already_planned_count.entry(structure_type).or_default() += 1;
+    }
+
+    let mut plan_queue: VecDeque<_> = CENTER_STRUCTURE_TYPES.iter()
+        .flat_map(|structure_type| {
+            let total = structure_type.controller_structures(controller_level);
+            let already_planned = already_planned_count.get(structure_type).unwrap_or(&0);
+            let left = (total - *already_planned).max(0);
+
+            (0..left).map(|_| structure_type.clone())
+        }).collect();
     
     let origin = spawn.pos();
-    let mut curr_placed = 0;
-    for radius in 1_i32..5 {
-        for dx in -radius..=radius {
-            'inner: for dy in -radius..=radius {
-                if curr_placed >= max_spawn_extensions { return; }
+    'plan_loop: for radius in 1_u32..5 {
+        let mut direction = Direction::Left;
+        let mut curr_pos = origin + ((radius % 2) as i32, radius as i32);
+        let mut positions = HashSet::new();
 
-                if (dx.abs() + dy.abs()) % 2 != 0 { continue; }
-                if dx.abs().max(dy.abs()) < radius { continue; }
+        while !positions.contains(&curr_pos) {
+            if (curr_pos.x().u8() + curr_pos.y().u8()) % 2 == 0 {
+                positions.insert(curr_pos);
+            }
+            
+            if origin.get_range_to(curr_pos + direction) > radius {
+                direction = direction.multi_rot(2);
+            }
 
-                let pos = origin + (dx, dy);
-                if let Ok(sites) = pos.look_for(look::CONSTRUCTION_SITES) {
-                    for site in sites {
-                        if site.structure_type() == StructureType::Extension {
-                            curr_placed += 1;
-                            continue 'inner;
-                        }
-                        site.remove().ok();
-                    }
-                }
+            curr_pos = curr_pos + direction;
+        }
 
-                match pos.create_construction_site(StructureType::Extension, None) {
-                    Ok(_) => curr_placed += 1,
-                    Err(err) => warn!("Couldn't place extension at {}: {}", pos, err),
+        debug!("{positions:?}");
+
+        'pos_loop: for pos in positions {
+            let Some(structure) = plan_queue.front() else { break 'plan_loop };
+
+            let sites = pos.look_for(look::CONSTRUCTION_SITES).unwrap();
+            for site in sites {
+                if site.structure_type() == StructureType::Road {
+                    site.remove().ok();
+                } else {
+                    continue 'pos_loop;
                 }
             }
+
+            let structures = pos.look_for(look::STRUCTURES).unwrap();
+            for structure in structures {
+                if structure.structure_type() == StructureType::Road {
+                    structure.destroy().ok();
+                } else {
+                    continue 'pos_loop;
+                }
+            }
+
+            match pos.create_construction_site(*structure, None) {
+                Ok(()) => { plan_queue.pop_front().unwrap(); },
+                Err(err) => {
+                    warn!("Unable to place {} at {}: {}", structure, pos, err);
+                },
+            }
         }
+    }
+
+    if plan_queue.len() > 0 {
+        error!("Unable to plan all structures within given space");
     }
 }
 
@@ -204,13 +258,32 @@ impl RoadPlan {
     }
 }
 
+#[wasm_bindgen]
+pub fn plan_main_roads_in_wasm(room_name: String) {
+    let Ok(room_name) = RoomName::new(&room_name) else {
+        error!("Invalid room name {room_name}");
+        return;
+    };
+
+    let Some(room) = game::rooms().get(room_name) else { 
+        error!("Not visible room: {room_name}");
+        return;
+    };
+
+    plan_main_roads_in(&room);
+}
+
 pub fn plan_main_roads_in(room: &Room) {
     let sources: Vec<_> = room.find(find::SOURCES, None).into_iter().map(|source| source.pos()).collect();
     let fill_structure_types: HashSet<_> = HashSet::from([StructureType::Spawn, StructureType::Controller, StructureType::Tower, StructureType::Extension]);
 
-    let fill_positions: Vec<_> = room.find(find::MY_STRUCTURES, None).into_iter()
+    let mut fill_positions: Vec<_> = room.find(find::MY_STRUCTURES, None).into_iter()
         .filter(|structure| fill_structure_types.contains(&structure.structure_type()))
         .map(|structure| structure.pos()).collect();
+
+    fill_positions.extend(room.find(find::CONSTRUCTION_SITES, None).into_iter()
+        .filter(|site| fill_structure_types.contains(&site.structure_type()))
+        .map(|site| site.pos()));
 
     let mut plan = RoadPlan::new(room.clone());
     for source in &sources {
