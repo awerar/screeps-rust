@@ -5,7 +5,7 @@ use log::*;
 use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomName, StructureObject, StructureProperties, StructureType, Terrain, find, game::{self, rooms}, look, pathfinder::SingleRoomCostResult};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::room::RoomData;
+use crate::colony::ColonyConfig;
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -58,8 +58,8 @@ pub fn plan_center_in_wasm(room_name: String) {
     plan_center_in(&room);
 }*/
 
-pub fn plan_center_in(room_data: &RoomData) -> Option<()> {
-    let room = room_data.room()?;
+pub fn plan_center_in(colony_config: &ColonyConfig) -> Option<()> {
+    let room = colony_config.room()?;
     let controller_level = room.controller()?.level() as u32;
 
     let already_built: Vec<_> = room.find(find::MY_STRUCTURES, None).into_iter()
@@ -84,15 +84,15 @@ pub fn plan_center_in(room_data: &RoomData) -> Option<()> {
             (0..left).map(|_| structure_type.clone())
         }).collect();
 
-    plan_center_structures_in(room_data, plan_queue)
+    plan_center_structures_in(colony_config, plan_queue)
 }
 
-pub fn plan_center_structures_in(room_data: &RoomData, plan_queue: Vec<StructureType>) -> Option<()> {
+pub fn plan_center_structures_in(colony_config: &ColonyConfig, plan_queue: Vec<StructureType>) -> Option<()> {
     let mut plan_queue = VecDeque::from(plan_queue);
 
     'plan_loop: for radius in 1_u32..5 {
         let mut direction = Direction::Left;
-        let mut curr_pos = room_data.center + ((radius % 2) as i32, radius as i32);
+        let mut curr_pos = colony_config.center + ((radius % 2) as i32, radius as i32);
         let mut positions = HashSet::new();
 
         while !positions.contains(&curr_pos) {
@@ -100,7 +100,7 @@ pub fn plan_center_structures_in(room_data: &RoomData, plan_queue: Vec<Structure
                 positions.insert(curr_pos);
             }
             
-            if room_data.center.get_range_to(curr_pos + direction) > radius {
+            if colony_config.center.get_range_to(curr_pos + direction) > radius {
                 direction = direction.multi_rot(2);
             }
 

@@ -15,7 +15,7 @@ mod movement;
 mod spawn;
 mod creeps;
 mod callbacks;
-mod room;
+mod colony;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

@@ -80,7 +80,7 @@ impl Default for SourceData {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum HarvesterState {
     Idle,
     Harvesting(ObjectId<Source>),
@@ -102,7 +102,7 @@ impl Default for HarvesterState {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum DistributionTarget {
     Controller(ObjectId<StructureController>), 
     Spawn(ObjectId<StructureSpawn>),

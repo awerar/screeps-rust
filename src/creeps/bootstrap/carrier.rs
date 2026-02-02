@@ -11,7 +11,7 @@ use crate::{creeps::CreepState, memory::SharedMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum BootstrapCarrierState {
     Idle,
     Refilling,

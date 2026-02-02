@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{creeps::DatalessCreepState, memory::SharedMemory};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ClaimerState {
     Idle,
     GoingTo(Position),

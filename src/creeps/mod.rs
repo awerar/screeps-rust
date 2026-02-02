@@ -10,20 +10,28 @@ pub mod claimer;
 pub mod harvester;
 pub mod bootstrap;
 
-pub trait CreepState<D> where Self : Sized + Default {
+pub trait CreepState<D> where Self : Sized + Default + Eq {
     fn execute(self, data: &D, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
 
     fn transition(&mut self, data: &D, creep: &Creep, memory: &mut SharedMemory) {
-        let new_state = mem::take(self).execute(data, creep, memory);
-        if let Some(new_state) = new_state {
-            *self = new_state;
+        if *self == Self::default() {
+            if let Some(new_state) = Self::default().execute(data, creep, memory) {
+                *self = new_state;
+            } else {
+                warn!("Creep {} failed on default state", creep.name());
+            }
         } else {
-            warn!("Creep {} failed. Falling back to default state", creep.name());
+            if let Some(new_state) = mem::take(self).execute(data, creep, memory) {
+                *self = new_state;
+            } else {
+                info!("Creep {} failed. Falling back to default state", creep.name());
+                self.transition(data, creep, memory);
+            }
         }
     }
 }
 
-pub trait DatalessCreepState where Self : Sized + Default {
+pub trait DatalessCreepState where Self : Sized + Default + Eq {
     fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
 }
 

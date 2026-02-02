@@ -3,7 +3,7 @@ use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
 use screeps::game;
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, room::update_rooms};
+use crate::{memory::Memory, colony::update_rooms};
 
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Clone)]
 enum PeriodicCallback {
