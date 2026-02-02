@@ -1,4 +1,5 @@
 #![feature(map_try_insert)]
+#![feature(variant_count)]
 
 use log::*;
 use screeps::game;

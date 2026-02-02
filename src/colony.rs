@@ -8,7 +8,7 @@ use crate::memory::{Memory, SharedMemory};
 
 const CLAIM_FLAG_PREFIX: &str = "Claim";
 
-trait State where Self : Sized + Default + Eq + Debug + Clone {
+trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
     fn on_update(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
     fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
 
@@ -132,7 +132,7 @@ impl State for ColonyState {
 
         match &self {
             Unclaimed => Ok(()),
-            Level1(state) => state.on_update(config, memory),
+            Level1(substate) => substate.on_update(config, memory),
             Level2 => Ok(()),
             Level3 => Ok(()),
             Level4 => Ok(()),
@@ -148,7 +148,7 @@ impl State for ColonyState {
         
         match &self {
             Unclaimed => Ok(()),
-            Level1(state) => state.on_transition_into(config, memory),
+            Level1(substate) => substate.on_transition_into(config, memory),
             Level2 => Ok(()),
             Level3 => Ok(()),
             Level4 => Ok(()),
@@ -164,7 +164,7 @@ impl State for ColonyState {
 
         match self {
             Unclaimed => todo!(),
-            Level1(level1_state) => todo!(),
+            Level1(substate) => todo!(),
             Level2 => todo!(),
             Level3 => todo!(),
             Level4 => todo!(),
@@ -178,11 +178,22 @@ impl State for ColonyState {
     fn get_promotion(&self) -> Option<Self> {
         use ColonyState::*;
 
-        todo!()
+        match self {
+            Unclaimed => Some(Level1(Default::default())),
+            Level1(substate) => substate.get_promotion().map(|substate| Level1(substate)).or(Some(Level2)),
+            Level2 => Some(Level3),
+            Level3 => Some(Level4),
+            Level4 => Some(Level5),
+            Level5 => Some(Level6),
+            Level6 => Some(Level7),
+            Level7 => Some(Level8),
+            Level8 => None
+        }
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug)]
+#[repr(u8)]
 pub enum Level1State {
     #[default]
     BuildContainerBuffer,
@@ -205,7 +216,14 @@ impl State for Level1State {
     }
     
     fn get_promotion(&self) -> Option<Self> {
-        todo!()
+        use Level1State::*;
+
+        match self {
+            BuildContainerBuffer => Some(BuildSpawn),
+            BuildSpawn => Some(BuildRoads),
+            BuildRoads => Some(UpgradeController),
+            UpgradeController => None,
+        }
     }
     
     fn get_demotion(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self> {
@@ -282,5 +300,34 @@ pub fn update_rooms(memory: &mut Memory) {
 
         let (config, state) = room_data;
         state.update(config, &mut memory.shared, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn discriminant<T>(state: &T) -> u8 where T : State {
+        unsafe { *(state as *const T as *const u8) }
+    }
+
+    fn test_promotion<T>() where T : State {
+        let mut state = T::default();
+        assert_eq!(discriminant(&state), 0);
+
+        while let Some(promotion) = state.get_promotion() {
+            assert!(discriminant(&promotion) >= discriminant(&state) && discriminant(&promotion) <= discriminant(&state) + 1);
+            assert!(promotion > state);
+
+            state = promotion;
+        }
+
+        assert!(discriminant(&state) == (mem::variant_count::<T>() - 1) as u8)
+    }
+
+    #[test]
+    fn test_promotions() {
+        test_promotion::<ColonyState>();
+        test_promotion::<Level1State>();
     }
 }
