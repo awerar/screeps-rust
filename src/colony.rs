@@ -4,7 +4,7 @@ use screeps::{Direction, Flag, HasPosition, OwnedStructureProperties, Position, 
 use serde::{Deserialize, Serialize};
 use log::*;
 
-use crate::{memory::{Memory, SharedMemory}, planning::{plan_center_in, plan_main_roads_in}};
+use crate::{memory::Memory, planning::{plan_center_in, plan_main_roads_in}};
 
 // TODO: Implement deserialization fallback to default state
 
@@ -12,12 +12,12 @@ const CLAIM_FLAG_PREFIX: &str = "Claim";
 
 trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
     fn get_promotion(&self) -> Option<Self>;
-    fn can_promote(&self, colony: &ColonyConfig, memory: &SharedMemory) -> bool;
+    fn can_promote(&self, colony: &ColonyConfig, memory: &Memory) -> bool;
 
-    fn get_demotion(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self>;
+    fn get_demotion(&self, colony: &ColonyConfig, memory: &Memory) -> Option<Self>;
 
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
-    fn on_update(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
+    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()>;
+    fn on_update(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()>;
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
@@ -40,7 +40,7 @@ impl ColonyState {
         unsafe { *(self as *const Self as *const u8) }
     }
 
-    fn transition_into(&mut self, next_state: Self, colony: &ColonyConfig, memory: &mut SharedMemory, transition_count: usize) {
+    fn transition_into(&mut self, next_state: Self, colony: &ColonyConfig, memory: &mut Memory, transition_count: usize) {
         if transition_count > 20 {
             warn!("Room {} transitioned too many times. Breaking", colony.room_name);
         }
@@ -53,7 +53,7 @@ impl ColonyState {
         self.update(colony, memory, transition_count + 1);
     }
 
-    fn update(&mut self, colony: &ColonyConfig, memory: &mut SharedMemory, transition_count: usize) {
+    fn update(&mut self, colony: &ColonyConfig, memory: &mut Memory, transition_count: usize) {
         if let Some(demotion) = self.get_demotion(colony, memory) { 
             assert!(demotion < *self, "Demotion from {self:?} to {demotion:?} is not actually a demotion");
             warn!("Demoting colony {} from {self:?} to {demotion:?}", colony.room_name);
@@ -100,7 +100,7 @@ impl State for ColonyState {
         }
     }
 
-    fn can_promote(&self, colony: &ColonyConfig, memory: &SharedMemory) -> bool {
+    fn can_promote(&self, colony: &ColonyConfig, memory: &Memory) -> bool {
         use ColonyState::*;
 
         let controller_is_upgraded = colony.level() > self.controller_level();
@@ -119,7 +119,7 @@ impl State for ColonyState {
         }
     }
 
-    fn get_demotion(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self> {
+    fn get_demotion(&self, colony: &ColonyConfig, memory: &Memory) -> Option<Self> {
         use ColonyState::*;
 
         if self.controller_level() > colony.level() {
@@ -150,7 +150,7 @@ impl State for ColonyState {
         }
     }
     
-    fn on_update(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
+    fn on_update(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()> {
         use ColonyState::*;
 
         match &self {
@@ -166,7 +166,7 @@ impl State for ColonyState {
         }
     }
     
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
+    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()> {
         use ColonyState::*;
         
         match &self {
@@ -214,7 +214,7 @@ impl State for Level1State {
         }
     }
 
-    fn can_promote(&self, colony: &ColonyConfig, _memory: &SharedMemory) -> bool {
+    fn can_promote(&self, colony: &ColonyConfig, _memory: &Memory) -> bool {
         use Level1State::*;
 
         match self {
@@ -229,7 +229,7 @@ impl State for Level1State {
         }
     }
 
-    fn get_demotion(&self, colony: &ColonyConfig, _memory: &SharedMemory) -> Option<Self> {
+    fn get_demotion(&self, colony: &ColonyConfig, _memory: &Memory) -> Option<Self> {
         use Level1State::*;
 
         if *self > BuildContainerBuffer && colony.buffer_structure().is_none() {
@@ -243,7 +243,7 @@ impl State for Level1State {
         None
     }
 
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
+    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()> {
         if self.can_promote(colony, memory) { return Ok(()) }
 
         match self {
@@ -266,7 +266,7 @@ impl State for Level1State {
         }
     }
 
-    fn on_update(&self, _colony: &ColonyConfig, _memory: &mut SharedMemory) -> Result<(), ()> {
+    fn on_update(&self, _colony: &ColonyConfig, _memory: &mut Memory) -> Result<(), ()> {
         Ok(())
     }
 }
@@ -375,16 +375,16 @@ pub fn update_rooms(memory: &mut Memory) {
         .map(|flag| flag.pos().room_name());
 
     let curr_rooms: HashSet<_> = owned_rooms.chain(claim_rooms).collect();
-    let prev_rooms: HashSet<_> = memory.colonies.keys().cloned().collect();
+    let prev_rooms: HashSet<_> = memory.machines.colonies.keys().cloned().collect();
 
     let lost_rooms = prev_rooms.difference(&curr_rooms);
     for room in lost_rooms {
-        memory.colonies.remove(room);
+        memory.machines.colonies.remove(room);
         warn!("Lost room {}", room);
     }
 
     for room_name in curr_rooms {
-        let room_data = memory.colonies.get_mut(&room_name);
+        let room_data = memory.machines.colonies.get_mut(&room_name);
         let room_data = match room_data {
             Some(room_data) => room_data,
             None => {
@@ -393,12 +393,12 @@ pub fn update_rooms(memory: &mut Memory) {
                 
                 let Ok(room_config) = room_config else { continue; };
 
-                memory.colonies.try_insert(room_name, (room_config, ColonyState::default())).ok().unwrap()
+                memory.machines.colonies.try_insert(room_name, (room_config, ColonyState::default())).ok().unwrap()
             },
         };
 
         let (config, state) = room_data;
-        state.update(config, &mut memory.shared, 0);
+        state.update(config, memory, 0);
     }
 }
 

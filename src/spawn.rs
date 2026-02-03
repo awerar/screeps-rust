@@ -94,10 +94,10 @@ pub fn do_spawns(memory: &mut Memory) {
                 continue;
             }
 
-            memory.creeps.insert(name.clone(), role);
+            memory.machines.creeps.insert(name.clone(), role);
 
             let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
-            memory.shared.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
+            memory.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
         }
     }
 }

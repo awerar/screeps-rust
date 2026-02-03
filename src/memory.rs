@@ -15,32 +15,23 @@ extern crate serde_json_path_to_error as serde_json;
 pub struct Memory {
     #[serde(rename = "creeps")]
     _internal_creeps: Option<serde_json::Value>,
+    
+    #[serde(default)] pub tick_times: VecDeque<f64>,
 
-    #[serde(default, rename = "creeps_data")]
-    pub creeps: HashMap<String, CreepRole>,
+    #[serde(default)] pub machines: StateMachines,
 
-    #[serde(default)]
-    pub colonies: HashMap<RoomName, (ColonyConfig, ColonyState)>,
-
-    #[serde(default)]
-    pub tick_times: VecDeque<f64>,
-
-    #[serde(default)]
-    pub shared: SharedMemory
+    #[serde(default)] pub last_alive_creeps: HashSet<String>,
+    #[serde(default)] pub source_assignments: SourceAssignments,
+    #[serde(default)] pub callbacks: Callbacks,
+    #[serde(default)] pub movement: Movement,
+    #[serde(default)] pub claim_requests: HashSet<Position>,
+    #[serde(default)] pub remote_build_requests: RemoteBuildRequests
 }
 
 #[derive(Serialize, Deserialize, Default)]
-pub struct SharedMemory {
-    pub last_alive_creeps: HashSet<String>,
-    pub source_assignments: SourceAssignments,
-    pub callbacks: Callbacks,
-    pub movement: Movement,
-
-    #[serde(default)]
-    pub claim_requests: HashSet<Position>,
-
-    #[serde(default)]
-    pub remote_build_requests: RemoteBuildRequests
+pub struct StateMachines {
+    #[serde(default)] pub creeps: HashMap<String, CreepRole>,
+    #[serde(default)] pub colonies: HashMap<RoomName, (ColonyConfig, ColonyState)>,
 }
 
 thread_local! {
@@ -76,7 +67,7 @@ impl Memory {
 
         RESET_SOURCE_ASSIGNMENTS.with_borrow_mut(|reset| {
             if *reset {
-                memory.shared.source_assignments = SourceAssignments::default();
+                memory.source_assignments = SourceAssignments::default();
                 *reset = false;
 
                 info!("Reset source assignments by command");
@@ -101,15 +92,15 @@ impl Memory {
     pub fn cleanup_creep(&mut self, name: &str) {
         info!("Cleaning up dead creep {}", name);
 
-        self.creeps.remove(name);
-        self.shared.source_assignments.remove(name);
-        self.shared.last_alive_creeps.remove(name);
-        self.shared.movement.creeps_data.remove(name);
+        self.machines.creeps.remove(name);
+        self.source_assignments.remove(name);
+        self.last_alive_creeps.remove(name);
+        self.movement.creeps_data.remove(name);
     }
 
     pub fn periodic_cleanup(&mut self) {
         let alive_creeps: HashSet<_> = game::creeps().keys().collect();
-        let dead_creeps: HashSet<_> = self.shared.last_alive_creeps.difference(&alive_creeps).cloned().collect();
+        let dead_creeps: HashSet<_> = self.last_alive_creeps.difference(&alive_creeps).cloned().collect();
 
         for dead_creep in &dead_creeps {
             self.cleanup_creep(dead_creep);
@@ -125,7 +116,7 @@ impl Memory {
             }
         }
 
-        self.shared.last_alive_creeps = alive_creeps;
+        self.last_alive_creeps = alive_creeps;
     }
 
     pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {

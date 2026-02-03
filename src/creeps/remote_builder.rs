@@ -2,7 +2,7 @@ use screeps::{Creep, ObjectId, Position, ResourceType, RoomName, StructureContro
 use log::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{CreepState, DatalessCreepState}, memory::SharedMemory};
+use crate::{creeps::{CreepState, DatalessCreepState}, memory::Memory};
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
 enum RemoteBuilderState {
@@ -13,7 +13,7 @@ enum RemoteBuilderState {
 }
 
 impl CreepState<RoomName> for RemoteBuilderState {
-    fn execute(self, home: &RoomName, creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+    fn execute(self, home: &RoomName, creep: &Creep, memory: &mut Memory) -> Option<Self> {
         use RemoteBuilderState::*;
 
         match self {

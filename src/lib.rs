@@ -38,7 +38,7 @@ pub fn game_loop() {
     }
 
     let mut memory = Memory::screeps_deserialize();
-    memory.shared.movement.update_tick_start();
+    memory.movement.update_tick_start();
 
     info!("=== Starting tick {} (500: {:.1}, 100: {:.1}, 10: {:.1}) ===", game::time(), 
         memory.get_average_tick_rate_over(500), 
@@ -51,7 +51,7 @@ pub fn game_loop() {
 
     do_towers();
 
-    memory.shared.movement.update_tick_end();
+    memory.movement.update_tick_end();
 
     memory.tick_times.push_front(game::cpu::get_used());
     if memory.tick_times.len() > 500 { memory.tick_times.pop_back(); }

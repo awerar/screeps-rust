@@ -4,16 +4,16 @@ use log::*;
 use screeps::{Creep, game, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState}, memory::{Memory, SharedMemory}};
+use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState}, memory::Memory};
 
 pub mod claimer;
 pub mod harvester;
 mod remote_builder;
 
 pub trait CreepState<D> where Self : Sized + Default + Eq {
-    fn execute(self, data: &D, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
+    fn execute(self, data: &D, creep: &Creep, memory: &mut Memory) -> Option<Self>;
 
-    fn transition(&mut self, data: &D, creep: &Creep, memory: &mut SharedMemory) {
+    fn transition(&mut self, data: &D, creep: &Creep, memory: &mut Memory) {
         if *self == Self::default() {
             if let Some(new_state) = Self::default().execute(data, creep, memory) {
                 *self = new_state;
@@ -32,11 +32,11 @@ pub trait CreepState<D> where Self : Sized + Default + Eq {
 }
 
 pub trait DatalessCreepState where Self : Sized + Default + Eq {
-    fn execute(self, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
+    fn execute(self, creep: &Creep, memory: &mut Memory) -> Option<Self>;
 }
 
 impl<T> CreepState<()> for T where T : DatalessCreepState {
-    fn execute(self, _: &(), creep: &Creep, memory: &mut SharedMemory) -> Option<Self> {
+    fn execute(self, _: &(), creep: &Creep, memory: &mut Memory) -> Option<Self> {
         self.execute(creep, memory)
     }
 }
@@ -78,7 +78,7 @@ impl CreepRole {
 
 fn get_current_roles(memory: &Memory) -> HashMap<CreepType, usize> {
     let mut result = HashMap::new();
-    for role_type in memory.creeps.values().map(|role| role.get_type()) {
+    for role_type in memory.machines.creeps.values().map(|role| role.get_type()) {
         *result.entry(role_type).or_default() += 1;
     }
 
@@ -91,11 +91,11 @@ pub fn get_missing_roles(memory: &Memory) -> Vec<CreepRole> {
     let current_roles = get_current_roles(memory);
         
     let current_harvesters = current_roles.get(&CreepType::Worker).unwrap_or(&0);
-    let missing_harvester_count = (memory.shared.source_assignments.max_creeps() - current_harvesters).max(0);
+    let missing_harvester_count = (memory.source_assignments.max_creeps() - current_harvesters).max(0);
     result.extend((0..missing_harvester_count).map(|_| CreepRole::Worker(HarvesterState::Idle)));
 
     let any_claimers = *current_roles.get(&CreepType::Claimer).unwrap_or(&0) > 0;
-    if memory.shared.claim_requests.len() > 0 && !any_claimers {
+    if memory.claim_requests.len() > 0 && !any_claimers {
         result.push(CreepRole::Claimer(Default::default()));
     }
 
@@ -104,7 +104,7 @@ pub fn get_missing_roles(memory: &Memory) -> Vec<CreepRole> {
 
 pub fn do_creeps(memory: &mut Memory) {
     for creep in game::creeps().values() {
-        let role = memory.creeps.get_mut(&creep.name());
+        let role = memory.machines.creeps.get_mut(&creep.name());
         let role = match role {
             Some(role) => role,
             None => {
@@ -114,11 +114,10 @@ pub fn do_creeps(memory: &mut Memory) {
                     continue;
                 };
 
-                memory.creeps.try_insert(creep.name(), new_role).unwrap()
+                memory.machines.creeps.try_insert(creep.name(), new_role).unwrap()
             },
         };
 
-        let memory = &mut memory.shared;
         match role {
             CreepRole::Worker(state) => state.transition(&(), &creep, memory),
             CreepRole::Claimer(state) => state.transition(&(), &creep, memory)
