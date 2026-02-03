@@ -81,9 +81,5 @@ module.exports.loop = function() {
     module.exports.loop = loaded_loop;
     global.reset_memory = bot.reset_memory;
     global.reset_source_assignments = bot.reset_source_assignments;
-    global.clear_pending_roads = bot.clear_pending_roads;
-    global.delete_roads_in = bot.delete_roads_in;
-    //global.plan_main_roads_in = bot.plan_main_roads_in_wasm;
-    //global.plan_center_in = bot.plan_center_in_wasm;
     console.log(`loading complete, CPU used: ${Game.cpu.getUsed()}`)
 }

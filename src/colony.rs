@@ -1,24 +1,26 @@
-use std::{collections::HashSet, fmt::Debug, mem};
+use std::{collections::HashSet, fmt::Debug, ops::Not};
 
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, StructureController, game};
+use screeps::{Direction, Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, RoomTerrain, StructureController, StructureObject, StructureSpawn, StructureType, Terrain, find, game, look};
 use serde::{Deserialize, Serialize};
 use log::*;
 
-use crate::memory::{Memory, SharedMemory};
+use crate::{memory::{Memory, SharedMemory}, planning::{plan_center_in, plan_main_roads_in}};
+
+// TODO: Implement deserialization fallback to default state
 
 const CLAIM_FLAG_PREFIX: &str = "Claim";
 
 trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
-    fn on_update(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
+    fn get_promotion(&self) -> Option<Self>;
+    fn can_promote(&self, colony: &ColonyConfig, memory: &SharedMemory) -> bool;
 
     fn get_demotion(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self>;
 
-    fn can_promote(&self, colony: &ColonyConfig, memory: &SharedMemory) -> bool;
-    fn get_promotion(&self) -> Option<Self>;
+    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
+    fn on_update(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()>;
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
 #[repr(u8)]
 pub enum ColonyState {
     #[default] 
@@ -36,20 +38,6 @@ pub enum ColonyState {
 impl ColonyState {
     fn controller_level(&self) -> u8 {
         unsafe { *(self as *const Self as *const u8) }
-    }
-
-    fn get_next(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self> {
-        if let Some(demotion) = self.get_demotion(colony, memory) { return Some(demotion) };
-
-        if self.can_promote(colony, memory) {
-            if let Some(promotion) = self.get_promotion() {
-                return Some(promotion)
-            } else {
-                warn!("Transition discreprancy: can promote from {self:?}, but there is no promotion state")
-            }
-        }
-
-        None
     }
 
     fn transition_into(&mut self, next_state: Self, colony: &ColonyConfig, memory: &mut SharedMemory, transition_count: usize) {
@@ -96,6 +84,41 @@ impl ColonyState {
 }
 
 impl State for ColonyState {
+    fn get_promotion(&self) -> Option<Self> {
+        use ColonyState::*;
+
+        match self {
+            Unclaimed => Some(Level1(Default::default())),
+            Level1(substate) => substate.get_promotion().map(|substate| Level1(substate)).or(Some(Level2)),
+            Level2 => Some(Level3),
+            Level3 => Some(Level4),
+            Level4 => Some(Level5),
+            Level5 => Some(Level6),
+            Level6 => Some(Level7),
+            Level7 => Some(Level8),
+            Level8 => None
+        }
+    }
+
+    fn can_promote(&self, colony: &ColonyConfig, memory: &SharedMemory) -> bool {
+        use ColonyState::*;
+
+        let controller_is_upgraded = colony.level() > self.controller_level();
+
+        match self {
+            Unclaimed => controller_is_upgraded,
+            Level1(substate) => 
+                substate.can_promote(colony, memory) || (substate.get_promotion().is_none() && controller_is_upgraded),
+            Level2 => controller_is_upgraded,
+            Level3 => controller_is_upgraded,
+            Level4 => controller_is_upgraded,
+            Level5 => controller_is_upgraded,
+            Level6 => controller_is_upgraded,
+            Level7 => controller_is_upgraded,
+            Level8 => false,
+        }
+    }
+
     fn get_demotion(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self> {
         use ColonyState::*;
 
@@ -127,12 +150,12 @@ impl State for ColonyState {
         }
     }
     
-    fn on_update(&self, config: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
+    fn on_update(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
         use ColonyState::*;
 
         match &self {
             Unclaimed => Ok(()),
-            Level1(substate) => substate.on_update(config, memory),
+            Level1(substate) => substate.on_update(colony, memory),
             Level2 => Ok(()),
             Level3 => Ok(()),
             Level4 => Ok(()),
@@ -143,56 +166,25 @@ impl State for ColonyState {
         }
     }
     
-    fn on_transition_into(&self, config: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
+    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
         use ColonyState::*;
         
         match &self {
-            Unclaimed => Ok(()),
-            Level1(substate) => substate.on_transition_into(config, memory),
-            Level2 => Ok(()),
-            Level3 => Ok(()),
-            Level4 => Ok(()),
-            Level5 => Ok(()),
-            Level6 => Ok(()),
-            Level7 => Ok(()),
-            Level8 => Ok(()),
-        }
-    }
-    
-    fn can_promote(&self, config: &ColonyConfig, memory: &SharedMemory) -> bool {
-        use ColonyState::*;
-
-        match self {
-            Unclaimed => todo!(),
-            Level1(substate) => todo!(),
-            Level2 => todo!(),
-            Level3 => todo!(),
-            Level4 => todo!(),
-            Level5 => todo!(),
-            Level6 => todo!(),
-            Level7 => todo!(),
-            Level8 => todo!(),
-        }
-    }
-    
-    fn get_promotion(&self) -> Option<Self> {
-        use ColonyState::*;
-
-        match self {
-            Unclaimed => Some(Level1(Default::default())),
-            Level1(substate) => substate.get_promotion().map(|substate| Level1(substate)).or(Some(Level2)),
-            Level2 => Some(Level3),
-            Level3 => Some(Level4),
-            Level4 => Some(Level5),
-            Level5 => Some(Level6),
-            Level6 => Some(Level7),
-            Level7 => Some(Level8),
-            Level8 => None
+            Unclaimed => {
+                memory.claim_requests.insert(colony.center);
+                Ok(())
+            },
+            Level1(substate) => substate.on_transition_into(colony, memory),
+            Level2 | Level3 | Level4 | Level5 | Level6 | Level7 | Level8 => {
+                plan_center_in(colony);
+                plan_main_roads_in(&colony.room().unwrap());
+                Ok(())
+            },
         }
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
 #[repr(u8)]
 pub enum Level1State {
     #[default]
@@ -203,18 +195,6 @@ pub enum Level1State {
 }
 
 impl State for Level1State {
-    fn on_transition_into(&self, config: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
-        todo!()
-    }
-
-    fn on_update(&self, config: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
-        todo!()
-    }
-    
-    fn can_promote(&self, config: &ColonyConfig, memory: &SharedMemory) -> bool {
-        todo!()
-    }
-    
     fn get_promotion(&self) -> Option<Self> {
         use Level1State::*;
 
@@ -225,16 +205,69 @@ impl State for Level1State {
             UpgradeController => None,
         }
     }
-    
-    fn get_demotion(&self, colony: &ColonyConfig, memory: &SharedMemory) -> Option<Self> {
-        todo!()
+
+    fn can_promote(&self, colony: &ColonyConfig, _memory: &SharedMemory) -> bool {
+        use Level1State::*;
+
+        match self {
+            BuildContainerBuffer => colony.buffer_structure().is_some(),
+            BuildSpawn => colony.spawn().is_some(),
+            BuildRoads => {
+                colony.room().unwrap().find(find::CONSTRUCTION_SITES, None).into_iter()
+                    .any(|site| site.structure_type() == StructureType::Road)
+                    .not()
+            },
+            UpgradeController => colony.level() > 1,
+        }
+    }
+
+    fn get_demotion(&self, colony: &ColonyConfig, _memory: &SharedMemory) -> Option<Self> {
+        use Level1State::*;
+
+        if *self > BuildContainerBuffer && colony.buffer_structure().is_none() {
+            return Some(BuildContainerBuffer)
+        }
+
+        if *self > BuildSpawn && colony.spawn().is_none() {
+            return Some(BuildSpawn)
+        }
+
+        None
+    }
+
+    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut SharedMemory) -> Result<(), ()> {
+        if self.can_promote(colony, memory) { return Ok(()) }
+
+        match self {
+            Level1State::BuildContainerBuffer => {
+                if !self.can_promote(colony, memory) {
+                    memory.remote_build_requests.create_request(colony.buffer_pos, StructureType::Container)
+                } else {
+                    Ok(())
+                }
+            },
+            Level1State::BuildSpawn => {
+                if !self.can_promote(colony, memory) {
+                    memory.remote_build_requests.create_request(colony.center, StructureType::Road)
+                } else {
+                    Ok(())
+                }
+            },
+            Level1State::BuildRoads => Ok(plan_main_roads_in(&colony.room().unwrap())),
+            Level1State::UpgradeController => Ok(()),
+        }
+    }
+
+    fn on_update(&self, _colony: &ColonyConfig, _memory: &mut SharedMemory) -> Result<(), ()> {
+        Ok(())
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ColonyConfig {
     pub room_name: RoomName,
-    pub center: Position
+    pub center: Position,
+    pub buffer_pos: Position
 }
 
 impl ColonyConfig {
@@ -243,15 +276,73 @@ impl ColonyConfig {
     }
 
     pub fn controller(&self) -> Option<StructureController> {
-        self.room().and_then(|room| room.controller()) 
+        self.room()?.controller()
     }
 
     pub fn level(&self) -> u8 {
         self.controller().map(|controller| controller.level()).unwrap_or(0)
     }
 
+    pub fn buffer_structure(&self) -> Option<StructureObject> {
+        self.buffer_pos.look_for(look::STRUCTURES).ok()?.into_iter()
+            .filter(|structure| matches!(structure, StructureObject::StructureStorage(_) | StructureObject::StructureContainer(_)))
+            .next()
+    }
+
+    pub fn spawn(&self) -> Option<StructureSpawn> {
+        self.center.look_for(look::STRUCTURES).ok()?.into_iter()
+            .filter_map(|structure| structure.try_into().ok())
+            .next()
+    }
+
     fn try_construct_from(room_name: RoomName) -> Result<Self, &'static str> {
-        todo!()
+        let center = game::rooms().get(room_name).and_then(|room| {
+            room.find(find::MY_SPAWNS, None).into_iter()
+                .next()
+                .map(|spawn| spawn.pos())
+        }).or_else(|| {
+            find_claim_flags().into_iter()
+                .map(|flag| flag.pos())
+                .filter(|pos| pos.room_name() == room_name)
+                .next()
+        });
+
+        let Some(center) = center else {
+            return Err("Unable to determine center")
+        };
+
+        let buffer_pos = game::rooms().get(room_name).and_then(|room| {
+            let structures = room.find(find::MY_STRUCTURES, None).into_iter()
+                .map(|structure| (structure.pos(), structure.structure_type()));
+
+            let sites = room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
+                .map(|site| (site.pos(), site.structure_type()));
+
+            structures.chain(sites)
+                .filter(|(pos, ty)| {
+                    match ty {
+                        StructureType::Storage => true,
+                        StructureType::Container => pos.get_range_to(center) == 1,
+                        _ => false
+                    }
+                }).next()
+                .map(|(pos, _)| pos)
+        }).unwrap_or_else(|| {
+            let mut terrain = RoomTerrain::new(room_name).unwrap();
+            let mut dir = Direction::BottomRight;
+            for _ in 0..4 {
+                let candidate = center + dir;
+                if terrain.get_xy(candidate.xy()) != Terrain::Wall {
+                    return candidate;
+                }
+
+                dir = dir.multi_rot(2);
+            }
+
+            unreachable!();
+        });
+
+        Ok(ColonyConfig { room_name, center, buffer_pos  })
     }
 }
 
@@ -305,6 +396,8 @@ pub fn update_rooms(memory: &mut Memory) {
 
 #[cfg(test)]
 mod tests {
+    use std::mem;
+
     use super::*;
 
     fn discriminant<T>(state: &T) -> u8 where T : State {

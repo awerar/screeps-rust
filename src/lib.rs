@@ -17,13 +17,14 @@ mod spawn;
 mod creeps;
 mod callbacks;
 mod colony;
+mod remote_build;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
 #[wasm_bindgen(js_name = loop)]
 pub fn game_loop() {
     INIT_LOGGING.call_once(|| {
-        logging::setup_logging(logging::Debug);
+        logging::setup_logging(logging::Info);
     });
 
     info!("=== Starting tick {} ===", game::time());

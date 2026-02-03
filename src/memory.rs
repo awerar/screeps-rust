@@ -7,7 +7,7 @@ use screeps::{Position, RoomName, game};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, colony::{ColonyConfig, ColonyState}, creeps::{CreepRole, harvester::SourceAssignments}, movement::Movement};
+use crate::{callbacks::Callbacks, colony::{ColonyConfig, ColonyState}, creeps::{CreepRole, harvester::SourceAssignments}, movement::Movement, remote_build::RemoteBuildRequests};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -34,7 +34,10 @@ pub struct SharedMemory {
     pub movement: Movement,
 
     #[serde(default)]
-    pub claim_requests: HashSet<Position>
+    pub claim_requests: HashSet<Position>,
+
+    #[serde(default)]
+    pub remote_build_requests: RemoteBuildRequests
 }
 
 thread_local! {

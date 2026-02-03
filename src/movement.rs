@@ -39,7 +39,7 @@ impl Movement {
         let creep_data = self.creeps_data.entry(creep.name()).or_default();
 
         if let MoveState::Sleeping(_) = creep_data.move_state {
-            info!("{} is sleeping... ZZZ", creep.name());
+            debug!("{} is sleeping... ZZZ", creep.name());
             return Ok(()) 
         }
         creep.move_to(target)
@@ -63,7 +63,7 @@ impl Movement {
                     if !is_deadlocked { break 'move_state None }
 
                     let sleep_ticks = (random() * 2.0) as u32;
-                    info!("{} is deadlocked. Sleeping for {} ticks", creep.name(), sleep_ticks);
+                    debug!("{} is deadlocked. Sleeping for {} ticks", creep.name(), sleep_ticks);
 
                     if sleep_ticks > 0 { Some(MoveState::Sleeping(game::time() + sleep_ticks)) }
                     else { None }

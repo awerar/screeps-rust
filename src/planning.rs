@@ -2,8 +2,7 @@ use std::{collections::{HashMap, HashSet, VecDeque}, sync::LazyLock};
 
 use itertools::Itertools;
 use log::*;
-use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomName, StructureObject, StructureProperties, StructureType, Terrain, find, game::{self, rooms}, look, pathfinder::SingleRoomCostResult};
-use wasm_bindgen::prelude::wasm_bindgen;
+use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, StructureProperties, StructureType, Terrain, find, look, pathfinder::SingleRoomCostResult};
 
 use crate::colony::ColonyConfig;
 
@@ -13,50 +12,6 @@ const CENTER_STRUCTURE_TYPES: LazyLock<Vec<StructureType>> = LazyLock::new(|| {
     use StructureType::*;
     vec![Spawn, Storage, Extension, Tower]
 });
-
-#[wasm_bindgen]
-pub fn clear_pending_roads() {
-    for room in game::rooms().values() {
-        for site in room.find(find::CONSTRUCTION_SITES, None) {
-            if site.progress() == 0 && site.structure_type() == StructureType::Road {
-                site.remove().ok();
-            }
-        }
-    }
-}
-
-#[wasm_bindgen]
-pub fn delete_roads_in(room_name: String) {
-    let Some(room) = RoomName::new(&room_name).ok()
-        .and_then(|room_name| game::rooms().get(room_name)) else {
-
-        error!("Unkown room");
-        return;
-    };
-
-    let roads = room.find(find::STRUCTURES, None).into_iter()
-        .filter(|structure| structure.structure_type() == StructureType::Road);
-
-    for road in roads {
-        let StructureObject::StructureRoad(road) = road else { unreachable!() };
-        road.destroy().ok();
-    }
-}
-
-/*#[wasm_bindgen]
-pub fn plan_center_in_wasm(room_name: String) {
-    let Ok(room_name) = RoomName::new(&room_name) else {
-        error!("Invalid room name {room_name}");
-        return;
-    };
-
-    let Some(room) = game::rooms().get(room_name) else { 
-        error!("Not visible room: {room_name}");
-        return;
-    };
-
-    plan_center_in(&room);
-}*/
 
 pub fn plan_center_in(colony_config: &ColonyConfig) -> Option<()> {
     let room = colony_config.room()?;
@@ -87,7 +42,7 @@ pub fn plan_center_in(colony_config: &ColonyConfig) -> Option<()> {
     plan_center_structures_in(colony_config, plan_queue)
 }
 
-pub fn plan_center_structures_in(colony_config: &ColonyConfig, plan_queue: Vec<StructureType>) -> Option<()> {
+fn plan_center_structures_in(colony_config: &ColonyConfig, plan_queue: Vec<StructureType>) -> Option<()> {
     let mut plan_queue = VecDeque::from(plan_queue);
 
     'plan_loop: for radius in 1_u32..5 {
@@ -264,21 +219,6 @@ impl RoadPlan {
             }
         }
     }
-}
-
-#[wasm_bindgen]
-pub fn plan_main_roads_in_wasm(room_name: String) {
-    let Ok(room_name) = RoomName::new(&room_name) else {
-        error!("Invalid room name {room_name}");
-        return;
-    };
-
-    let Some(room) = game::rooms().get(room_name) else { 
-        error!("Not visible room: {room_name}");
-        return;
-    };
-
-    plan_main_roads_in(&room);
 }
 
 pub fn plan_main_roads_in(room: &Room) {
