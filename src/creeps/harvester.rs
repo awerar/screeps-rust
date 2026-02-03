@@ -80,8 +80,9 @@ impl Default for SourceData {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub enum HarvesterState {
+    #[default]
     Idle,
     Harvesting(ObjectId<Source>),
     Distributing(DistributionTarget)
@@ -93,12 +94,6 @@ impl HarvesterState {
             HarvesterState::Idle => true,
             _ => false
         }
-    }
-}
-
-impl Default for HarvesterState {
-    fn default() -> Self {
-        HarvesterState::Idle
     }
 }
 

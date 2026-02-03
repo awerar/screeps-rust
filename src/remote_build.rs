@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde_json_any_key::*;
 
 #[derive(Serialize, Deserialize)]
-struct BuildData {
+pub struct BuildData {
     structure_type: StructureType,
     progress: u32
 }
@@ -49,5 +49,13 @@ impl RemoteBuildRequests {
         self.0.insert(pos, BuildData { structure_type, progress: 0 });
 
         Ok(())
+    }
+
+    pub fn get_new_request(&self) -> Option<Position> {
+        self.0.keys().next().cloned()
+    }
+
+    pub fn get_request_data(&self, pos: &Position) -> Option<&BuildData> {
+        self.0.get(pos)
     }
 }

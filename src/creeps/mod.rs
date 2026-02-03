@@ -1,14 +1,14 @@
 use std::{collections::HashMap, mem};
 
 use log::*;
-use screeps::{Creep, RoomName, game, prelude::*};
+use screeps::{Creep, game, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{bootstrap::carrier::BootstrapCarrierState, claimer::ClaimerState, harvester::HarvesterState}, memory::{Memory, SharedMemory}};
+use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState}, memory::{Memory, SharedMemory}};
 
 pub mod claimer;
 pub mod harvester;
-pub mod bootstrap;
+mod remote_builder;
 
 pub trait CreepState<D> where Self : Sized + Default + Eq {
     fn execute(self, data: &D, creep: &Creep, memory: &mut SharedMemory) -> Option<Self>;
@@ -44,8 +44,7 @@ impl<T> CreepState<()> for T where T : DatalessCreepState {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum CreepRole {
     Worker(HarvesterState), 
-    Claimer(ClaimerState), 
-    BootstrapCarrier(BootstrapCarrierState, RoomName)
+    Claimer(ClaimerState)
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
@@ -57,16 +56,14 @@ impl CreepRole {
     pub fn get_type(&self) -> CreepType {
         match self {
             CreepRole::Worker(_) => CreepType::Worker,
-            CreepRole::Claimer(_) => CreepType::Claimer,
-            CreepRole::BootstrapCarrier(_, _) => CreepType::BootstrapCarrier,
+            CreepRole::Claimer(_) => CreepType::Claimer
         }
     }
 
     pub fn prefix(&self) -> &str {
         match self {
             CreepRole::Worker(_) => "Worker",
-            CreepRole::Claimer(_) => "Claimer",
-            CreepRole::BootstrapCarrier(_, _) => "BootstrapCarrier",
+            CreepRole::Claimer(_) => "Claimer"
         }
     }
 
@@ -124,8 +121,7 @@ pub fn do_creeps(memory: &mut Memory) {
         let memory = &mut memory.shared;
         match role {
             CreepRole::Worker(state) => state.transition(&(), &creep, memory),
-            CreepRole::Claimer(state) => state.transition(&(), &creep, memory),
-            CreepRole::BootstrapCarrier(state, data) => state.transition(data, &creep, memory),
+            CreepRole::Claimer(state) => state.transition(&(), &creep, memory)
         }
     }
 }

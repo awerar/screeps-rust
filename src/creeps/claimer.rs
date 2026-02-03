@@ -4,17 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{creeps::DatalessCreepState, memory::SharedMemory};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 pub enum ClaimerState {
+    #[default]
     Idle,
     GoingTo(Position),
     Claiming(Position, ObjectId<StructureController>)
-}
-
-impl Default for ClaimerState {
-    fn default() -> Self {
-        ClaimerState::Idle
-    }
 }
 
 impl DatalessCreepState for ClaimerState {

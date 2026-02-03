@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, ops::Not};
 
-use screeps::{Direction, Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, RoomTerrain, StructureController, StructureObject, StructureSpawn, StructureType, Terrain, find, game, look};
+use screeps::{Direction, Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, RoomTerrain, StructureController, StructureObject, StructureProperties, StructureSpawn, StructureType, Terrain, find, game, look};
 use serde::{Deserialize, Serialize};
 use log::*;
 
@@ -172,15 +172,23 @@ impl State for ColonyState {
         match &self {
             Unclaimed => {
                 memory.claim_requests.insert(colony.center);
-                Ok(())
             },
-            Level1(substate) => substate.on_transition_into(colony, memory),
+            Level1(substate) => substate.on_transition_into(colony, memory)?,
             Level2 | Level3 | Level4 | Level5 | Level6 | Level7 | Level8 => {
                 plan_center_in(colony);
                 plan_main_roads_in(&colony.room().unwrap());
-                Ok(())
             },
         }
+
+        if *self == Level4 {
+            if let Some(buffer) = colony.buffer_structure() {
+                if buffer.structure_type() == StructureType::Container {
+                    buffer.destroy().ok();
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::{HashMap, HashSet}};
+use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}};
 
 use js_sys::{JsString, Reflect};
 use log::*;
@@ -21,6 +21,9 @@ pub struct Memory {
 
     #[serde(default)]
     pub colonies: HashMap<RoomName, (ColonyConfig, ColonyState)>,
+
+    #[serde(default)]
+    pub tick_times: VecDeque<f64>,
 
     #[serde(default)]
     pub shared: SharedMemory
@@ -123,5 +126,9 @@ impl Memory {
         }
 
         self.shared.last_alive_creeps = alive_creeps;
+    }
+
+    pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {
+        self.tick_times.iter().take(tick_count).sum::<f64>() / (tick_count.min(self.tick_times.len()) as f64)
     }
 }

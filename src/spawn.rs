@@ -66,7 +66,6 @@ impl BodyTemplate {
 
 pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Move, Part::Carry, Part::Work]));
 pub const CLAIMER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Claim, Part::Move]));
-pub const BOOTSTRAP_CARRIER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Move, Part::Carry, Part::Carry]));
 
 pub fn do_spawns(memory: &mut Memory) {
     let mut room_queues = HashMap::new();
@@ -81,8 +80,7 @@ pub fn do_spawns(memory: &mut Memory) {
 
         let body = match role {
             CreepRole::Worker(_) => HARVESTER_TEMPLATE.scaled(room.energy_capacity_available(), None),
-            CreepRole::Claimer(_) => Some(CLAIMER_TEMPLATE.clone()),
-            CreepRole::BootstrapCarrier(_, _) => Some(BOOTSTRAP_CARRIER_TEMPLATE.clone())
+            CreepRole::Claimer(_) => Some(CLAIMER_TEMPLATE.clone())
         };
 
         let Some(body) = body else { continue; };

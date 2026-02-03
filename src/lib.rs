@@ -27,10 +27,24 @@ pub fn game_loop() {
         logging::setup_logging(logging::Info);
     });
 
-    info!("=== Starting tick {} ===", game::time());
+    if game::cpu::bucket() >= screeps::constants::PIXEL_CPU_COST as i32 {
+        info!("Generating pixel!");
+        game::cpu::generate_pixel().ok();
+    }
+
+    if game::cpu::bucket() < 100 {
+        info!("Waiting for buckets {}/100", game::cpu::bucket());
+        return;
+    }
 
     let mut memory = Memory::screeps_deserialize();
     memory.shared.movement.update_tick_start();
+
+    info!("=== Starting tick {} (500: {:.1}, 100: {:.1}, 10: {:.1}) ===", game::time(), 
+        memory.get_average_tick_rate_over(500), 
+        memory.get_average_tick_rate_over(100),
+        memory.get_average_tick_rate_over(10)
+    );
 
     do_spawns(&mut memory);
     do_creeps(&mut memory);
@@ -38,6 +52,9 @@ pub fn game_loop() {
     do_towers();
 
     memory.shared.movement.update_tick_end();
+
+    memory.tick_times.push_front(game::cpu::get_used());
+    if memory.tick_times.len() > 500 { memory.tick_times.pop_back(); }
 
     memory.handle_callbacks();
     memory.screeps_serialize();
