@@ -1,5 +1,6 @@
 use screeps::{Creep, Position, ResourceType, prelude::*};
 use serde::{Deserialize, Serialize};
+use log::*;
 
 use crate::{creeps::CreepState, memory::Memory};
 
@@ -49,8 +50,17 @@ impl CreepState for RemoteBuilderState {
                     return Ok(Idle)
                 };
 
+                if creep.store().get_used_capacity(Some(ResourceType::Energy)) == 0 {
+                    return Ok(Refilling)
+                }
+
                 if creep.pos().in_range_to(build_data.pos, 3) {
-                    creep.build(&build_data.site().ok_or(())?).map_err(|_| ())?
+                    let site = build_data.site().ok_or(())?;
+                    creep.build(&site).map_err(|_| ())?
+                }
+                
+                if !creep.pos().is_near_to(build_data.pos) {
+                    mem.movement.smart_move_creep_to(creep, build_data.pos).ok();
                 }
 
                 Ok(self.clone())

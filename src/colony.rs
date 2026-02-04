@@ -264,7 +264,7 @@ impl State for Level1State {
             },
             Level1State::BuildSpawn => {
                 if !self.can_promote(name, mem) {
-                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Road, None)
+                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Spawn, None)
                 } else {
                     Ok(())
                 }

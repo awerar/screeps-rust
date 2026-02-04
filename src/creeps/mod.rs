@@ -21,7 +21,7 @@ fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory) -> S where S : Cree
             return S::default()
         } else {
             error!("{} failed on state {:?}. Falling back to default state", creep.name(), state);
-            return transition(&S::default(), creep, mem)
+            return S::default() // TODO: This should probably execute the default state
         }
     };
 
@@ -34,7 +34,7 @@ fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory) -> S where S : Cree
 
 #[derive(Serialize, Deserialize)]
 pub struct CreepConfig {
-    home: RoomName
+    pub home: RoomName
 }
 
 impl CreepConfig {
@@ -52,7 +52,7 @@ pub enum CreepRole {
     RemoteBuilder(RemoteBuilderState)
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum CreepType {
     Worker, Claimer, RemoteBuilder
 }
@@ -66,14 +66,6 @@ impl CreepRole {
         }
     }
 
-    pub fn prefix(&self) -> &str {
-        match self {
-            CreepRole::Worker(_) => "Worker",
-            CreepRole::Claimer(_) => "Claimer",
-            CreepRole::RemoteBuilder(_) => "RemoteBuilder",
-        }
-    }
-
     pub fn try_recover_from(creep: &Creep) -> Option<Self> {
         match creep.name().split_ascii_whitespace().next()? {
             "Worker" => Some(CreepRole::Worker(Default::default())),
@@ -84,36 +76,46 @@ impl CreepRole {
     }
 }
 
-fn get_current_roles(mem: &Memory) -> HashMap<CreepType, usize> {
-    let mut result = HashMap::new();
-    for role_type in mem.machines.creeps.values().map(|role| role.get_type()) {
-        *result.entry(role_type).or_default() += 1;
+impl CreepType {
+    pub fn prefix(&self) -> &str {
+        match self {
+            CreepType::Worker => "Worker",
+            CreepType::Claimer => "Claimer",
+            CreepType::RemoteBuilder => "RemoteBuilder",
+        }
     }
 
-    result
+    pub fn default_role(&self) -> CreepRole {
+        match self {
+            CreepType::Worker => CreepRole::Worker(Default::default()),
+            CreepType::Claimer => CreepRole::Claimer(Default::default()),
+            CreepType::RemoteBuilder => CreepRole::RemoteBuilder(Default::default()),
+        }
+    }
 }
 
-pub fn get_missing_roles_in(mem: &Memory, colony_name: RoomName) -> Vec<CreepRole> {
-    let mut result = Vec::new();
+impl Memory {
+    pub fn get_total_role_count(&self) -> HashMap<CreepType, usize> {
+        let mut result = HashMap::new();
+        for role in self.machines.creeps.values() {
+            *result.entry(role.get_type()).or_default() += 1;
+        }
 
-    let current_roles = get_current_roles(mem);
-        
-    let current_harvesters = current_roles.get(&CreepType::Worker).unwrap_or(&0);
-    let target_harvesters = mem.source_assignments.get(&colony_name).map(|x| x.max_creeps()).unwrap_or(0);
-    let missing_harvester_count = (target_harvesters - current_harvesters).max(0);
-    result.extend((0..missing_harvester_count).map(|_| CreepRole::Worker(Default::default())));
-
-    let any_claimers = *current_roles.get(&CreepType::Claimer).unwrap_or(&0) > 0;
-    if mem.claim_requests.len() > 0 && !any_claimers {
-        result.push(CreepRole::Claimer(Default::default()));
+        result
     }
 
-    let current_remote_builders = current_roles.get(&CreepType::RemoteBuilder).unwrap_or(&0);
-    let target_remote_builders = mem.remote_build_requests.get_total_work_ticks().div_ceil(750) as usize;
-    let missing_remote_builder_count = target_remote_builders - current_remote_builders;
-    result.extend((0..missing_remote_builder_count).map(|_| CreepRole::RemoteBuilder(Default::default())));
+    pub fn get_current_role_count_in(&self, room_name: RoomName) -> HashMap<CreepType, usize> {
+        let mut result = HashMap::new();
 
-    result
+        for (creep_name, role) in &self.machines.creeps {
+            let Some(config) = self.creeps.get(creep_name) else { continue; };
+            if config.home != room_name { continue; }
+
+            *result.entry(role.get_type()).or_default() += 1;
+        }
+
+        result
+    }
 }
 
 pub fn do_creeps(mem: &mut Memory) {

@@ -76,7 +76,7 @@ struct SourceData {
 
 impl Default for SourceData {
     fn default() -> Self {
-        Self { capacity: 3, assigned: Default::default() }
+        Self { capacity: 2, assigned: Default::default() }
     }
 }
 

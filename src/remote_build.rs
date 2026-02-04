@@ -51,10 +51,20 @@ impl RemoteBuildRequests {
     }
 
     pub fn create_request(&mut self, pos: Position, structure_type: StructureType, name: Option<&str>) -> Result<(), ()> {
-        let name = name.map(|name| JsString::from(name));
+        if let Some(build) = self.get_request_data(&pos) {
+            if build.structure_type == structure_type {
+                return Ok(())
+            }
+        }
 
+        let build = BuildData { structure_type, progress: 0, pos };
+        let already_sited = build.site().is_some();
+        self.0.insert(pos, build);
+
+        if already_sited { return Ok(()) }
+
+        let name = name.map(|name| JsString::from(name));
         pos.create_construction_site(structure_type, name.as_ref()).map_err(|_| ())?;
-        self.0.insert(pos, BuildData { structure_type, progress: 0, pos });
 
         Ok(())
     }
