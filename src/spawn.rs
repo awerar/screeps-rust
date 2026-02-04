@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::{Deref, DerefMut}, sync::LazyLock};
 use log::*;
 use screeps::{Part, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::{CreepRole, get_missing_roles}, memory::Memory, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{CreepRole, get_missing_roles_in}, memory::Memory, names::get_new_creep_name};
 
 #[derive(Clone)]
 pub struct BodyTemplate(Vec<Part>);
@@ -64,23 +64,26 @@ impl BodyTemplate {
     }
 }
 
-pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Move, Part::Carry, Part::Work]));
-pub const CLAIMER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| BodyTemplate(vec![Part::Claim, Part::Move]));
+pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| { use Part::*; BodyTemplate(vec![Move, Carry, Work]) });
+pub const CLAIMER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| { use Part::*; BodyTemplate(vec![Claim, Move]) });
+pub const REMOTE_BUILDER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| { use Part::*; BodyTemplate(vec![Move, Carry, Move, Carry, Move, Work]) });
 
-pub fn do_spawns(memory: &mut Memory) {
+pub fn do_spawns(mem: &mut Memory) {
     let mut room_queues = HashMap::new();
 
     for spawn in game::spawns().values() {
         if spawn.spawning().is_some() { continue; }
 
         let room = spawn.room().unwrap();
-        let queue = room_queues.entry(room.name()).or_insert_with(|| get_missing_roles(memory).into_iter());
-
+        let queue = room_queues.entry(room.name()).or_insert_with(|| get_missing_roles_in(mem, room.name()).into_iter());
+        debug!("Spawn queue for {}: {queue:?}", room.name());
+        
         let Some(role) = queue.next() else { continue; };
 
         let body = match role {
             CreepRole::Worker(_) => HARVESTER_TEMPLATE.scaled(room.energy_capacity_available(), None),
-            CreepRole::Claimer(_) => Some(CLAIMER_TEMPLATE.clone())
+            CreepRole::Claimer(_) => Some(CLAIMER_TEMPLATE.clone()),
+            CreepRole::RemoteBuilder(_) => Some(REMOTE_BUILDER_TEMPLATE.clone())
         };
 
         let Some(body) = body else { continue; };
@@ -94,10 +97,10 @@ pub fn do_spawns(memory: &mut Memory) {
                 continue;
             }
 
-            memory.machines.creeps.insert(name.clone(), role);
+            mem.machines.creeps.insert(name.clone(), role);
 
             let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
-            memory.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
+            mem.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
         }
     }
 }

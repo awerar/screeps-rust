@@ -1,5 +1,6 @@
+use js_sys::JsString;
 use log::warn;
-use screeps::{Position, StructureType, game, look};
+use screeps::{ConstructionSite, Position, StructureType, game, look};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -7,8 +8,17 @@ use serde_json_any_key::*;
 
 #[derive(Serialize, Deserialize)]
 pub struct BuildData {
-    structure_type: StructureType,
-    progress: u32
+    pub pos: Position,
+    pub structure_type: StructureType,
+    pub progress: u32
+}
+
+impl BuildData {
+    pub fn site(&self) -> Option<ConstructionSite> {
+        self.pos.look_for(look::CONSTRUCTION_SITES).unwrap().into_iter()
+            .filter(|site| site.structure_type() == self.structure_type)
+            .next()
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -30,11 +40,7 @@ impl RemoteBuildRequests {
                 continue;
             }
 
-            let site = pos.look_for(look::CONSTRUCTION_SITES).unwrap().into_iter()
-                .filter(|site| site.structure_type() == build.structure_type)
-                .next();
-
-            let Some(site) = site else {
+            let Some(site) = build.site() else {
                 warn!("Remoted constructions site of {} at {pos} was unexpectedly removed", build.structure_type);
                 finished_requests.push(pos);
                 continue;
@@ -44,9 +50,11 @@ impl RemoteBuildRequests {
         }
     }
 
-    pub fn create_request(&mut self, pos: Position, structure_type: StructureType) -> Result<(), ()> {
-        pos.create_construction_site(structure_type, None).map_err(|_| ())?;
-        self.0.insert(pos, BuildData { structure_type, progress: 0 });
+    pub fn create_request(&mut self, pos: Position, structure_type: StructureType, name: Option<&str>) -> Result<(), ()> {
+        let name = name.map(|name| JsString::from(name));
+
+        pos.create_construction_site(structure_type, name.as_ref()).map_err(|_| ())?;
+        self.0.insert(pos, BuildData { structure_type, progress: 0, pos });
 
         Ok(())
     }
@@ -57,5 +65,9 @@ impl RemoteBuildRequests {
 
     pub fn get_request_data(&self, pos: &Position) -> Option<&BuildData> {
         self.0.get(pos)
+    }
+
+    pub fn get_total_work_ticks(&self) -> u32 {
+        self.0.values().map(|build| build.structure_type.construction_cost().unwrap() - build.progress).sum::<u32>() / 5
     }
 }

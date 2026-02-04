@@ -24,7 +24,7 @@ static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 #[wasm_bindgen(js_name = loop)]
 pub fn game_loop() {
     INIT_LOGGING.call_once(|| {
-        logging::setup_logging(logging::Info);
+        logging::setup_logging(logging::Debug);
     });
 
     if game::cpu::bucket() >= screeps::constants::PIXEL_CPU_COST as i32 {
@@ -37,25 +37,25 @@ pub fn game_loop() {
         return;
     }
 
-    let mut memory = Memory::screeps_deserialize();
-    memory.movement.update_tick_start();
+    let mut mem = Memory::screeps_deserialize();
+    mem.movement.update_tick_start();
 
     info!("=== Starting tick {} (500: {:.1}, 100: {:.1}, 10: {:.1}) ===", game::time(), 
-        memory.get_average_tick_rate_over(500), 
-        memory.get_average_tick_rate_over(100),
-        memory.get_average_tick_rate_over(10)
+        mem.get_average_tick_rate_over(500), 
+        mem.get_average_tick_rate_over(100),
+        mem.get_average_tick_rate_over(10)
     );
 
-    do_spawns(&mut memory);
-    do_creeps(&mut memory);
+    do_creeps(&mut mem);
+    do_spawns(&mut mem);
 
     do_towers();
 
-    memory.movement.update_tick_end();
+    mem.movement.update_tick_end();
 
-    memory.tick_times.push_front(game::cpu::get_used());
-    if memory.tick_times.len() > 500 { memory.tick_times.pop_back(); }
+    mem.tick_times.push_front(game::cpu::get_used());
+    if mem.tick_times.len() > 500 { mem.tick_times.pop_back(); }
 
-    memory.handle_callbacks();
-    memory.screeps_serialize();
+    mem.handle_callbacks();
+    mem.screeps_serialize();
 }

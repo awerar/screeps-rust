@@ -2,12 +2,12 @@ use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}};
 
 use js_sys::{JsString, Reflect};
 use log::*;
-use screeps::{Position, RoomName, game};
+use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, colony::{ColonyConfig, ColonyState}, creeps::{CreepRole, harvester::SourceAssignments}, movement::Movement, remote_build::RemoteBuildRequests};
+use crate::{callbacks::Callbacks, colony::{ColonyConfig, ColonyState}, creeps::{CreepConfig, CreepRole, harvester::SourceAssignments}, movement::Movement, remote_build::RemoteBuildRequests};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -20,8 +20,12 @@ pub struct Memory {
 
     #[serde(default)] pub machines: StateMachines,
 
+    #[serde(rename = "creep_configs")]
+    #[serde(default)] pub creeps: HashMap<String, CreepConfig>,
+    #[serde(default)] pub colonies: HashMap<RoomName, ColonyConfig>,
+
     #[serde(default)] pub last_alive_creeps: HashSet<String>,
-    #[serde(default)] pub source_assignments: SourceAssignments,
+    #[serde(default)] pub source_assignments: HashMap<RoomName, SourceAssignments>,
     #[serde(default)] pub callbacks: Callbacks,
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: HashSet<Position>,
@@ -31,7 +35,7 @@ pub struct Memory {
 #[derive(Serialize, Deserialize, Default)]
 pub struct StateMachines {
     #[serde(default)] pub creeps: HashMap<String, CreepRole>,
-    #[serde(default)] pub colonies: HashMap<RoomName, (ColonyConfig, ColonyState)>,
+    #[serde(default)] pub colonies: HashMap<RoomName, ColonyState>,
 }
 
 thread_local! {
@@ -51,6 +55,14 @@ pub fn reset_source_assignments() {
 }
 
 impl Memory {
+    pub fn creep(&self, creep: &Creep) -> Option<&CreepConfig> {
+        self.creeps.get(&creep.name())
+    }
+
+    pub fn colony(&self, name: RoomName) -> Option<&ColonyConfig> {
+        self.colonies.get(&name)
+    }
+
     pub fn screeps_deserialize() -> Self {
         RESET_MEMORY.with_borrow_mut(|reset| {
             if *reset {
@@ -61,20 +73,20 @@ impl Memory {
             }
         });
 
-        let memory = screeps::raw_memory::get();
-        let mut memory: Memory = serde_json::from_str(&String::from(memory)).expect("Memory should follow correct schema");
-        memory._internal_creeps = None; // This is deserialized separately in JS
+        let mem = screeps::raw_memory::get();
+        let mut mem: Memory = serde_json::from_str(&String::from(mem)).expect("Memory should follow correct schema");
+        mem._internal_creeps = None; // This is deserialized separately in JS
 
         RESET_SOURCE_ASSIGNMENTS.with_borrow_mut(|reset| {
             if *reset {
-                memory.source_assignments = SourceAssignments::default();
+                mem.source_assignments = HashMap::new();
                 *reset = false;
 
                 info!("Reset source assignments by command");
             }
         });
 
-        memory
+        mem
     }
 
     pub fn screeps_serialize(&mut self) {
@@ -85,17 +97,22 @@ impl Memory {
 
         self.periodic_cleanup();
 
-        let memory = serde_json::to_string(&self).unwrap();
-        screeps::raw_memory::set(&JsString::from(memory));
+        let mem = serde_json::to_string(&self).unwrap();
+        screeps::raw_memory::set(&JsString::from(mem));
     }
 
     pub fn cleanup_creep(&mut self, name: &str) {
         info!("Cleaning up dead creep {}", name);
 
         self.machines.creeps.remove(name);
-        self.source_assignments.remove(name);
+        self.creeps.remove(name);
+
         self.last_alive_creeps.remove(name);
         self.movement.creeps_data.remove(name);
+
+        for source_assignment in self.source_assignments.values_mut() {
+            source_assignment.remove(name);
+        }
     }
 
     pub fn periodic_cleanup(&mut self) {

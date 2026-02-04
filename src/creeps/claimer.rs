@@ -1,10 +1,10 @@
-use screeps::{Creep, ObjectId, Position, StructureController, game, prelude::*};
+use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
 use log::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::DatalessCreepState, memory::Memory};
+use crate::{creeps::CreepState, memory::Memory};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
 pub enum ClaimerState {
     #[default]
     Idle,
@@ -12,42 +12,55 @@ pub enum ClaimerState {
     Claiming(Position, ObjectId<StructureController>)
 }
 
-impl DatalessCreepState for ClaimerState {
-    fn execute(self, creep: &Creep, memory: &mut Memory) -> Option<Self> {
+impl CreepState for ClaimerState {
+    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
+        use ClaimerState::*;
+
         match &self {
-            ClaimerState::Idle => {
-                if let Some(position) = memory.claim_requests.iter().next() {
-                    ClaimerState::GoingTo(*position).execute(creep, memory)
+            Idle => {
+                if let Some(position) = mem.claim_requests.iter().next() {
+                    Ok(GoingTo(*position))
                 } else {
-                    Some(self)
+                    Ok(self.clone())
                 }
             },
-            ClaimerState::Claiming(request, controller) => {
-                let controller = controller.resolve()?;
-
-                if creep.pos().is_near_to(controller.pos()) {
-                    if creep.claim_controller(&controller).is_ok() {
-                        info!("Sucessfully claimed controller!");
-                        memory.claim_requests.remove(request);
-
-                        return Some(ClaimerState::Idle)
-                    }
-                } else {
-                    memory.movement.smart_move_creep_to(creep, &controller).ok();
-                }
-
-                Some(self)
-            },
-            ClaimerState::GoingTo(target) => {
+            GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name() {
                     if let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return ClaimerState::Claiming(target.clone(), controller.id()).execute(creep, memory)
+                        return Ok(Claiming(target.clone(), controller.id()))
                     }
                 }
 
-                memory.movement.smart_move_creep_to(creep, *target).ok();
-                Some(self)
+                mem.movement.smart_move_creep_to(creep, *target).ok();
+                Ok(self.clone())
             }
+            Claiming(request, controller) => {
+                let controller = controller.resolve().ok_or(())?;
+
+                if creep.pos().is_near_to(controller.pos()) {
+                    match creep.claim_controller(&controller) {
+                        Ok(()) => {
+                            info!("Sucessfully claimed controller!");
+                            mem.claim_requests.remove(request);
+
+                            return Ok(Idle)
+                        },
+                        Err(ClaimControllerErrorCode::InvalidTarget) => {
+                            creep.attack_controller(&controller).ok();
+                        },
+                        Err(_) => {
+                            warn!("Unable to claim controller!");
+                            mem.claim_requests.remove(request);
+
+                            return Ok(Idle)
+                        }
+                    }
+                } else {
+                    mem.movement.smart_move_creep_to(creep, &controller).ok();
+                }
+
+                Ok(self.clone())
+            },
         }
     }
 }

@@ -23,11 +23,11 @@ const PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::n
 });
 
 impl PeriodicCallback {
-    pub fn execute(&self, memory: &mut Memory) {
+    pub fn execute(&self, mem: &mut Memory) {
         match self {
-            PeriodicCallback::MemoryCleanup => memory.periodic_cleanup(),
-            PeriodicCallback::RoomUpdate => update_rooms(memory),
-            PeriodicCallback::RemoteBuildUpdate => memory.remote_build_requests.update_requests(),
+            PeriodicCallback::MemoryCleanup => mem.periodic_cleanup(),
+            PeriodicCallback::RoomUpdate => update_rooms(mem),
+            PeriodicCallback::RemoteBuildUpdate => mem.remote_build_requests.update_requests(),
         }
     }
 }
@@ -38,9 +38,9 @@ pub enum Callback {
 }
 
 impl Callback {
-    pub fn execute(self, memory: &mut Memory) {
+    pub fn execute(self, mem: &mut Memory) {
         match self {
-            Callback::CreepCleanup(creep) => memory.cleanup_creep(&creep),
+            Callback::CreepCleanup(creep) => mem.cleanup_creep(&creep),
         }
     }
 }

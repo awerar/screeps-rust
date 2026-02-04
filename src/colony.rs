@@ -1,5 +1,6 @@
 use std::{collections::HashSet, fmt::Debug, ops::Not};
 
+use itertools::Itertools;
 use screeps::{Direction, Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, RoomTerrain, StructureController, StructureObject, StructureProperties, StructureSpawn, StructureType, Terrain, find, game, look};
 use serde::{Deserialize, Serialize};
 use log::*;
@@ -12,12 +13,12 @@ const CLAIM_FLAG_PREFIX: &str = "Claim";
 
 trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
     fn get_promotion(&self) -> Option<Self>;
-    fn can_promote(&self, colony: &ColonyConfig, memory: &Memory) -> bool;
+    fn can_promote(&self, name: RoomName, mem: &Memory) -> bool;
 
-    fn get_demotion(&self, colony: &ColonyConfig, memory: &Memory) -> Option<Self>;
+    fn get_demotion(&self, name: RoomName, mem: &Memory) -> Option<Self>;
 
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()>;
-    fn on_update(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()>;
+    fn on_transition_into(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()>;
+    fn on_update(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()>;
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
@@ -40,46 +41,49 @@ impl ColonyState {
         unsafe { *(self as *const Self as *const u8) }
     }
 
-    fn transition_into(&mut self, next_state: Self, colony: &ColonyConfig, memory: &mut Memory, transition_count: usize) {
+    fn transition_into(&self, next_state: Self, name: RoomName, mem: &mut Memory, transition_count: usize) -> Self {
         if transition_count > 20 {
-            warn!("Room {} transitioned too many times. Breaking", colony.room_name);
+            warn!("Room {} transitioned too many times. Breaking", name);
         }
         
-        if next_state.on_transition_into(colony, memory).is_err() {
-            return error!("Transition from {self:?} into {next_state:?} failed");
+        if next_state.on_transition_into(name, mem).is_err() {
+            error!("Transition from {self:?} into {next_state:?} failed");
+            return self.clone()
         }
         
-        *self = next_state;
-        self.update(colony, memory, transition_count + 1);
+        return next_state.update(name, mem, transition_count + 1);
     }
 
-    fn update(&mut self, colony: &ColonyConfig, memory: &mut Memory, transition_count: usize) {
-        if let Some(demotion) = self.get_demotion(colony, memory) { 
+    fn update(&self, name: RoomName, mem: &mut Memory, transition_count: usize) -> Self {
+        if let Some(demotion) = self.get_demotion(name, mem) { 
             assert!(demotion < *self, "Demotion from {self:?} to {demotion:?} is not actually a demotion");
-            warn!("Demoting colony {} from {self:?} to {demotion:?}", colony.room_name);
+            warn!("Demoting colony {} from {self:?} to {demotion:?}", name);
 
-            return self.transition_into(demotion, colony, memory, transition_count);
+            return self.transition_into(demotion, name, mem, transition_count);
         };
 
-        if self.can_promote(colony, memory) {
+        if self.can_promote(name, mem) {
             if let Some(promotion) = self.get_promotion() {
-                info!("Promoting colony {} from {self:?} to {promotion:?}", colony.room_name);
+                info!("Promoting colony {} from {self:?} to {promotion:?}", name);
 
-                return self.transition_into(promotion, colony, memory, transition_count);
+                return self.transition_into(promotion, name, mem, transition_count);
             } else {
                 warn!("Transition discreprancy: can promote from {self:?}, but there is no promotion state")
             }
         }
 
-        if self.on_update(colony, memory).is_err() {
+        if self.on_update(name, mem).is_err() {
             if *self == Self::default() {
-                error!("Room {} failed on default state {:?}", colony.room_name, self)
+                error!("Room {} failed on default state {:?}", name, self);
+                return Self::default()
             } else {
-                warn!("Room {} failed on state {:?}. Falling back to default state {:?}", colony.room_name, self, Self::default());
+                warn!("Room {} failed on state {:?}. Falling back to default state {:?}", name, self, Self::default());
                 
-                return self.transition_into(Self::default(), colony, memory, transition_count);
+                return self.transition_into(Self::default(), name, mem, transition_count);
             }
         }
+
+        self.clone()
     }
 }
 
@@ -100,15 +104,15 @@ impl State for ColonyState {
         }
     }
 
-    fn can_promote(&self, colony: &ColonyConfig, memory: &Memory) -> bool {
+    fn can_promote(&self, name: RoomName, mem: &Memory) -> bool {
         use ColonyState::*;
 
-        let controller_is_upgraded = colony.level() > self.controller_level();
+        let controller_is_upgraded = mem.colony(name).unwrap().level() > self.controller_level();
 
         match self {
             Unclaimed => controller_is_upgraded,
             Level1(substate) => 
-                substate.can_promote(colony, memory) || (substate.get_promotion().is_none() && controller_is_upgraded),
+                substate.can_promote(name, mem) || (substate.get_promotion().is_none() && controller_is_upgraded),
             Level2 => controller_is_upgraded,
             Level3 => controller_is_upgraded,
             Level4 => controller_is_upgraded,
@@ -119,11 +123,11 @@ impl State for ColonyState {
         }
     }
 
-    fn get_demotion(&self, colony: &ColonyConfig, memory: &Memory) -> Option<Self> {
+    fn get_demotion(&self, name: RoomName, mem: &Memory) -> Option<Self> {
         use ColonyState::*;
 
-        if self.controller_level() > colony.level() {
-            return Some(match colony.level() {
+        if self.controller_level() > mem.colony(name).unwrap().level() {
+            return Some(match mem.colony(name).unwrap().level() {
                 0 => Unclaimed,
                 1 => Level1(Default::default()),
                 2 => Level2,
@@ -139,7 +143,7 @@ impl State for ColonyState {
 
         match self {
             Unclaimed => None,
-            Level1(substate) => substate.get_demotion(colony, memory).map(|substate| Level1(substate)),
+            Level1(substate) => substate.get_demotion(name, mem).map(|substate| Level1(substate)),
             Level2 => None,
             Level3 => None,
             Level4 => None,
@@ -150,12 +154,12 @@ impl State for ColonyState {
         }
     }
     
-    fn on_update(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()> {
+    fn on_update(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()> {
         use ColonyState::*;
 
         match &self {
             Unclaimed => Ok(()),
-            Level1(substate) => substate.on_update(colony, memory),
+            Level1(substate) => substate.on_update(name, mem),
             Level2 => Ok(()),
             Level3 => Ok(()),
             Level4 => Ok(()),
@@ -166,22 +170,26 @@ impl State for ColonyState {
         }
     }
     
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()> {
+    fn on_transition_into(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()> {
         use ColonyState::*;
         
         match &self {
             Unclaimed => {
-                memory.claim_requests.insert(colony.center);
+                if !self.can_promote(name, mem) {
+                    mem.claim_requests.insert(mem.colony(name).unwrap().center);
+                }
             },
-            Level1(substate) => substate.on_transition_into(colony, memory)?,
+            Level1(substate) => substate.on_transition_into(name, mem)?,
             Level2 | Level3 | Level4 | Level5 | Level6 | Level7 | Level8 => {
-                plan_center_in(colony);
-                plan_main_roads_in(&colony.room().unwrap());
+                if !self.can_promote(name, mem) {
+                    plan_center_in(mem.colony(name).unwrap());
+                    plan_main_roads_in(&mem.colony(name).unwrap().room().unwrap());
+                }
             },
         }
 
         if *self == Level4 {
-            if let Some(buffer) = colony.buffer_structure() {
+            if let Some(buffer) = mem.colony(name).unwrap().buffer_structure() {
                 if buffer.structure_type() == StructureType::Container {
                     buffer.destroy().ok();
                 }
@@ -214,59 +222,59 @@ impl State for Level1State {
         }
     }
 
-    fn can_promote(&self, colony: &ColonyConfig, _memory: &Memory) -> bool {
+    fn can_promote(&self, name: RoomName, mem: &Memory) -> bool {
         use Level1State::*;
 
         match self {
-            BuildContainerBuffer => colony.buffer_structure().is_some(),
-            BuildSpawn => colony.spawn().is_some(),
+            BuildContainerBuffer => mem.colony(name).unwrap().buffer_structure().is_some(),
+            BuildSpawn => mem.colony(name).unwrap().spawn().is_some(),
             BuildRoads => {
-                colony.room().unwrap().find(find::CONSTRUCTION_SITES, None).into_iter()
+                mem.colony(name).unwrap().room().unwrap().find(find::CONSTRUCTION_SITES, None).into_iter()
                     .any(|site| site.structure_type() == StructureType::Road)
                     .not()
             },
-            UpgradeController => colony.level() > 1,
+            UpgradeController => mem.colony(name).unwrap().level() > 1,
         }
     }
 
-    fn get_demotion(&self, colony: &ColonyConfig, _memory: &Memory) -> Option<Self> {
+    fn get_demotion(&self, name: RoomName, mem: &Memory) -> Option<Self> {
         use Level1State::*;
 
-        if *self > BuildContainerBuffer && colony.buffer_structure().is_none() {
+        if *self > BuildContainerBuffer && mem.colony(name).unwrap().buffer_structure().is_none() {
             return Some(BuildContainerBuffer)
         }
 
-        if *self > BuildSpawn && colony.spawn().is_none() {
+        if *self > BuildSpawn && mem.colony(name).unwrap().spawn().is_none() {
             return Some(BuildSpawn)
         }
 
         None
     }
 
-    fn on_transition_into(&self, colony: &ColonyConfig, memory: &mut Memory) -> Result<(), ()> {
-        if self.can_promote(colony, memory) { return Ok(()) }
+    fn on_transition_into(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()> {
+        if self.can_promote(name, mem) { return Ok(()) }
 
         match self {
             Level1State::BuildContainerBuffer => {
-                if !self.can_promote(colony, memory) {
-                    memory.remote_build_requests.create_request(colony.buffer_pos, StructureType::Container)
+                if !self.can_promote(name, mem) {
+                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().buffer_pos, StructureType::Container, Some("Center"))
                 } else {
                     Ok(())
                 }
             },
             Level1State::BuildSpawn => {
-                if !self.can_promote(colony, memory) {
-                    memory.remote_build_requests.create_request(colony.center, StructureType::Road)
+                if !self.can_promote(name, mem) {
+                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Road, None)
                 } else {
                     Ok(())
                 }
             },
-            Level1State::BuildRoads => Ok(plan_main_roads_in(&colony.room().unwrap())),
+            Level1State::BuildRoads => Ok(plan_main_roads_in(&mem.colony(name).unwrap().room().unwrap())),
             Level1State::UpgradeController => Ok(()),
         }
     }
 
-    fn on_update(&self, _colony: &ColonyConfig, _memory: &mut Memory) -> Result<(), ()> {
+    fn on_update(&self, _name: RoomName, _mem: &mut Memory) -> Result<(), ()> {
         Ok(())
     }
 }
@@ -303,23 +311,22 @@ impl ColonyConfig {
             .next()
     }
 
-    fn try_construct_from(room_name: RoomName) -> Result<Self, &'static str> {
-        let center = game::rooms().get(room_name).and_then(|room| {
+    fn try_construct_from(name: RoomName) -> Option<Self> {
+        let center = game::rooms().get(name).and_then(|room| {
             room.find(find::MY_SPAWNS, None).into_iter()
-                .next()
+                .sorted_by_key(|spawn| spawn.name())
+                .find_or_first(|spawn| spawn.name().starts_with("Center"))
                 .map(|spawn| spawn.pos())
         }).or_else(|| {
             find_claim_flags().into_iter()
                 .map(|flag| flag.pos())
-                .filter(|pos| pos.room_name() == room_name)
+                .filter(|pos| pos.room_name() == name)
                 .next()
         });
 
-        let Some(center) = center else {
-            return Err("Unable to determine center")
-        };
+        let Some(center) = center else { return None; };
 
-        let buffer_pos = game::rooms().get(room_name).and_then(|room| {
+        let buffer_pos = game::rooms().get(name).and_then(|room| {
             let structures = room.find(find::MY_STRUCTURES, None).into_iter()
                 .map(|structure| (structure.pos(), structure.structure_type()));
 
@@ -336,7 +343,7 @@ impl ColonyConfig {
                 }).next()
                 .map(|(pos, _)| pos)
         }).unwrap_or_else(|| {
-            let mut terrain = RoomTerrain::new(room_name).unwrap();
+            let mut terrain = RoomTerrain::new(name).unwrap();
             let mut dir = Direction::BottomRight;
             for _ in 0..4 {
                 let candidate = center + dir;
@@ -350,7 +357,7 @@ impl ColonyConfig {
             unreachable!();
         });
 
-        Ok(ColonyConfig { room_name, center, buffer_pos  })
+        Some(ColonyConfig { room_name: name, center, buffer_pos  })
     }
 }
 
@@ -361,7 +368,7 @@ fn find_claim_flags() -> Vec<Flag> {
         .collect()
 }
 
-pub fn update_rooms(memory: &mut Memory) {
+pub fn update_rooms(mem: &mut Memory) {
     info!("Updating rooms...");
 
     let owned_rooms = game::rooms().entries()
@@ -375,30 +382,34 @@ pub fn update_rooms(memory: &mut Memory) {
         .map(|flag| flag.pos().room_name());
 
     let curr_rooms: HashSet<_> = owned_rooms.chain(claim_rooms).collect();
-    let prev_rooms: HashSet<_> = memory.machines.colonies.keys().cloned().collect();
+    let prev_rooms: HashSet<_> = mem.machines.colonies.keys().cloned().collect();
 
     let lost_rooms = prev_rooms.difference(&curr_rooms);
     for room in lost_rooms {
-        memory.machines.colonies.remove(room);
+        mem.machines.colonies.remove(room);
         warn!("Lost room {}", room);
     }
 
-    for room_name in curr_rooms {
-        let room_data = memory.machines.colonies.get_mut(&room_name);
-        let room_data = match room_data {
-            Some(room_data) => room_data,
-            None => {
-                let room_config = ColonyConfig::try_construct_from(room_name);
-                let room_config = room_config.inspect_err(|e| error!("Unable to create room config from room {room_name}: {e}"));
-                
-                let Ok(room_config) = room_config else { continue; };
+    for name in curr_rooms {
+        if !mem.colonies.contains_key(&name) {
+            let Some(colony) = ColonyConfig::try_construct_from(name) else {
+                error!("Unable to construct colony config for {name}");
+                continue; 
+            };
+            mem.colonies.insert(name, colony);
+        }
 
-                memory.machines.colonies.try_insert(room_name, (room_config, ColonyState::default())).ok().unwrap()
-            },
-        };
+        if !mem.machines.colonies.contains_key(&name) {
+            let state = ColonyState::default();
+            if state.on_transition_into(name, mem).is_err() {
+                error!("Unable to transition into default state for {name}");
+                continue; 
+            };
+            mem.machines.colonies.insert(name, state);
+        }
 
-        let (config, state) = room_data;
-        state.update(config, memory, 0);
+        let state = mem.machines.colonies[&name].clone();
+        *mem.machines.colonies.get_mut(&name).unwrap() = state.update(name, mem, 0);
     }
 }
 
