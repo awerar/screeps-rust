@@ -252,24 +252,22 @@ impl State for Level1State {
     }
 
     fn on_transition_into(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()> {
-        if self.can_promote(name, mem) { return Ok(()) }
-
         match self {
             Level1State::BuildContainerBuffer => {
                 if !self.can_promote(name, mem) {
-                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().buffer_pos, StructureType::Container, Some("Center"))
+                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().buffer_pos, StructureType::Container, None)
                 } else {
                     Ok(())
                 }
             },
             Level1State::BuildSpawn => {
                 if !self.can_promote(name, mem) {
-                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Spawn, None)
+                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Spawn, Some("Center"))
                 } else {
                     Ok(())
                 }
             },
-            Level1State::BuildRoads => Ok(plan_main_roads_in(&mem.colony(name).unwrap().room().unwrap())),
+            Level1State::BuildRoads => Ok(plan_main_roads_in(&mem.colony(name).ok_or(())?.room().ok_or(())?)),
             Level1State::UpgradeController => Ok(()),
         }
     }

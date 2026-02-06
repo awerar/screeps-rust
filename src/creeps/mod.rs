@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::fmt::Debug;
 
 use log::*;
 use screeps::{Creep, RoomName, game, prelude::*};
@@ -39,8 +39,14 @@ pub struct CreepConfig {
 
 impl CreepConfig {
     fn try_construct_from(creep: &Creep, mem: &Memory) -> Option<Self> {
-        let colony = mem.colony(creep.pos().room_name())?;
-
+        let colony = mem.colony(creep.pos().room_name())
+            .filter(|colony| colony.spawn().is_some())
+            .or_else(|| 
+                mem.colonies.values()
+                .filter(|colony| colony.spawn().is_some())
+                .min_by_key(|colony| colony.center.get_range_to(creep.pos()))
+            )?;
+        
         Some(CreepConfig { home: colony.room_name })
     }
 }
@@ -91,30 +97,6 @@ impl CreepType {
             CreepType::Claimer => CreepRole::Claimer(Default::default()),
             CreepType::RemoteBuilder => CreepRole::RemoteBuilder(Default::default()),
         }
-    }
-}
-
-impl Memory {
-    pub fn get_total_role_count(&self) -> HashMap<CreepType, usize> {
-        let mut result = HashMap::new();
-        for role in self.machines.creeps.values() {
-            *result.entry(role.get_type()).or_default() += 1;
-        }
-
-        result
-    }
-
-    pub fn get_current_role_count_in(&self, room_name: RoomName) -> HashMap<CreepType, usize> {
-        let mut result = HashMap::new();
-
-        for (creep_name, role) in &self.machines.creeps {
-            let Some(config) = self.creeps.get(creep_name) else { continue; };
-            if config.home != room_name { continue; }
-
-            *result.entry(role.get_type()).or_default() += 1;
-        }
-
-        result
     }
 }
 

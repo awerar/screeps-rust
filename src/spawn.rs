@@ -135,9 +135,9 @@ fn get_current_spawn_queue(mem: &mut Memory) -> HashMap<RoomName, VecDeque<Creep
 
     let mut queue = SpawnQueue::new(mem);
 
-    for colony in mem.colonies.keys() {
-        let target_harvesters = mem.source_assignments.get(&colony).map(|x| x.max_creeps()).unwrap_or(0);
-        queue.queue_missing_in_colony(*colony, Worker, target_harvesters);
+    for colony in mem.colonies.keys().cloned().collect::<Vec<_>>() {
+        let target_harvesters = mem.source_assignments(colony).map(|assignments| assignments.max_creeps()).unwrap_or(0);
+        queue.queue_missing_in_colony(colony, Worker, target_harvesters);
     }
 
     queue.queue_missing_distributed(Claimer, (mem.claim_requests.len() > 0).then_some(1).unwrap_or(0)).ok();
@@ -161,7 +161,7 @@ pub fn do_spawns(mem: &mut Memory) {
 
         let room = spawn.room().unwrap();
         let queue = colony_queues.entry(room.name()).or_default();
-        debug!("Spawn queue for {}: {queue:?}", room.name());
+        //debug!("Spawn queue for {}: {queue:?}", room.name());
         
         let Some(ty) = queue.front() else { continue; };
 

@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, sync::LazyLock};
 use itertools::Itertools;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTower, StructureType, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, RoomName, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTower, StructureType, find, game, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 
@@ -31,7 +31,29 @@ pub struct SourceAssignments {
     sources: HashMap<ObjectId<Source>, SourceData>
 }
 
+impl Memory {
+    pub fn source_assignments(&mut self, room: RoomName) -> Option<&mut SourceAssignments> {
+        if !self.source_assignments.contains_key(&room) {
+            let Some(assignments) = SourceAssignments::new(room) else { 
+                error!("Unable to create source assignments in {room}");
+                return None; 
+            };
+
+            self.source_assignments.insert(room, assignments);
+        }
+
+        return self.source_assignments.get_mut(&room)
+    }
+}
+
 impl SourceAssignments {
+    fn new(room: RoomName) -> Option<Self> {
+        let room = game::rooms().get(room)?;
+        let sources = room.find(find::SOURCES, None).into_iter()
+            .map(|source| (source.id(), SourceData::default())).collect();
+        Some(Self { assignments: HashMap::new(), sources: sources })
+    }
+
     fn get_assignment(&mut self, creep: &Creep) -> Option<ObjectId<Source>> {
         if let assignment@Some(_) = self.assignments.get(&creep.name()) { return assignment.cloned() }
         
@@ -56,15 +78,6 @@ impl SourceAssignments {
 
     pub fn max_creeps(&self) -> usize {
         self.sources.values().map(|source_data| source_data.capacity).sum()
-    }
-}
-
-impl Default for SourceAssignments {
-    fn default() -> Self {
-        let room = game::spawns().values().next().unwrap().room().unwrap();
-        let sources = room.find(find::SOURCES, None).into_iter()
-            .map(|source| (source.id(), SourceData::default())).collect();
-        Self { assignments: HashMap::new(), sources: sources }
     }
 }
 
@@ -230,7 +243,7 @@ impl CreepState for HarvesterState {
                 }
 
                 if next_state.is_idle() && !is_full(creep) {
-                    let source_assignments = mem.source_assignments.entry(mem.creep(creep).ok_or(())?.home).or_default();
+                    let source_assignments = mem.source_assignments(mem.creep(creep).ok_or(())?.home).ok_or(())?;
                     if let Some(assignment) = source_assignments.get_assignment(creep) {
                         next_state = Harvesting(assignment)
                     }
@@ -255,7 +268,13 @@ impl CreepState for HarvesterState {
                 else { Ok(self.clone()) }
             },
             Distributing(target) => {
-                try_repair(creep);
+                if !(matches!(target, DistributionTarget::Controller(_)) 
+                    && mem.creep_home(creep)
+                        .and_then(|home| home.controller())
+                        .and_then(|controller| controller.ticks_to_downgrade())
+                        .map(|ticks| ticks < 10000).unwrap_or(false)) {
+                    try_repair(creep);
+                }
 
                 let target_pos = target.pos().ok_or(())?;
                 mem.movement.smart_move_creep_to(creep, target_pos).ok();

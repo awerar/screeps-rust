@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use js_sys::Math::random;
 use screeps::{Creep, Position, action_error_codes::CreepMoveToErrorCode, game, prelude::*};
 use serde::{Deserialize, Serialize};
-use log::*;
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -39,7 +38,7 @@ impl Movement {
         let creep_data = self.creeps_data.entry(creep.name()).or_default();
 
         if let MoveState::Sleeping(_) = creep_data.move_state {
-            debug!("{} is sleeping... ZZZ", creep.name());
+            //debug!("{} is sleeping... ZZZ", creep.name());
             return Ok(()) 
         }
         creep.move_to(target)
@@ -63,7 +62,7 @@ impl Movement {
                     if !is_deadlocked { break 'move_state None }
 
                     let sleep_ticks = (random() * 2.0) as u32;
-                    debug!("{} is deadlocked. Sleeping for {} ticks", creep.name(), sleep_ticks);
+                    //debug!("{} is deadlocked. Sleeping for {} ticks", creep.name(), sleep_ticks);
 
                     if sleep_ticks > 0 { Some(MoveState::Sleeping(game::time() + sleep_ticks)) }
                     else { None }

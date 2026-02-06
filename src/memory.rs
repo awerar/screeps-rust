@@ -42,6 +42,7 @@ thread_local! {
     static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
     static RESET_TILE_USAGE: RefCell<bool> = RefCell::new(false);
     static RESET_SOURCE_ASSIGNMENTS: RefCell<bool> = RefCell::new(false);
+    static REFRESH_COLONY: RefCell<Option<RoomName>> = RefCell::new(None);
 }
 
 #[wasm_bindgen]
@@ -54,7 +55,16 @@ pub fn reset_source_assignments() {
     RESET_SOURCE_ASSIGNMENTS.replace(true);
 }
 
+#[wasm_bindgen]
+pub fn refresh_colony_state(colony: String) {
+    REFRESH_COLONY.replace(Some(RoomName::new(&colony).unwrap()));
+}
+
 impl Memory {
+    pub fn creep_home(&self, creep: &Creep) -> Option<&ColonyConfig> {
+        self.creep(creep).and_then(|config| self.colony(config.home))
+    }
+
     pub fn creep(&self, creep: &Creep) -> Option<&CreepConfig> {
         self.creeps.get(&creep.name())
     }
@@ -83,6 +93,15 @@ impl Memory {
                 *reset = false;
 
                 info!("Reset source assignments by command");
+            }
+        });
+
+        REFRESH_COLONY.with_borrow_mut(|colony_option| {
+            if let Some(colony) = colony_option {
+                *mem.machines.colonies.get_mut(colony).unwrap() = Default::default();
+                *colony_option = None;
+
+                info!("Refreshed room by command");
             }
         });
 
