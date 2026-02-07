@@ -40,7 +40,7 @@ pub fn game_loop() {
     let mut mem = Memory::screeps_deserialize();
     mem.movement.update_tick_start();
 
-    info!("=== Starting tick {} (L{:.1}, M{:.1}, S{:.1}) Bucket: {} ===", game::time(), 
+    info!("=== Starting tick {} (L[{:.1}], M[{:.1}], S[{:.1}]) Bucket: {} ===", game::time(), 
         mem.get_average_tick_rate_over(500), 
         mem.get_average_tick_rate_over(100),
         mem.get_average_tick_rate_over(10),

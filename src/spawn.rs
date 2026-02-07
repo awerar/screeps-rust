@@ -1,45 +1,32 @@
-use std::{collections::{HashMap, VecDeque}, ops::{Deref, DerefMut}, sync::LazyLock};
+use std::{cmp::Reverse, iter, ops::{Add, Mul}, sync::LazyLock};
 
+use itertools::Itertools;
 use log::*;
-use screeps::{Part, RoomName, game, prelude::*};
+use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::CreepType, memory::Memory, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{CreepConfig, CreepType}, memory::Memory, names::get_new_creep_name};
 
 #[derive(Clone)]
-pub struct BodyTemplate(Vec<Part>);
+struct Body(Vec<Part>);
 
-impl Deref for BodyTemplate {
-    type Target = Vec<Part>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for BodyTemplate {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl BodyTemplate {
-    pub fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Option<BodyTemplate> {
-        let mut counts: Vec<usize> = vec![0; self.len()];
+impl Body {
+    fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Option<Body> {
+        let mut counts: Vec<usize> = vec![0; self.0.len()];
         let mut cost = 0;
 
-        let min_parts = min_parts.unwrap_or(self.len());
+        let min_parts = min_parts.unwrap_or(self.0.len());
 
         loop {
-            for (i, part )in self.iter().enumerate() {
+            for (i, part )in self.0.iter().enumerate() {
                 cost += part.cost();
 
                 if cost > energy {
-                    let body = BodyTemplate(self.iter()
+                    let body = Body(self.0.iter()
                         .zip(counts.into_iter())
                         .flat_map(|(part, count)| vec![part.clone(); count].into_iter())
                         .collect());
                     
-                    if body.len() > min_parts {
+                    if body.0.len() > min_parts {
                         return Some(body);
                     } else {
                         return None;
@@ -51,141 +38,332 @@ impl BodyTemplate {
         }
     }
 
-    pub fn energy_required(&self) -> u32 {
-        self.iter().map(|part| part.cost()).sum()
+    fn energy_required(&self) -> u32 {
+        self.0.iter().map(|part| part.cost()).sum()
     }
 
-    pub fn time_to_live(&self) -> u32 {
-        if self.contains(&Part::Claim) { 600 } else { 1500 }
+    fn time_to_live(&self) -> u32 {
+        if self.0.contains(&Part::Claim) { 600 } else { 1500 }
     }
 
-    pub fn time_to_spawn(&self) -> u32 {
-        (self.len() * 3) as u32
+    fn time_to_spawn(&self) -> u32 {
+        (self.0.len() * 3) as u32
+    }
+
+    fn num(&self, part: Part) -> usize {
+        self.0.iter().filter(|p| **p == part).count()
     }
 }
 
-struct SpawnQueue {
-    pub queues: HashMap<RoomName, VecDeque<CreepType>>,
+impl Mul<usize> for Body {
+    type Output = Self;
 
-    colony_roles: HashMap<RoomName, HashMap<CreepType, usize>>,
-    total_roles: HashMap<CreepType, usize>
+    fn mul(self, rhs: usize) -> Self::Output {
+        Body(self.0.into_iter().flat_map(|part| iter::repeat_n(part, rhs)).collect())
+    }
 }
 
-impl SpawnQueue {
+impl Add for Body {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Body(self.0.into_iter().chain(rhs.0.into_iter()).collect())
+    }
+}
+
+impl From<Part> for Body {
+    fn from(value: Part) -> Self {
+        Body(vec![value])
+    }
+}
+
+struct CreepPrototype {
+    body: Body,
+    ty: CreepType,
+    config: CreepConfig
+}
+
+impl CreepPrototype {
+    fn try_from_existing(mem: &Memory, creep: Creep) -> Option<Self> {
+        Some(Self {
+            body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
+            ty: mem.machines.creeps.get(&creep.name())?.get_type(),
+            config: mem.creeps.get(&creep.name())?.clone()
+        })
+    }
+}
+
+type TicksLeft = u32;
+
+enum SpawnerStatus {
+    Free,
+    Blocked,
+    Scheduled(CreepPrototype),
+    #[expect(unused)]
+    Spawning(CreepPrototype, TicksLeft)
+}
+
+impl SpawnerStatus {
+    fn is_free(&self) -> bool {
+        matches!(self, Self::Free)
+    }
+}
+
+struct SpawnerData {
+    name: String,
+    room: RoomName,
+    energy_capacity: u32,
+    energy_avaliable: u32,
+
+    status: SpawnerStatus,
+}
+
+impl SpawnerData {
+    fn try_from(mem: &Memory, spawn: StructureSpawn) -> Option<Self> {
+        let room = spawn.room()?;
+        let spawning = spawn.spawning()
+            .and_then(|spawning| {
+                let prototype = game::creeps().get(spawning.name().into())
+                .and_then(|creep| CreepPrototype::try_from_existing(mem, creep))?;
+
+                Some((prototype, spawning.remaining_time()))
+            });
+
+        Some(Self {
+            name: spawn.name(),
+            room: room.name(),
+            energy_capacity: room.energy_capacity_available(),
+            energy_avaliable: room.energy_available(),
+            status: spawning.map_or(SpawnerStatus::Free, |(proto, time_left)| SpawnerStatus::Spawning(proto, time_left)),
+        })
+    }
+
+    fn schedule(&mut self, prototype: CreepPrototype) -> bool {
+        if self.is_free() && self.energy_avaliable >= prototype.body.energy_required() {
+            self.status = SpawnerStatus::Scheduled(prototype);
+            true
+        } else { false }
+    }
+
+    fn schedule_or_block(&mut self, prototype: CreepPrototype) -> bool {
+        if self.is_free() {
+            if !self.schedule(prototype) {
+                self.status = SpawnerStatus::Blocked;
+                false
+            } else { true }
+        } else { false }
+    }
+
+    fn is_free(&self) -> bool {
+        self.status.is_free()
+    }
+}
+
+struct SpawnSchedule {
+    spawners: Vec<SpawnerData>,
+    already_spawned: Vec<CreepPrototype>
+}
+
+impl SpawnSchedule {
     fn new(mem: &Memory) -> Self {
-        let colony_queues: HashMap<_, _> = mem.colonies.keys().cloned().map(|colony| (colony, VecDeque::new())).collect();
-        let mut colony_roles: HashMap<_, _> = mem.colonies.keys().cloned().map(|colony| (colony, HashMap::new())).collect();
-        let mut total_roles = HashMap::new();
-
-        for (creep_name, creep) in game::creeps().entries() {
-            let Some(role) = mem.machines.creeps.get(&creep_name) else {  continue; };
-            let creep_type = role.get_type();
-
-            *total_roles.entry(creep_type).or_default() += 1;
-
-            let Some(home) = mem.creep(&creep).map(|config| config.home) else { continue; };
-            *colony_roles.entry(home).or_default().entry(creep_type).or_default() += 1;
+        Self {
+            spawners: game::spawns().values()
+                .flat_map(|spawn| SpawnerData::try_from(mem, spawn))
+                .collect(),
+            already_spawned: game::creeps().values()
+                .flat_map(|creep| CreepPrototype::try_from_existing(mem, creep))
+                .collect()
         }
-
-        SpawnQueue { queues: colony_queues, colony_roles, total_roles }
     }
 
-    fn queue_many_in_colony(&mut self, colony: RoomName, ty: CreepType, count: usize) {
-        self.queues.entry(colony).or_default().extend((0..count).map(|_| ty));
-        *self.colony_roles.entry(colony).or_default().entry(ty).or_default() += count;
-        *self.total_roles.entry(ty).or_default() += count;
+    fn all_creeps(&self) -> PrototypeIterator<'_, impl Iterator<Item = &'_ CreepPrototype>> {
+        PrototypeIterator(
+            self.already_spawned.iter().chain(
+                self.spawners.iter()
+                .flat_map(|spawner| {
+                    use SpawnerStatus::*;
+
+                    match &spawner.status {
+                        Free | Blocked | Spawning(_, _) => None,
+                        Scheduled(proto) => Some(proto)
+                    }
+                })
+            )
+        )
     }
 
-    fn queue_in_colony(&mut self, colony: RoomName, ty: CreepType) {
-        self.queue_many_in_colony(colony, ty, 1);
+    fn spawners(&mut self) -> SpawnerIterator<'_, impl Iterator<Item = &'_ mut SpawnerData>> {
+        SpawnerIterator(self.spawners.iter_mut())
     }
 
-    fn queue_missing_in_colony(&mut self, colony: RoomName, ty: CreepType, target: usize) {
-        let current = self.colony_roles.get(&colony)
-            .and_then(|roles| roles.get(&ty).cloned()).unwrap_or(0);
+    fn execute(self, mem: &mut Memory) {
+        for data in self.spawners {
+            let Some(spawn) = game::spawns().get(data.name) else { continue; };
+            let SpawnerStatus::Scheduled(proto) = data.status else { continue; };
 
+            if let Some(spawning) = spawn.spawning() {
+                warn!("Cancelling spawn of {}", spawning.name());
+                spawning.cancel().ok();
+            }
 
-        self.queue_many_in_colony(colony, ty, target.saturating_sub(current));
-    }
-
-    fn queue_distributed(&mut self, ty: CreepType) -> Result<(), ()> {
-        let (colony, _) = self.queues.iter().min_by_key(|(_, queue)| queue.len()).ok_or(())?;
-        self.queue_in_colony(*colony, ty);
-        Ok(())
-    }
-
-    fn queue_many_distributed(&mut self, ty: CreepType, count: usize) -> Result<(), ()> {
-        for _ in 0..count {
-            self.queue_distributed(ty)?;
-        }
-        
-        Ok(())
-    }
-
-    fn queue_missing_distributed(&mut self, ty: CreepType, target: usize) -> Result<(), ()> {
-        let current = self.total_roles.get(&ty).cloned().unwrap_or(0);
-        let missing = target.saturating_sub(current);
-
-        self.queue_many_distributed(ty, missing)
-    }
-}
-
-fn get_current_spawn_queue(mem: &mut Memory) -> HashMap<RoomName, VecDeque<CreepType>> {
-    use CreepType::*;
-
-    let mut queue = SpawnQueue::new(mem);
-
-    for colony in mem.colonies.keys().cloned().collect::<Vec<_>>() {
-        let target_harvesters = mem.source_assignments(colony).map(|assignments| assignments.max_creeps()).unwrap_or(0);
-        queue.queue_missing_in_colony(colony, Worker, target_harvesters);
-    }
-
-    queue.queue_missing_distributed(Claimer, (mem.claim_requests.len() > 0).then_some(1).unwrap_or(0)).ok();
-
-
-    let target_remote_builders = mem.remote_build_requests.get_total_work_ticks().div_ceil(500) as usize;
-    queue.queue_missing_distributed(RemoteBuilder, target_remote_builders).ok();
-
-    queue.queues
-}
-
-pub const HARVESTER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| { use Part::*; BodyTemplate(vec![Move, Carry, Work]) });
-pub const CLAIMER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| { use Part::*; BodyTemplate(vec![Claim, Move]) });
-pub const REMOTE_BUILDER_TEMPLATE: LazyLock<BodyTemplate> = LazyLock::new(|| { use Part::*; BodyTemplate(vec![Move, Carry, Move, Carry, Move, Work]) });
-
-pub fn do_spawns(mem: &mut Memory) {
-    let mut colony_queues = get_current_spawn_queue(mem);
-
-    for spawn in game::spawns().values() {
-        if spawn.spawning().is_some() { continue; }
-
-        let room = spawn.room().unwrap();
-        let queue = colony_queues.entry(room.name()).or_default();
-        //debug!("Spawn queue for {}: {queue:?}", room.name());
-        
-        let Some(ty) = queue.front() else { continue; };
-
-        let body = match ty {
-            CreepType::Worker => HARVESTER_TEMPLATE.scaled(room.energy_capacity_available(), None),
-            CreepType::Claimer => Some(CLAIMER_TEMPLATE.clone()),
-            CreepType::RemoteBuilder => REMOTE_BUILDER_TEMPLATE.scaled(room.energy_capacity_available(), Some(6))
-        };
-
-        let Some(body) = body else { continue; };
-
-        if room.energy_available() >= body.energy_required() {
-            let name = format!("{} {}", ty.prefix(), get_new_creep_name());
+            let name = format!("{} {}", proto.ty.prefix(), get_new_creep_name());
             info!("Spawning new creep: {name}");
 
-            if let Err(err) = spawn.spawn_creep(&body, &name) {
+            if let Err(err) = spawn.spawn_creep(&proto.body.0, &name) {
                 warn!("Couldn't spawn creep: {}", err);
                 continue;
             }
 
-            mem.machines.creeps.insert(name.clone(), ty.default_role());
+            mem.machines.creeps.insert(name.clone(), proto.ty.default_role());
 
-            let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
+            let creep_death_time = game::time() + proto.body.time_to_spawn() + proto.body.time_to_live();
             mem.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
         }
     }
+}
+
+struct PrototypeIterator<'a, T>(T) where T : Iterator<Item = &'a CreepPrototype>;
+
+impl<'a, T> PrototypeIterator<'a, T> where T : Iterator<Item = &'a CreepPrototype> {
+    fn filter_home(self, home: RoomName) -> PrototypeIterator<'a, impl Iterator<Item = &'a CreepPrototype>> {
+        PrototypeIterator(self.0.filter(move |proto| proto.config.home == home))
+    }
+
+    fn filter_type(self, ty: CreepType) -> PrototypeIterator<'a, impl Iterator<Item = &'a CreepPrototype>> {
+        PrototypeIterator(self.0.filter(move |proto| proto.ty == ty))
+    }
+
+    fn part_count(self, part: Part) -> usize {
+        self.0.map(|proto| proto.body.num(part)).sum()
+    }
+}
+
+struct SpawnerIterator<'a, T>(T) where T : Iterator<Item = &'a mut SpawnerData>;
+
+impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData> {
+    fn filter_room(self, room: RoomName) -> SpawnerIterator<'a, impl Iterator<Item = &'a mut SpawnerData>> {
+        SpawnerIterator(self.0.filter(move |spawner| spawner.room == room))
+    }
+
+    fn filter_free(self) -> SpawnerIterator<'a, impl Iterator<Item = &'a mut SpawnerData>> {
+        SpawnerIterator(self.0.filter(|spawner| spawner.is_free()))
+    }
+}
+
+#[expect(unused)]
+fn schedule_harvesters(mem: &Memory, schedule: &mut SpawnSchedule) {
+    use Part::*;
+
+    for colony in mem.colonies.keys() {
+        let Some(room) = game::rooms().get(*colony) else { continue; };
+
+        let mut total_harvester_works: usize = schedule.all_creeps()
+            .filter_home(*colony)
+            .filter_type(CreepType::Harvester)
+            .part_count(Part::Work);
+
+        let target_harvester_works = 5 * room.find(find::SOURCES, None).len();
+
+        for spawner in schedule.spawners().filter_room(*colony).filter_free().0 {
+            if total_harvester_works >= target_harvester_works { break; };
+
+            let harvester_moves = (2 + (spawner.energy_capacity % 100) / 50) as usize;
+            let harvester_works = (spawner.energy_capacity as usize).saturating_sub(50 * harvester_moves).min(5);
+            let body =  Body::from(Move) * harvester_moves as usize + Body::from(Work) * harvester_works as usize;
+            let prototype = CreepPrototype { 
+                body, 
+                ty: CreepType::Harvester,
+                config: CreepConfig { home: *colony }
+            };
+
+            if spawner.schedule_or_block(prototype) {
+                total_harvester_works += harvester_works;
+            }
+        }
+    }
+}
+
+const WORKER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Work]) });
+fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
+    use Part::*;
+
+    for colony in mem.colonies.keys() {
+        let Some(room) = game::rooms().get(*colony) else { continue; };
+
+        let mut total_worker_works: usize = schedule.all_creeps()
+                .filter_home(*colony)
+                .filter_type(CreepType::Worker)
+                .part_count(Part::Work);
+
+        let target_worker_works = 5 * room.find(find::SOURCES, None).len() * 4;
+
+        for spawner in schedule.spawners().filter_room(*colony).filter_free().0 {
+            if total_worker_works >= target_worker_works { continue; };
+
+            let Some(body) = WORKER_TEMPLATE.scaled(spawner.energy_capacity, None) else { continue; };
+            let num_work = body.num(Work);
+            let prototype = CreepPrototype { 
+                body, 
+                ty: CreepType::Worker,
+                config: CreepConfig { home: *colony }
+            };
+
+            if spawner.schedule_or_block(prototype) {
+                total_worker_works += num_work;
+            }
+        }
+    }
+}
+
+
+const CLAIMER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
+fn schedule_claimers(mem: &Memory, schedule: &mut SpawnSchedule) {
+    if mem.claim_requests.len() == 0 { return; }
+
+    let claimer_count = schedule.all_creeps().filter_type(CreepType::Claimer).0.count();
+    if claimer_count > 0 { return; }
+
+    let Some(spawner) = schedule.spawners().filter_free().0.next() else { return; };
+
+    spawner.schedule_or_block(CreepPrototype { 
+        body: CLAIMER_TEMPLATE.clone(), 
+        ty: CreepType::Claimer, 
+        config: CreepConfig::new(spawner.room)
+    });
+}
+
+const REMOTE_BUILDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Move, Carry, Move, Work]) });
+fn schedule_remote_builders(mem: &mut Memory, schedule: &mut SpawnSchedule) {
+    let target_works = mem.remote_build_requests.get_total_work_ticks().div_ceil(750) as usize;
+    let mut curr_works = schedule.all_creeps().filter_type(CreepType::RemoteBuilder).part_count(Part::Work);
+
+    let spawners = schedule.spawners()
+        .filter_free()
+        .0.sorted_by_key(|spawner| Reverse(spawner.energy_capacity));
+
+    for spawner in spawners {
+        if curr_works >= target_works { break; }
+
+        let Some(body) = REMOTE_BUILDER_TEMPLATE.scaled(spawner.energy_capacity, Some(6)) else { continue; };
+        let num_work = body.num(Part::Work);
+
+        if spawner.schedule(CreepPrototype { 
+            body, 
+            ty: CreepType::RemoteBuilder, 
+            config: CreepConfig::new(spawner.room) 
+        }) {
+            curr_works += num_work;
+        }
+    }
+}
+
+pub fn do_spawns(mem: &mut Memory) {
+    let mut schedule = SpawnSchedule::new(mem);
+
+    //schedule_harvesters(mem, &mut schedule);
+    schedule_workers(mem, &mut schedule);
+    schedule_claimers(mem, &mut schedule);
+    schedule_remote_builders(mem, &mut schedule);
+
+    schedule.execute(mem);
 }

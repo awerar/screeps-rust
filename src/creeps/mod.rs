@@ -4,10 +4,11 @@ use log::*;
 use screeps::{Creep, RoomName, game, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState, remote_builder::RemoteBuilderState}, memory::Memory};
+use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState, remote_builder::RemoteBuilderState, worker::WorkerState}, memory::Memory};
 
 pub mod claimer;
-pub mod harvester;
+pub mod worker;
+mod harvester;
 mod remote_builder;
 
 pub trait CreepState where Self : Sized + Default + Eq + Debug {
@@ -32,12 +33,16 @@ fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory) -> S where S : Cree
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CreepConfig {
     pub home: RoomName
 }
 
 impl CreepConfig {
+    pub fn new(home: RoomName) -> Self {
+        Self { home }
+    }
+
     fn try_construct_from(creep: &Creep, mem: &Memory) -> Option<Self> {
         let colony = mem.colony(creep.pos().room_name())
             .filter(|colony| colony.spawn().is_some())
@@ -47,20 +52,21 @@ impl CreepConfig {
                 .min_by_key(|colony| colony.center.get_range_to(creep.pos()))
             )?;
         
-        Some(CreepConfig { home: colony.room_name })
+        Some(CreepConfig::new(colony.room_name))
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CreepRole {
-    Worker(HarvesterState), 
+    Worker(WorkerState),
+    Harvester(HarvesterState),
     Claimer(ClaimerState),
     RemoteBuilder(RemoteBuilderState)
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum CreepType {
-    Worker, Claimer, RemoteBuilder
+    Worker, Harvester, Claimer, RemoteBuilder
 }
 
 impl CreepRole {
@@ -69,6 +75,7 @@ impl CreepRole {
             CreepRole::Worker(_) => CreepType::Worker,
             CreepRole::Claimer(_) => CreepType::Claimer,
             CreepRole::RemoteBuilder(_) => CreepType::RemoteBuilder,
+            CreepRole::Harvester(_) => CreepType::Harvester
         }
     }
 
@@ -77,6 +84,7 @@ impl CreepRole {
             "Worker" => Some(CreepRole::Worker(Default::default())),
             "Claimer" => Some(CreepRole::Claimer(Default::default())),
             "RemoteBuilder" => Some(CreepRole::RemoteBuilder(Default::default())),
+            "Harvester" => Some(CreepRole::Harvester(Default::default())),
             _ => None
         }
     }
@@ -88,6 +96,7 @@ impl CreepType {
             CreepType::Worker => "Worker",
             CreepType::Claimer => "Claimer",
             CreepType::RemoteBuilder => "RemoteBuilder",
+            CreepType::Harvester => "Harvester",
         }
     }
 
@@ -96,6 +105,7 @@ impl CreepType {
             CreepType::Worker => CreepRole::Worker(Default::default()),
             CreepType::Claimer => CreepRole::Claimer(Default::default()),
             CreepType::RemoteBuilder => CreepRole::RemoteBuilder(Default::default()),
+            CreepType::Harvester => CreepRole::Harvester(Default::default()),
         }
     }
 }
@@ -124,7 +134,8 @@ pub fn do_creeps(mem: &mut Memory) {
         let new_role = match &role {
             Worker(state) => Worker(transition(&state, &creep, mem)),
             Claimer(state) => Claimer(transition(&state, &creep, mem)),
-            RemoteBuilder(state) => RemoteBuilder(transition(&state, &creep, mem))
+            RemoteBuilder(state) => RemoteBuilder(transition(&state, &creep, mem)),
+            Harvester(state) => Harvester(transition(&state, &creep, mem)),
         };
 
         *mem.machines.creeps.get_mut(&creep.name()).unwrap() = new_role;

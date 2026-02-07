@@ -7,7 +7,7 @@ use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, colony::{ColonyConfig, ColonyState}, creeps::{CreepConfig, CreepRole, harvester::SourceAssignments}, movement::Movement, remote_build::RemoteBuildRequests};
+use crate::{callbacks::Callbacks, colony::{ColonyConfig, ColonyState}, creeps::{CreepConfig, CreepRole}, movement::Movement, remote_build::RemoteBuildRequests};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -25,7 +25,6 @@ pub struct Memory {
     #[serde(default)] pub colonies: HashMap<RoomName, ColonyConfig>,
 
     #[serde(default)] pub last_alive_creeps: HashSet<String>,
-    #[serde(default)] pub source_assignments: HashMap<RoomName, SourceAssignments>,
     #[serde(default)] pub callbacks: Callbacks,
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: HashSet<Position>,
@@ -41,18 +40,12 @@ pub struct StateMachines {
 thread_local! {
     static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
     static RESET_TILE_USAGE: RefCell<bool> = RefCell::new(false);
-    static RESET_SOURCE_ASSIGNMENTS: RefCell<bool> = RefCell::new(false);
     static REFRESH_COLONY: RefCell<Option<RoomName>> = RefCell::new(None);
 }
 
 #[wasm_bindgen]
 pub fn reset_memory() {
     RESET_MEMORY.replace(true);
-}
-
-#[wasm_bindgen]
-pub fn reset_source_assignments() {
-    RESET_SOURCE_ASSIGNMENTS.replace(true);
 }
 
 #[wasm_bindgen]
@@ -87,15 +80,6 @@ impl Memory {
         let mut mem: Memory = serde_json::from_str(&String::from(mem)).expect("Memory should follow correct schema");
         mem._internal_creeps = None; // This is deserialized separately in JS
 
-        RESET_SOURCE_ASSIGNMENTS.with_borrow_mut(|reset| {
-            if *reset {
-                mem.source_assignments = HashMap::new();
-                *reset = false;
-
-                info!("Reset source assignments by command");
-            }
-        });
-
         REFRESH_COLONY.with_borrow_mut(|colony_option| {
             if let Some(colony) = colony_option {
                 *mem.machines.colonies.get_mut(colony).unwrap() = Default::default();
@@ -128,10 +112,6 @@ impl Memory {
 
         self.last_alive_creeps.remove(name);
         self.movement.creeps_data.remove(name);
-
-        for source_assignment in self.source_assignments.values_mut() {
-            source_assignment.remove(name);
-        }
     }
 
     pub fn periodic_cleanup(&mut self) {
