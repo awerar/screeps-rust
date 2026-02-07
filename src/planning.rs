@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::*;
 use screeps::{CostMatrix, Direction, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, StructureProperties, StructureType, Terrain, find, look, pathfinder::SingleRoomCostResult};
 
-use crate::colony::ColonyConfig;
+use crate::colony::ColonyData;
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -13,7 +13,7 @@ const CENTER_STRUCTURE_TYPES: LazyLock<Vec<StructureType>> = LazyLock::new(|| {
     vec![Spawn, Storage, Extension, Tower]
 });
 
-pub fn plan_center_in(colony_config: &ColonyConfig) -> Option<()> {
+pub fn plan_center_in(colony_config: &ColonyData) -> Option<()> {
     let room = colony_config.room()?;
     let controller_level = room.controller()?.level() as u32;
 
@@ -42,7 +42,7 @@ pub fn plan_center_in(colony_config: &ColonyConfig) -> Option<()> {
     plan_center_structures_in(colony_config, plan_queue)
 }
 
-fn plan_center_structures_in(colony_config: &ColonyConfig, plan_queue: Vec<StructureType>) -> Option<()> {
+fn plan_center_structures_in(colony_config: &ColonyData, plan_queue: Vec<StructureType>) -> Option<()> {
     let mut plan_queue = VecDeque::from(plan_queue);
 
     'plan_loop: for radius in 1_u32..5 {

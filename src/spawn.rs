@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::*;
 use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::{CreepConfig, CreepType}, memory::Memory, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, names::get_new_creep_name};
 
 #[derive(Clone)]
 struct Body(Vec<Part>);
@@ -80,15 +80,17 @@ impl From<Part> for Body {
 struct CreepPrototype {
     body: Body,
     ty: CreepType,
-    config: CreepConfig
+    home: RoomName
 }
 
 impl CreepPrototype {
     fn try_from_existing(mem: &Memory, creep: Creep) -> Option<Self> {
+        let creep_data = mem.creeps.get(&creep.name())?;
+
         Some(Self {
             body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
-            ty: mem.machines.creeps.get(&creep.name())?.get_type(),
-            config: mem.creeps.get(&creep.name())?.clone()
+            ty: creep_data.role.get_type(),
+            home: creep_data.home
         })
     }
 }
@@ -214,7 +216,8 @@ impl SpawnSchedule {
                 continue;
             }
 
-            mem.machines.creeps.insert(name.clone(), proto.ty.default_role());
+            let creep_data = CreepData::new(spawn.room().unwrap().name(), proto.ty.default_role());
+            mem.creeps.insert(name.clone(), creep_data);
 
             let creep_death_time = game::time() + proto.body.time_to_spawn() + proto.body.time_to_live();
             mem.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
@@ -226,7 +229,7 @@ struct PrototypeIterator<'a, T>(T) where T : Iterator<Item = &'a CreepPrototype>
 
 impl<'a, T> PrototypeIterator<'a, T> where T : Iterator<Item = &'a CreepPrototype> {
     fn filter_home(self, home: RoomName) -> PrototypeIterator<'a, impl Iterator<Item = &'a CreepPrototype>> {
-        PrototypeIterator(self.0.filter(move |proto| proto.config.home == home))
+        PrototypeIterator(self.0.filter(move |proto| proto.home == home))
     }
 
     fn filter_type(self, ty: CreepType) -> PrototypeIterator<'a, impl Iterator<Item = &'a CreepPrototype>> {
@@ -273,7 +276,7 @@ fn schedule_harvesters(mem: &Memory, schedule: &mut SpawnSchedule) {
             let prototype = CreepPrototype { 
                 body, 
                 ty: CreepType::Harvester,
-                config: CreepConfig { home: *colony }
+                home: *colony
             };
 
             if spawner.schedule_or_block(prototype) {
@@ -305,7 +308,7 @@ fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
             let prototype = CreepPrototype { 
                 body, 
                 ty: CreepType::Worker,
-                config: CreepConfig { home: *colony }
+                home: *colony
             };
 
             if spawner.schedule_or_block(prototype) {
@@ -328,7 +331,7 @@ fn schedule_claimers(mem: &Memory, schedule: &mut SpawnSchedule) {
     spawner.schedule_or_block(CreepPrototype { 
         body: CLAIMER_TEMPLATE.clone(), 
         ty: CreepType::Claimer, 
-        config: CreepConfig::new(spawner.room)
+        home: spawner.room
     });
 }
 
@@ -350,7 +353,7 @@ fn schedule_remote_builders(mem: &mut Memory, schedule: &mut SpawnSchedule) {
         if spawner.schedule(CreepPrototype { 
             body, 
             ty: CreepType::RemoteBuilder, 
-            config: CreepConfig::new(spawner.room) 
+            home: spawner.room
         }) {
             curr_works += num_work;
         }

@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState, remote_builder::RemoteBuilderState, worker::WorkerState}, memory::Memory};
 
-pub mod claimer;
-pub mod worker;
+mod claimer;
+mod worker;
 mod harvester;
 mod remote_builder;
 
@@ -33,17 +33,21 @@ fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory) -> S where S : Cree
     }
 }
 
+
 #[derive(Serialize, Deserialize, Clone)]
-pub struct CreepConfig {
+pub struct CreepData {
+    pub role: CreepRole,
     pub home: RoomName
 }
 
-impl CreepConfig {
-    pub fn new(home: RoomName) -> Self {
-        Self { home }
+impl CreepData {
+    pub fn new(home: RoomName, role: CreepRole) -> Self {
+        CreepData { role, home }
     }
 
-    fn try_construct_from(creep: &Creep, mem: &Memory) -> Option<Self> {
+    pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
+        let Some(role) = CreepRole::try_recover_from(creep) else { return None };
+
         let colony = mem.colony(creep.pos().room_name())
             .filter(|colony| colony.spawn().is_some())
             .or_else(|| 
@@ -52,7 +56,7 @@ impl CreepConfig {
                 .min_by_key(|colony| colony.center.get_range_to(creep.pos()))
             )?;
         
-        Some(CreepConfig::new(colony.room_name))
+        Some(CreepData::new(colony.room_name, role))
     }
 }
 
@@ -115,29 +119,23 @@ pub fn do_creeps(mem: &mut Memory) {
 
     for creep in game::creeps().values() {
         if !mem.creeps.contains_key(&creep.name()) {
-            if let Some(config) = CreepConfig::try_construct_from(&creep, mem) {
-                mem.creeps.insert(creep.name(), config);
-            } else {
-                warn!("Unable to construct creep config for {}", creep.name());
-            }
-        }
-
-        if !mem.machines.creeps.contains_key(&creep.name()) {
-            let Some(role) = CreepRole::try_recover_from(&creep) else {
-                warn!("Unable to recover role for {}", creep.name());
-                continue; 
+            let Some(config) = CreepData::try_recover_from(&creep, mem) else {
+                warn!("Unable to recover creep data for {}", creep.name());
+                continue;
             };
-            mem.machines.creeps.insert(creep.name(), role);
+
+            mem.creeps.insert(creep.name(), config);
         }
 
-        let role = mem.machines.creeps[&creep.name()].clone();
-        let new_role = match &role {
+        let creep_data = mem.creeps[&creep.name()].clone();
+
+        let new_role = match &creep_data.role {
             Worker(state) => Worker(transition(&state, &creep, mem)),
             Claimer(state) => Claimer(transition(&state, &creep, mem)),
             RemoteBuilder(state) => RemoteBuilder(transition(&state, &creep, mem)),
             Harvester(state) => Harvester(transition(&state, &creep, mem)),
         };
 
-        *mem.machines.creeps.get_mut(&creep.name()).unwrap() = new_role;
+        mem.creeps.get_mut(&creep.name()).unwrap().role = new_role;
     }
 }

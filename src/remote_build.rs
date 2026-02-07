@@ -36,17 +36,21 @@ impl RemoteBuildRequests {
                 .next();
 
             if structure.is_some() {
-                finished_requests.push(pos);
+                finished_requests.push(pos.clone());
                 continue;
             }
 
             let Some(site) = build.site() else {
                 warn!("Remoted constructions site of {} at {pos} was unexpectedly removed", build.structure_type);
-                finished_requests.push(pos);
+                finished_requests.push(pos.clone());
                 continue;
             };
 
             build.progress = site.progress();
+        }
+
+        for request in finished_requests {
+            self.0.remove(&request);
         }
     }
 

@@ -278,13 +278,14 @@ impl State for Level1State {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ColonyConfig {
+pub struct ColonyData {
     pub room_name: RoomName,
     pub center: Position,
-    pub buffer_pos: Position
+    pub buffer_pos: Position,
+    pub state: ColonyState
 }
 
-impl ColonyConfig {
+impl ColonyData {
     pub fn room(&self) -> Option<Room> {
         game::rooms().get(self.room_name)
     }
@@ -355,7 +356,7 @@ impl ColonyConfig {
             unreachable!();
         });
 
-        Some(ColonyConfig { room_name: name, center, buffer_pos  })
+        Some(Self { room_name: name, center, buffer_pos, state: Default::default()  })
     }
 }
 
@@ -380,34 +381,25 @@ pub fn update_rooms(mem: &mut Memory) {
         .map(|flag| flag.pos().room_name());
 
     let curr_rooms: HashSet<_> = owned_rooms.chain(claim_rooms).collect();
-    let prev_rooms: HashSet<_> = mem.machines.colonies.keys().cloned().collect();
+    let prev_rooms: HashSet<_> = mem.colonies.keys().cloned().collect();
 
     let lost_rooms = prev_rooms.difference(&curr_rooms);
     for room in lost_rooms {
-        mem.machines.colonies.remove(room);
+        mem.colonies.remove(room);
         warn!("Lost room {}", room);
     }
 
     for name in curr_rooms {
         if !mem.colonies.contains_key(&name) {
-            let Some(colony) = ColonyConfig::try_construct_from(name) else {
+            let Some(colony) = ColonyData::try_construct_from(name) else {
                 error!("Unable to construct colony config for {name}");
                 continue; 
             };
             mem.colonies.insert(name, colony);
         }
 
-        if !mem.machines.colonies.contains_key(&name) {
-            let state = ColonyState::default();
-            if state.on_transition_into(name, mem).is_err() {
-                error!("Unable to transition into default state for {name}");
-                continue; 
-            };
-            mem.machines.colonies.insert(name, state);
-        }
-
-        let state = mem.machines.colonies[&name].clone();
-        *mem.machines.colonies.get_mut(&name).unwrap() = state.update(name, mem, 0);
+        let state = mem.colonies[&name].state.clone();
+        mem.colonies.get_mut(&name).unwrap().state = state.update(name, mem, 0);
     }
 }
 
