@@ -11,7 +11,7 @@ use crate::{callbacks::Callbacks, colony::ColonyData, creeps::CreepData, movemen
 
 extern crate serde_json_path_to_error as serde_json;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Memory {
     #[serde(rename = "creeps")]
     _internal_creeps: Option<serde_json::Value>,
@@ -26,7 +26,7 @@ pub struct Memory {
     #[serde(default)] pub callbacks: Callbacks,
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: HashSet<Position>,
-    #[serde(default)] pub remote_build_requests: RemoteBuildRequests
+    #[serde(default)] pub remote_build_requests: RemoteBuildRequests,
 }
 
 thread_local! {
@@ -69,7 +69,11 @@ impl Memory {
         });
 
         let mem = screeps::raw_memory::get();
-        let mut mem: Memory = serde_json::from_str(&String::from(mem)).expect("Memory should follow correct schema");
+        let mut mem: Memory = serde_json::from_str(&String::from(mem)).unwrap_or_else(|_| {
+            warn!("Unable to parse raw memory. Resetting memory");
+            Default::default()
+        });
+
         mem._internal_creeps = None; // This is deserialized separately in JS
 
         REFRESH_COLONY.with_borrow_mut(|colony_option| {

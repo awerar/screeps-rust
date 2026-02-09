@@ -18,6 +18,7 @@ mod creeps;
 mod callbacks;
 mod colony;
 mod remote_build;
+mod utils;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
