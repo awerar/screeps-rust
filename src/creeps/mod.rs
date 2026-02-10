@@ -184,7 +184,6 @@ pub fn do_creeps(mem: &mut Memory) {
 
         for creep in &updatable_creeps {
             mem.messages.creep_quick(&creep).flush();
-            debug!("{} has quick mailbox {:?}", creep.name(), mem.messages.creep_quick(&creep).read_all())
         }
 
         update_creeps = updatable_creeps.iter()
@@ -195,7 +194,6 @@ pub fn do_creeps(mem: &mut Memory) {
 
     for creep in &updatable_creeps {
         mem.messages.creep(&creep).flush();
-        debug!("{} has mailbox {:?}", creep.name(), mem.messages.creep(&creep).read_all())
     }
 }
 
