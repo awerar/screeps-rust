@@ -137,10 +137,16 @@ impl SpawnerData {
                 Some((prototype, spawning.remaining_time()))
             });
 
+        let energy_capacity = if room.find(find::MY_CREEPS, None).len() >= 2 {
+            room.energy_capacity_available()
+        } else {
+            room.energy_available()
+        };
+
         Some(Self {
             name: spawn.name(),
             room: room.name(),
-            energy_capacity: room.energy_capacity_available(),
+            energy_capacity: energy_capacity,
             energy_avaliable: room.energy_available(),
             status: spawning.map_or(SpawnerStatus::Free, |(proto, time_left)| SpawnerStatus::Spawning(proto, time_left)),
         })
@@ -401,8 +407,8 @@ pub fn do_spawns(mem: &mut Memory) {
     let mut schedule = SpawnSchedule::new(mem);
 
     schedule_tugboats(mem, &mut schedule);
-    schedule_harvesters(mem, &mut schedule);
-    //schedule_workers(mem, &mut schedule);
+    //schedule_harvesters(mem, &mut schedule);
+    schedule_workers(mem, &mut schedule);
     schedule_claimers(mem, &mut schedule);
     schedule_remote_builders(mem, &mut schedule);
 
