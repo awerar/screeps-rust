@@ -68,7 +68,7 @@ impl CreepData {
 
                 CreepRole::Harvester(Default::default(), source.id()) 
             },
-            _ => CreepRole::Recycle(get_recycle_spawn(creep, mem).ok()?.id())
+            _ => CreepRole::Recycle(get_recycle_spawn(creep, mem).id())
         };
         
         Some(CreepData::new(home.room_name, role))
@@ -135,7 +135,7 @@ impl CreepType {
 fn do_recycle(creep: &Creep, mem: &mut Memory, spawn: &ObjectId<StructureSpawn>) -> ObjectId<StructureSpawn> {
     let Some(spawn) = spawn.resolve() else {
         warn!("Spawn for recycling did not resolve");
-        return get_recycle_spawn(creep, mem).map(|spawn| spawn.id()).unwrap_or(*spawn);
+        return get_recycle_spawn(creep, mem).id();
     };
 
     if creep.pos().is_near_to(spawn.pos()) {
@@ -197,16 +197,22 @@ pub fn do_creeps(mem: &mut Memory) {
     }
 }
 
-fn get_recycle_spawn(creep: &Creep, mem: &Memory) -> Result<StructureSpawn, ()> {
+fn get_recycle_spawn(creep: &Creep, mem: &Memory) -> StructureSpawn {
     if let Some(home_name) = mem.creep(creep).map(|creep_data| creep_data.home) {
         if creep.pos().room_name() == home_name {
-            return Ok(creep.pos().find_closest_by_path(find::MY_SPAWNS, None).ok_or(())?)
-        } else {
-            return Ok(game::rooms().get(home_name).ok_or(())?
-                .find(find::MY_SPAWNS, None)
-                .get(0).ok_or(())?.clone())
+            if let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
+                return spawn
+            }
+        }
+
+        if let Some(home) = game::rooms().get(home_name) {
+            if let Some(spawn) = home.find(find::MY_SPAWNS, None).into_iter().next() {
+                return spawn
+            }
         }
     }
 
-    game::spawns().values().next().ok_or(())
+    game::spawns().values()
+        .min_by_key(|spawn| creep.pos().get_range_to(spawn.pos()))
+        .unwrap()
 }

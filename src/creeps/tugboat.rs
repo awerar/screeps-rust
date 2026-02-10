@@ -92,7 +92,7 @@ impl CreepState for TugboatState {
         let Some(CreepData { role: CreepRole::Tugboat(_, tugged), .. }) = mem.creep(tugboat) else { return Err(()) };
         let Some(tugged) = tugged.resolve() else {
             warn!("Tugged doesn't exist. Recycling tugboat");
-            return Ok(Recycling(get_recycle_spawn(tugboat, mem)?.id()));
+            return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()));
         };
 
         match self {
@@ -115,7 +115,7 @@ impl CreepState for TugboatState {
                     let (target, next_state) = if tugboat.pos().get_range_to(target) > range {
                         (target, Tugging { last_tug_tick: game::time() })
                     } else {
-                        let recycle_spawn = get_recycle_spawn(tugboat, mem)?;
+                        let recycle_spawn = get_recycle_spawn(tugboat, mem);
                         (recycle_spawn.pos(), Recycling(recycle_spawn.id()))
                     };
 
@@ -131,14 +131,14 @@ impl CreepState for TugboatState {
                 }
 
                 if last_tug_tick + 5 <= game::time() {
-                    return Ok(Recycling(get_recycle_spawn(tugboat, mem)?.id()))
+                    return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()))
                 }
 
                 return Ok(self.clone())
             },
             Recycling(spawn) => {
                 let Ok(spawn) = spawn.resolve().ok_or(()) else {
-                    return Ok(Recycling(get_recycle_spawn(tugboat, mem)?.id()))
+                    return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()))
                 };
 
                 if tugboat.pos().is_near_to(spawn.pos()) {
