@@ -271,6 +271,7 @@ impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData
     }
 }
 
+#[expect(unused)]
 fn schedule_harvesters(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 

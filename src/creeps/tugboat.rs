@@ -62,7 +62,7 @@ impl TuggedState {
             return;
         }
         
-        *self = transition(self, tugged, mem);
+        *self = transition(self, tugged, mem, 0);
 
         if !mem.messages.creep_quick(tugged).empty() { return; }
 

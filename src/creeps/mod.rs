@@ -16,7 +16,7 @@ pub trait CreepState where Self : Sized + Default + Eq + Debug {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()>;
 }
 
-fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory) -> S where S : CreepState {
+fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory, transition_count: usize) -> S where S : CreepState {
     let Ok(new_state) = state.update(creep, mem) else {
         if *state == S::default() {
             error!("{} failed on default state", creep.name());
@@ -28,7 +28,12 @@ fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory) -> S where S : Cree
     };
 
     if new_state != *state {
-        transition(&new_state, creep, mem)
+        if transition_count <= 10 {
+            transition(&new_state, creep, mem, transition_count + 1)
+        } else {
+            warn!("Stopped {} prematurely. Transitioned too many times", creep.name());
+            new_state
+        }
     } else {
         new_state
     }
@@ -171,11 +176,11 @@ pub fn do_creeps(mem: &mut Memory) {
             let role = mem.creep(creep).unwrap().role.clone();
 
             let new_role = match &role {
-                Worker(state) => Worker(transition(&state, creep, mem)),
-                Claimer(state) => Claimer(transition(&state, creep, mem)),
-                RemoteBuilder(state) => RemoteBuilder(transition(&state, creep, mem)),
-                Harvester(state, source) => Harvester(transition(&state, creep, mem), *source),
-                Tugboat(state, tugged) => Tugboat(transition(&state, &creep, mem), *tugged),
+                Worker(state) => Worker(transition(&state, creep, mem, 0)),
+                Claimer(state) => Claimer(transition(&state, creep, mem, 0)),
+                RemoteBuilder(state) => RemoteBuilder(transition(&state, creep, mem, 0)),
+                Harvester(state, source) => Harvester(transition(&state, creep, mem, 0), *source),
+                Tugboat(state, tugged) => Tugboat(transition(&state, &creep, mem, 0), *tugged),
                 Recycle(spawn) => Recycle(do_recycle(creep, mem, spawn)),
             };
 

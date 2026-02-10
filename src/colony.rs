@@ -7,8 +7,6 @@ use log::*;
 
 use crate::{memory::Memory, planning::{plan_center_in, plan_main_roads_in}};
 
-// TODO: Implement deserialization fallback to default state
-
 const CLAIM_FLAG_PREFIX: &str = "Claim";
 
 trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
