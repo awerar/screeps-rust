@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 
 use log::*;
-use screeps::{Creep, ObjectId, RoomName, Source, find, game, look, prelude::*};
+use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState, remote_builder::RemoteBuilderState, tugboat::{TugboatState, TuggedState}, worker::WorkerState}, memory::Memory, utils::adjacent_positions};
+use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState, remote_builder::RemoteBuilderState, tugboat::TugboatState, worker::WorkerState}, memory::Memory, utils::adjacent_positions};
 
 mod claimer;
 mod worker;
@@ -68,8 +68,7 @@ impl CreepData {
 
                 CreepRole::Harvester(Default::default(), source.id()) 
             },
-            "Tugboat" => return None,
-            _ => return None
+            _ => CreepRole::Recycle(get_recycle_spawn(creep, mem).ok()?.id())
         };
         
         Some(CreepData::new(home.room_name, role))
@@ -82,16 +81,18 @@ pub enum CreepRole {
     Harvester(HarvesterState, ObjectId<Source>),
     Claimer(ClaimerState),
     RemoteBuilder(RemoteBuilderState),
-    Tugboat(TugboatState, ObjectId<Creep>)
+    Tugboat(TugboatState, ObjectId<Creep>),
+    Recycle(ObjectId<StructureSpawn>)
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
 pub enum CreepType {
     Worker,
     Harvester(ObjectId<Source>), 
     Claimer,
     RemoteBuilder,
-    Tugboat(ObjectId<Creep>)
+    Tugboat(ObjectId<Creep>),
+    Recycle(ObjectId<StructureSpawn>)
 }
 
 impl CreepRole {
@@ -101,33 +102,8 @@ impl CreepRole {
             CreepRole::Claimer(_) => CreepType::Claimer,
             CreepRole::RemoteBuilder(_) => CreepType::RemoteBuilder,
             CreepRole::Harvester(_, source) => CreepType::Harvester(*source),
-            CreepRole::Tugboat(_, client) => CreepType::Tugboat(*client)
-        }
-    }
-
-    pub fn tugged_state_mut(&mut self) -> Option<&mut TuggedState> {
-        match self {
-            CreepRole::Harvester(HarvesterState::Going(tugged_state), _) => Some(tugged_state),
-            _ => None
-        }
-    }
-
-    fn master(&self) -> Option<ObjectId<Creep>> {
-        match self {
-            CreepRole::Tugboat(TugboatState::Tugging, owner) => Some(owner.clone()),
-            _ => None
-        }
-    }
-
-    fn fallback(&self) -> Self {
-        use CreepRole::*;
-
-        match self {
-            Worker(_) => Worker(Default::default()),
-            Harvester(_, source) => Harvester(Default::default(), *source),
-            Claimer(_) => Claimer(Default::default()),
-            RemoteBuilder(_) => RemoteBuilder(Default::default()),
-            Tugboat(_, tugged) => Tugboat(Default::default(), *tugged),
+            CreepRole::Tugboat(_, tugged) => CreepType::Tugboat(*tugged),
+            CreepRole::Recycle(source) => CreepType::Recycle(*source)
         }
     }
 }
@@ -139,7 +115,8 @@ impl CreepType {
             CreepType::Claimer => "Claimer",
             CreepType::RemoteBuilder => "RemoteBuilder",
             CreepType::Harvester(_) => "Harvester",
-            CreepType::Tugboat(_) => "Tugboat"
+            CreepType::Tugboat(_) => "Tugboat",
+            CreepType::Recycle(_) => "Recycle"
         }
     }
 
@@ -149,49 +126,89 @@ impl CreepType {
             CreepType::Claimer => CreepRole::Claimer(Default::default()),
             CreepType::RemoteBuilder => CreepRole::RemoteBuilder(Default::default()),
             CreepType::Harvester(source) => CreepRole::Harvester(Default::default(), *source),
-            CreepType::Tugboat(client) => CreepRole::Tugboat(Default::default(), *client)
+            CreepType::Tugboat(tugged) => CreepRole::Tugboat(Default::default(), *tugged),
+            CreepType::Recycle(spawn) => CreepRole::Recycle(*spawn)
         }
     }
+}
+
+fn do_recycle(creep: &Creep, mem: &mut Memory, spawn: &ObjectId<StructureSpawn>) -> ObjectId<StructureSpawn> {
+    let Some(spawn) = spawn.resolve() else {
+        warn!("Spawn for recycling did not resolve");
+        return get_recycle_spawn(creep, mem).map(|spawn| spawn.id()).unwrap_or(*spawn);
+    };
+
+    if creep.pos().is_near_to(spawn.pos()) {
+        spawn.recycle_creep(creep).ok();
+    } else {
+        mem.movement.smart_move_creep_to(creep, &spawn).ok();
+    }
+
+    spawn.id()
 }
 
 pub fn do_creeps(mem: &mut Memory) {
     use CreepRole::*;
 
-    for creep in game::creeps().values() {
-        if !mem.creeps.contains_key(&creep.name()) {
-            let Some(config) = CreepData::try_recover_from(&creep, mem) else {
-                warn!("Unable to recover creep data for {}", creep.name());
-                continue;
+    let updatable_creeps: Vec<_> = game::creeps().values()
+        .filter(|creep| !creep.spawning())
+        .filter(|creep| {
+            if !mem.creeps.contains_key(&creep.name()) {
+                let Some(config) = CreepData::try_recover_from(&creep, mem) else {
+                    warn!("Unable to recover creep data for {}", creep.name());
+                    return false;
+                };
+
+                mem.creeps.insert(creep.name(), config);
+            }
+
+            true
+        }).collect();
+
+    let mut update_creeps = updatable_creeps.clone();
+    while update_creeps.len() > 0 {
+        for creep in &update_creeps {
+            let role = mem.creep(creep).unwrap().role.clone();
+
+            let new_role = match &role {
+                Worker(state) => Worker(transition(&state, creep, mem)),
+                Claimer(state) => Claimer(transition(&state, creep, mem)),
+                RemoteBuilder(state) => RemoteBuilder(transition(&state, creep, mem)),
+                Harvester(state, source) => Harvester(transition(&state, creep, mem), *source),
+                Tugboat(state, tugged) => Tugboat(transition(&state, &creep, mem), *tugged),
+                Recycle(spawn) => Recycle(do_recycle(creep, mem, spawn)),
             };
 
-            mem.creeps.insert(creep.name(), config);
+            mem.creeps.get_mut(&creep.name()).unwrap().role = new_role.clone();
+        }
+
+        for creep in &updatable_creeps {
+            mem.messages.creep_quick(&creep).flush();
+            debug!("{} has quick mailbox {:?}", creep.name(), mem.messages.creep_quick(&creep).read_all())
+        }
+
+        update_creeps = updatable_creeps.iter()
+            .filter(|creep| !mem.messages.creep_quick(creep).empty())
+            .cloned()
+            .collect()
+    }
+
+    for creep in &updatable_creeps {
+        mem.messages.creep(&creep).flush();
+        debug!("{} has mailbox {:?}", creep.name(), mem.messages.creep(&creep).read_all())
+    }
+}
+
+fn get_recycle_spawn(creep: &Creep, mem: &Memory) -> Result<StructureSpawn, ()> {
+    if let Some(home_name) = mem.creep(creep).map(|creep_data| creep_data.home) {
+        if creep.pos().room_name() == home_name {
+            return Ok(creep.pos().find_closest_by_path(find::MY_SPAWNS, None).ok_or(())?)
+        } else {
+            return Ok(game::rooms().get(home_name).ok_or(())?
+                .find(find::MY_SPAWNS, None)
+                .get(0).ok_or(())?.clone())
         }
     }
 
-    let creeps: Vec<_> = mem.creeps.iter()
-        .map(|(name, data)| (name.clone(), data.role.clone()))
-        .collect();
-
-    for (name, mut role) in creeps {
-        let Some(creep) = game::creeps().get(name) else { continue; };
-
-        if let Some(master) = role.master() {
-            if master.resolve().is_some() {
-                continue;
-            } else {
-                warn!("Master of {} dissapeared. Falling back", creep.name());
-                role = role.fallback();
-            }
-        }
-
-        role = match &role {
-            Worker(state) => Worker(transition(&state, &creep, mem)),
-            Claimer(state) => Claimer(transition(&state, &creep, mem)),
-            RemoteBuilder(state) => RemoteBuilder(transition(&state, &creep, mem)),
-            Harvester(state, source) => Harvester(transition(&state, &creep, mem), *source),
-            Tugboat(state, client) => Tugboat(transition(&state, &creep, mem), *client)
-        };
-
-        mem.creeps.get_mut(&creep.name()).unwrap().role = role;
-    }
+    game::spawns().values().next().ok_or(())
 }

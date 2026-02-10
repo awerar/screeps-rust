@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::*;
 use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
 
 #[derive(Clone)]
 struct Body(Vec<Part>);
@@ -74,6 +74,12 @@ impl Add for Body {
 impl From<Part> for Body {
     fn from(value: Part) -> Self {
         Body(vec![value])
+    }
+}
+
+impl From<&Creep> for Body {
+    fn from(value: &Creep) -> Self {
+        Body(value.body().into_iter().map(|bodypart| bodypart.part()).collect())
     }
 }
 
@@ -216,6 +222,12 @@ impl SpawnSchedule {
                 continue;
             }
 
+            if let CreepType::Tugboat(tugged) = proto.ty {
+                if let Some(tugged) = tugged.resolve() {
+                    mem.messages.creep(&tugged).send(CreepMessage::AssignedTugBoat(name.clone()));
+                }
+            }
+
             let creep_data = CreepData::new(spawn.room().unwrap().name(), proto.ty.default_role());
             mem.creeps.insert(name.clone(), creep_data);
 
@@ -253,7 +265,6 @@ impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData
     }
 }
 
-#[expect(unused)]
 fn schedule_harvesters(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
@@ -362,11 +373,36 @@ fn schedule_remote_builders(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     }
 }
 
+fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
+    for msg in mem.messages.spawn.read_all() {
+        #[expect(irrefutable_let_patterns)]
+        let SpawnMessage::SpawnTugboatFor(tugged_id) = msg else { continue; };
+        let Some(tugged) = tugged_id.resolve() else { continue; };
+        let Some(home) = mem.creep(&tugged).map(|data| data.home) else { continue; };
+
+        let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
+
+        let tugged_body = Body::from(&tugged);
+        let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.num(Part::Move));
+
+        if target_tugboat_move_parts == 0 {
+            warn!("Creep {} has requested tugboat, but doesn't actually benefit from it", tugged.name());
+        }
+
+        spawner.schedule_or_block(CreepPrototype { 
+            body: Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (spawner.energy_capacity / 50) as usize), 
+            ty: CreepType::Tugboat(tugged_id), 
+            home 
+        });
+    }
+}
+
 pub fn do_spawns(mem: &mut Memory) {
     let mut schedule = SpawnSchedule::new(mem);
 
-    //schedule_harvesters(mem, &mut schedule);
-    schedule_workers(mem, &mut schedule);
+    schedule_tugboats(mem, &mut schedule);
+    schedule_harvesters(mem, &mut schedule);
+    //schedule_workers(mem, &mut schedule);
     schedule_claimers(mem, &mut schedule);
     schedule_remote_builders(mem, &mut schedule);
 

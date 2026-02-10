@@ -7,7 +7,7 @@ use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::{callbacks::Callbacks, colony::ColonyData, creeps::CreepData, movement::Movement, remote_build::RemoteBuildRequests};
+use crate::{callbacks::Callbacks, colony::ColonyData, creeps::CreepData, messages::Messages, movement::Movement, remote_build::RemoteBuildRequests};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -27,6 +27,8 @@ pub struct Memory {
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: HashSet<Position>,
     #[serde(default)] pub remote_build_requests: RemoteBuildRequests,
+
+    #[serde(default)] pub messages: Messages
 }
 
 thread_local! {
@@ -107,6 +109,7 @@ impl Memory {
 
         self.last_alive_creeps.remove(name);
         self.movement.creeps_data.remove(name);
+        self.messages.remove(name);
     }
 
     pub fn periodic_cleanup(&mut self) {

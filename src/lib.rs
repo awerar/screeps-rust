@@ -19,6 +19,7 @@ mod callbacks;
 mod colony;
 mod remote_build;
 mod utils;
+mod messages;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -33,7 +34,7 @@ pub fn game_loop() {
         game::cpu::generate_pixel().ok();
     }
 
-    if game::cpu::bucket() < 100 {
+    if game::cpu::bucket() < 100 && game::cpu::tick_limit() != f64::INFINITY {
         info!("Waiting for buckets {}/100", game::cpu::bucket());
         return;
     }
@@ -49,6 +50,8 @@ pub fn game_loop() {
     );
 
     do_creeps(&mut mem);
+
+    mem.messages.spawn.flush();
     do_spawns(&mut mem);
 
     do_towers();
