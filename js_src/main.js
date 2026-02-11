@@ -2,6 +2,8 @@
 import 'fastestsmallesttextencoderdecoder-encodeinto/EncoderDecoderTogether.min.js';
 
 import * as bot from '../pkg/screeps_starter_rust.js';
+import * as Alliance from "./allianceManager";
+
 // replace this with the name of your module
 const MODULE_NAME = "screeps_starter_rust";
 const BUCKET_BOOT_THRESHOLD = 1500;
@@ -30,6 +32,8 @@ function console_error() {
 let running = false;
 
 function loaded_loop() {
+    Alliance.sync();
+
     // need to freshly override the fake console object each tick
     console.error = console_error;
     if (running) {

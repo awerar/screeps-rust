@@ -90,6 +90,21 @@ impl CreepState for TugboatState {
         use TugboatState::*;
 
         let Some(CreepData { role: CreepRole::Tugboat(_, tugged), .. }) = mem.creep(tugboat) else { return Err(()) };
+
+        if let Recycling(spawn) = self {
+            let Ok(spawn) = spawn.resolve().ok_or(()) else {
+                return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()))
+            };
+
+            if tugboat.pos().is_near_to(spawn.pos()) {
+                spawn.recycle_creep(tugboat).map_err(|_| ())?;
+            } else {
+                mem.movement.smart_move_creep_to(tugboat, spawn).ok();
+            }
+
+            return Ok(self.clone());
+        }
+
         let Some(tugged) = tugged.resolve() else {
             warn!("Tugged doesn't exist. Recycling tugboat");
             return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()));
@@ -136,19 +151,7 @@ impl CreepState for TugboatState {
 
                 return Ok(self.clone())
             },
-            Recycling(spawn) => {
-                let Ok(spawn) = spawn.resolve().ok_or(()) else {
-                    return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()))
-                };
-
-                if tugboat.pos().is_near_to(spawn.pos()) {
-                    spawn.recycle_creep(tugboat).map_err(|_| ())?;
-                } else {
-                    mem.movement.smart_move_creep_to(tugboat, spawn).ok();
-                }
-
-                Ok(self.clone())
-            },
+            Recycling(_) => unreachable!()
         }
     }
 }

@@ -4,7 +4,7 @@ use itertools::Itertools;
 use js_sys::Math::random;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTower, StructureType, action_error_codes::HarvestErrorCode, find, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, action_error_codes::HarvestErrorCode, find, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 
@@ -14,13 +14,13 @@ extern crate serde_json_path_to_error as serde_json;
 
 static BUILDING_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
     use StructureType::*;
-    let priority = vec![Extension, Container, Tower, Road, Storage];
+    let priority = vec![Extension, Container, Tower, Road, Storage, Terminal];
     priority.into_iter().rev().enumerate().map(|(a, b)| (b, a as i32)).collect()
 });
 
 static FILL_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
     use StructureType::*;
-    let priority = vec![Spawn, Extension, Tower, Storage];
+    let priority = vec![Spawn, Extension, Tower, Terminal, Storage];
     priority.into_iter().rev().enumerate().map(|(a, b)| (b, a as i32)).collect()
 });
 
@@ -50,6 +50,7 @@ pub enum DistributionTarget {
     Extension(ObjectId<StructureExtension>),
     Tower(ObjectId<StructureTower>),
     Storage(ObjectId<StructureStorage>),
+    Terminal(ObjectId<StructureTerminal>),
     ConstructionSite(ObjectId<ConstructionSite>),
 }
 
@@ -62,6 +63,7 @@ impl DistributionTarget {
             DistributionTarget::ConstructionSite(object_id) => object_id.resolve().map(|x| x.pos()),
             DistributionTarget::Tower(object_id) => object_id.resolve().map(|x| x.pos()),
             DistributionTarget::Storage(object_id) => object_id.resolve().map(|x| x.pos()),
+            DistributionTarget::Terminal(object_id) => object_id.resolve().map(|x| x.pos()),
         }
     }
 
@@ -77,8 +79,10 @@ impl DistributionTarget {
                 creep.transfer(&tower.resolve()?, ResourceType::Energy, None).ok(),
             DistributionTarget::Storage(storage) => 
                 creep.transfer(&storage.resolve()?, ResourceType::Energy, None).ok(),
+            DistributionTarget::Terminal(terminal) => 
+                creep.transfer(&terminal.resolve()?, ResourceType::Energy, None).ok(),
             DistributionTarget::ConstructionSite(site) => 
-            creep.build(&site.resolve()?).ok(),
+                creep.build(&site.resolve()?).ok(),
         }
     }
 
@@ -89,6 +93,7 @@ impl DistributionTarget {
             DistributionTarget::Spawn(_) |
             DistributionTarget::Extension(_) |
             DistributionTarget::Storage(_) |
+            DistributionTarget::Terminal(_) |
             DistributionTarget::Tower(_) => 1,
         }
     }
@@ -104,6 +109,8 @@ impl DistributionTarget {
                 tower.resolve().map_or(false, |tower| tower.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::Storage(storage) => 
                 storage.resolve().map_or(false, |storage| storage.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
+            DistributionTarget::Terminal(terminal) => 
+                terminal.resolve().map_or(false, |terminal| terminal.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::ConstructionSite(site) => site.resolve().is_some(),
         }
     }
@@ -130,6 +137,7 @@ fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
             StructureObject::StructureExtension(extension) => DistributionTarget::Extension(extension.id()),
             StructureObject::StructureTower(tower) => DistributionTarget::Tower(tower.id()),
             StructureObject::StructureStorage(storage) => DistributionTarget::Storage(storage.id()),
+            StructureObject::StructureTerminal(terminal) => DistributionTarget::Terminal(terminal.id()),
             _ => {
                 warn!("Unknown structure to fill: {}", fill_target.structure_type());
                 return None

@@ -15,6 +15,13 @@ extern crate serde_json_path_to_error as serde_json;
 pub struct Memory {
     #[serde(rename = "creeps")]
     _internal_creeps: Option<serde_json::Value>,
+
+    #[serde(rename = "allies")]
+    _alliance_allies: Option<serde_json::Value>,
+    #[serde(rename = "myData")]
+    _alliance_my_data: Option<serde_json::Value>,
+    #[serde(rename = "alliesData")]
+    _alliance_allies_data: Option<serde_json::Value>,
     
     #[serde(default)] pub tick_times: VecDeque<f64>,
 
