@@ -293,14 +293,16 @@ impl State for Level1State {
         match self {
             Level1State::BuildContainerStorage => {
                 if !self.can_promote(name, mem) {
-                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().buffer_pos, StructureType::Container, None)
+                    //mem.remote_build_requests.create_request(mem.colony(name).unwrap().buffer_pos, StructureType::Container, None)
+                    Ok(())
                 } else {
                     Ok(())
                 }
             },
             Level1State::BuildSpawn => {
                 if !self.can_promote(name, mem) {
-                    mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Spawn, Some("Center"))
+                    //mem.remote_build_requests.create_request(mem.colony(name).unwrap().center, StructureType::Spawn, Some("Center"))
+                    Ok(())
                 } else {
                     Ok(())
                 }

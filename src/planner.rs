@@ -1,8 +1,8 @@
-use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}};
+use std::{cmp::Reverse, collections::{BTreeMap, HashMap, HashSet, VecDeque}};
 
 use log::*;
 use itertools::Itertools;
-use screeps::{CircleStyle, CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, LineStyle, ObjectId, Path, Position, Room, RoomName, RoomTerrain, RoomVisual, RoomXY, Source, StructureType, Terrain, TextStyle, find, game, pathfinder::SingleRoomCostResult};
+use screeps::{CircleStyle, CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, LineStyle, ObjectId, Path, Position, Room, RoomCoordinate, RoomName, RoomTerrain, RoomVisual, RoomXY, Source, Step, StructureType, Terrain, TextStyle, find, game, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 use unionfind::HashUnionFindByRank;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -12,12 +12,17 @@ use crate::{colony::{ColonyState, Level1State, State}, pathfinding, visuals::dra
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
     MainSpawn,
+    SourceSpawn(ObjectId<Source>),
     SourceContainer(ObjectId<Source>),
+    SourceLink(ObjectId<Source>),
+    SourceExtension(ObjectId<Source>),
     Extension,
     Storage,
+    Terminal,
     ContainerStorage,
     Tower,
-    CentralLink
+    CentralLink,
+    Extractor,
 }
 
 impl PlannedStructure {
@@ -32,12 +37,17 @@ impl PlannedStructure {
 
         match self {
             PlannedStructure::MainSpawn => Spawn,
+            PlannedStructure::SourceSpawn(_) => Spawn,
             PlannedStructure::SourceContainer(_) => Container,
             PlannedStructure::Extension => Extension,
+            PlannedStructure::SourceExtension(_) => Extension,
             PlannedStructure::Storage => Storage,
             PlannedStructure::ContainerStorage => Container,
             PlannedStructure::Tower => Tower,
             PlannedStructure::CentralLink => Link,
+            PlannedStructure::SourceLink(_) => Link,
+            PlannedStructure::Terminal => Terminal,
+            PlannedStructure::Extractor => Extractor,
         }
     }
 }
@@ -64,49 +74,113 @@ impl ColonyPlan {
         use Level1State::*;
 
         let mut planner = ColonyPlanner::new(room.clone());
-
         let center = Self::find_center(room.clone());
-        let mut center_planner = CenterPlanner::new(center, room.get_terrain());
 
-        center_planner.plan_structure(&mut planner, Level1(BuildSpawn), PlannedStructure::MainSpawn)?;
+        let mut center_planner = CenterPlanner::new(&planner, center);
+
         center_planner.plan_structure(&mut planner, Level4, PlannedStructure::Storage)?;
+        center_planner.plan_structure(&mut planner, Level1(BuildSpawn), PlannedStructure::MainSpawn)?;
+        center_planner.plan_structure(&mut planner, Level1(BuildContainerStorage), PlannedStructure::ContainerStorage)?;
         center_planner.plan_structure(&mut planner, Level3, PlannedStructure::Tower)?;
         center_planner.plan_structure(&mut planner, Level5, PlannedStructure::CentralLink)?;
-        center_planner.plan_structure(&mut planner, Level1(BuildContainerStorage), PlannedStructure::ContainerStorage)?;
 
-        for controller_level in 1..=8 {
-            for structure in [PlannedStructure::Extension, PlannedStructure::Tower] {
-                let placed_count = planner.structures2pos.get(&structure).map(|x| x.len()).unwrap_or(0);
-                let max_count = structure.structure_type().controller_structures(controller_level);
-                let plan_count = max_count.saturating_sub(placed_count as u32);
+        let harvester_positions = Self::plan_sources(&mut planner, center)?;
 
-                let step = ColonyState::first_at_level(controller_level as u8).unwrap();
-
-                for _ in 0..plan_count {
-                    center_planner.plan_structure(&mut planner, step.clone(), structure)?;
-                }
-            }
-        }
+        Self::plan_extensions_and_towers(&mut planner, &mut center_planner)?;
         
         center_planner.plan_roads(&mut planner)?;
 
         let controller = room.controller().unwrap().pos().xy();
-        planner.plan_road_between(&center, &controller, Level1(BuildArterialRoads))?;
+        planner.plan_road_between(center, controller, Level1(BuildArterialRoads))?;
 
-        for source in room.find(find::SOURCES, None) {
-            planner.plan_road_between(&source.pos().xy(), &center, Level1(BuildArterialRoads))?;
-            planner.plan_road_between(&source.pos().xy(), &controller, Level1(BuildArterialRoads))?;
-
-            let container_pos = source.pos().xy().neighbors().into_iter()
-                .filter(|neigh| planner.terrain.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
-                .filter(|neigh| planner.roads.contains_key(neigh))
-                .next().ok_or(String::from("Unable to find suitable position for source container"))?;
-            planner.plan_structure(container_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source.id()))?;
+        for source in harvester_positions {
+            planner.plan_road_between(source, center, Level1(BuildArterialRoads))?;
         }
 
         Self::ensure_connectivity(&mut planner, center)?;
 
         planner.compile().inspect(|plan| plan.draw_progression(room.name()))
+    }
+
+    fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomXY>, String> {
+        use ColonyState::*;
+        use Level1State::*;
+
+        let mut harvester_positions = Vec::new();
+        for source in planner.room.find(find::SOURCES, None) {
+            let source_pos = source.pos().xy();
+            let source_id = source.id();
+
+            let path = planner.find_path_between(source_pos, center, Level1(BuildArterialRoads));
+
+            let harvest_pos = path.get(0).ok_or("Path to source had zero elements")?;
+            let harvester_pos = RoomXY::new(
+                RoomCoordinate::new(harvest_pos.x as u8).unwrap(), 
+                RoomCoordinate::new(harvest_pos.y as u8).unwrap()
+            );
+
+            planner.plan_structure(harvester_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
+
+            let slots = harvester_pos.neighbors().into_iter()
+                .filter(|neigh| planner.is_free_at(*neigh))
+                .collect_vec()
+                .into_iter();
+
+            let main_road_pos = path.get(1).ok_or("Path to source had one element")?;
+            let main_road_pos = RoomXY::new(
+                RoomCoordinate::new(main_road_pos.x as u8).unwrap(), 
+                RoomCoordinate::new(main_road_pos.y as u8).unwrap()
+            );
+
+            planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?;
+            planner.plan_road(main_road_pos, Level1(BuildArterialRoads))?;
+
+            let mut slots = slots.filter(|slot| *slot != main_road_pos);
+            let link_slot = slots.next().ok_or("No slots for link around source")?;
+            planner.plan_structure_earliest(link_slot, PlannedStructure::SourceLink(source_id))?;
+
+            for slot in slots {
+                planner.plan_structure_earliest(slot, PlannedStructure::SourceExtension(source_id))?;
+            }
+
+            harvester_positions.push(harvester_pos);
+        }
+
+        Ok(harvester_positions)
+    }
+
+    fn plan_extensions_and_towers(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> Result<(), String> {
+        for controller_level in 1..=8 {
+            let step = ColonyState::first_at_level(controller_level as u8).unwrap();
+            let plan_extensions = planner.count_left_for(PlannedStructure::Extension, step.clone());
+            let plan_towers = planner.count_left_for(PlannedStructure::Tower, step.clone());
+
+            let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(&planner, step.clone())).collect::<Result<_, _>>()?;
+            let mut towers = planner.structures2pos.get(&PlannedStructure::Tower).cloned().unwrap_or_default();
+            let mut new_towers = Vec::new();
+
+            for _ in 0..plan_towers {
+                let tower = avaliable_positions.iter().max_by_key(|pos| {
+                    towers.iter()
+                        .map(|other| other.get_range_to(**pos) as u32)
+                        .sum::<u32>()
+                }).cloned().unwrap();
+
+                avaliable_positions.remove(&tower);
+                towers.insert(tower);
+                new_towers.push(tower);
+            }
+
+            for pos in avaliable_positions {
+                planner.plan_structure(pos, step.clone(), PlannedStructure::Extension)?;
+            }
+
+            for pos in new_towers {
+                planner.plan_structure(pos, step.clone(), PlannedStructure::Tower)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<(), String> {
@@ -130,7 +204,7 @@ impl ColonyPlan {
 
             for new_road in &new_roads {
                 if network.find_shorten(new_road) != network.find_shorten(&center) {
-                    planner.plan_road_between(&center, new_road, step.clone())?;
+                    planner.plan_road_between(center, *new_road, step.clone())?;
                     network.union_by_rank(new_road, &center).map_err(|e| e.to_string())?;
                 }
             }
@@ -146,7 +220,7 @@ impl ColonyPlan {
                 if new_structure == center { continue; }
                 if new_structure.neighbors().into_iter().any(|neigh| network.find_shorten(&neigh).is_some()) { continue; }
                 debug!("Connecting {center} and {new_structure}");
-                planner.plan_road_between(&center, &new_structure, step.clone())?;
+                planner.plan_road_between(center, new_structure, step.clone())?;
             }
         }
 
@@ -176,19 +250,19 @@ impl ColonyPlan {
             .inspect(|candidate| { let (x,y) = (candidate.x.u8(), candidate.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.35).fill("#469ff2")))); });
 
         candidates.min_by_key(|candidate| {
-                let candidate_pos = Position::new(candidate.x, candidate.y, room.name());
+            let candidate_pos = Position::new(candidate.x, candidate.y, room.name());
 
-                let mut points_of_interest = Vec::new();
+            let mut points_of_interest = Vec::new();
 
-                points_of_interest.extend(room.find(find::SOURCES, None).into_iter().map(|source| source.pos()));
-                points_of_interest.extend(room.find(find::DEPOSITS, None).into_iter().map(|deposit| deposit.pos()));
-                points_of_interest.push(room.controller().unwrap().pos());
+            points_of_interest.extend(room.find(find::SOURCES, None).into_iter().map(|source| source.pos()));
+            points_of_interest.extend(room.find(find::DEPOSITS, None).into_iter().map(|deposit| deposit.pos()));
+            points_of_interest.push(room.controller().unwrap().pos());
 
-                points_of_interest.into_iter()
-                    .map(|poi| pathfinding::search(candidate_pos, poi, 1).path().len())
-                    .sum::<usize>()
-            }).inspect(|best| { let (x,y) = (best.x.u8(), best.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.5).fill("#46f263")))); })
-            .unwrap()
+            points_of_interest.into_iter()
+                .map(|poi| pathfinding::search(candidate_pos, poi, 1).path().len())
+                .sum::<usize>()
+        }).inspect(|best| { let (x,y) = (best.x.u8(), best.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.5).fill("#46f263")))); })
+        .unwrap()
     }
 }
 
@@ -232,7 +306,8 @@ pub struct ColonyPlanner {
     pub structures: HashMap<RoomXY, ColonyState>,
 
     pub pos2structure: HashMap<RoomXY, PlannedStructure>,
-    pub structures2pos: HashMap<PlannedStructure, HashSet<RoomXY>>
+    pub structures2pos: HashMap<PlannedStructure, HashSet<RoomXY>>,
+    pub structure_type_steps: HashMap<StructureType, BTreeMap<ColonyState, u32>>
 }
 
 impl ColonyPlanner {
@@ -252,7 +327,8 @@ impl ColonyPlanner {
             roads: HashMap::new(),
             structures: HashMap::new(),
             pos2structure: HashMap::new(), 
-            structures2pos: HashMap::new()
+            structures2pos: HashMap::new(),
+            structure_type_steps: HashMap::new()
         }
     }
 
@@ -278,6 +354,28 @@ impl ColonyPlanner {
         Ok(ColonyPlan { steps: plan_steps })
     }
 
+    pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyState) -> u32 {
+        ColonyState::iter().skip_while(|s| *s < step).map(|step| {
+            let placed_count = self.num_placed_by(structure.structure_type(), step.clone());
+            let max_count = structure.structure_type().controller_structures(step.controller_level() as u32);
+            max_count.saturating_sub(placed_count as u32)
+        }).min().unwrap()
+    }
+
+    pub fn is_free_at(&self, pos: RoomXY) -> bool {
+        self.terrain.get(pos.x.u8(), pos.y.u8()) != Terrain::Wall && !self.pos2structure.contains_key(&pos)
+    }
+
+    pub fn num_placed_by(&self, ty: StructureType, step: ColonyState) -> u32 {
+        self.structure_type_steps.get(&ty)
+            .map(|x| 
+                x.iter()
+                    .take_while(|(place_step, _)| **place_step <= step)
+                    .map(|(_, count)| *count)
+                    .sum::<u32>()
+            ).unwrap_or(0)
+    }
+
     fn update_tile_pathing(&mut self, xy: RoomXY, ty: TilePathing) {
         self.cost_matrix.set_xy(xy, ty.cost());
     }
@@ -291,15 +389,26 @@ impl ColonyPlanner {
         Ok(())
     }
 
+    pub fn plan_structure_earliest(&mut self, xy: RoomXY, structure: PlannedStructure) -> Result<ColonyState, String> {
+        for step in ColonyState::iter() {
+            if self.count_left_for(structure, step.clone()) == 0 { continue; };
+
+            return self.plan_structure(xy, step.clone(), structure).map(|_| step)
+        }
+
+        Err(format!("Unable to build any more {structure:?}"))
+    }
+
     pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
         if self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) };
-        if self.structures2pos.get(&structure).map_or(0, |x| x.len()) as u32 >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
+        if self.num_placed_by(structure.structure_type(), step.clone()) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
         if self.pos2structure.get(&xy).map_or(false, |other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) };
         if self.structures.get(&xy).map_or(false, |old_step| step >= *old_step) { return Ok(()) }
 
         self.structures2pos.entry(structure).or_default().insert(xy);
         self.pos2structure.insert(xy, structure);
-        self.structures.insert(xy, step);
+        self.structures.insert(xy, step.clone());
+        *self.structure_type_steps.entry(structure.structure_type()).or_default().entry(step).or_default() += 1;
 
         if !structure.walkable() {
             self.update_tile_pathing(xy, TilePathing::Impassable);
@@ -308,7 +417,7 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn plan_road_between(&mut self, point1: &RoomXY, point2: &RoomXY, step: ColonyState) -> Result<(), String> {
+    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: ColonyState) -> Vec<Step> {
         let mut cost_matrix = self.cost_matrix.clone();
         for pos in self.roads.iter().filter(|(_, road_step)| **road_step <= step).map(|(pos, _)| pos) {
             cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
@@ -323,8 +432,13 @@ impl ColonyPlanner {
         let path = point1.find_path_to(&point2, Some(options));
 
         let Path::Vectorized(path) = path else { unreachable!() };
+        path
+    }
 
-        let mut pos = point1;
+    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyState) -> Result<(), String> {
+        let path = self.find_path_between(point1, point2, step.clone());
+
+        let mut pos = Position::new(point1.x, point1.y, self.room.name());
         for path_step in path.iter() {
             pos.offset(path_step.dx, path_step.dy);
 
@@ -343,35 +457,37 @@ struct CenterPlanner {
 }
 
 impl CenterPlanner {
-    pub fn new(center: RoomXY, terrain: RoomTerrain) -> Self {
+    pub fn new(planner: &ColonyPlanner, center: RoomXY) -> Self {
         Self { 
-            flood_fill: FloodFill::new(vec![center], DiagonalWalkableNeighs(terrain)), 
+            flood_fill: FloodFill::new(vec![center], DiagonalWalkableNeighs(planner.room.get_terrain())), 
             roads_utility_increases: HashMap::new()
         }
     }
 
-    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
-        if planner.structures2pos.get(&structure).map_or(0, |x| x.len()) as u32 >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
-        
+    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyState) -> Result<RoomXY, String> {        
         while let Some((_, pos)) = self.flood_fill.next() {
-            if planner.plan_structure(pos, step.clone(), structure).inspect_err(|err| debug!("Center plan failed: {err}")).is_ok() {
+            if planner.pos2structure.get(&pos).is_some() { continue; }
 
-                let road_neighs: Vec<_> = Direction::iter()
-                    .filter(|dir| dir.is_orthogonal())
-                    .flat_map(|dir| pos.checked_add_direction(*dir))
-                    .filter(|neigh| planner.terrain.get_xy(*neigh) != Terrain::Wall)
-                    .collect();
+            let road_neighs: Vec<_> = Direction::iter()
+                .filter(|dir| dir.is_orthogonal())
+                .flat_map(|dir| pos.checked_add_direction(*dir))
+                .filter(|neigh| planner.terrain.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
+                .collect();
 
-                for road_neigh in road_neighs {
-                    let road_utility_increases = self.roads_utility_increases.entry(road_neigh).or_default();
-                    road_utility_increases.push(step.clone());
-                }
+            for road_neigh in road_neighs {
+                let road_utility_increases = self.roads_utility_increases.entry(road_neigh).or_default();
+                road_utility_increases.push(step.clone());
+            }
 
-                return Ok(()); 
-            };
+            return Ok(pos); 
         }
 
-        Err(format!("No more positions in center for {structure:?}"))
+        Err(format!("No more positions in center"))
+    }
+
+    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
+        let pos = self.next_structure_pos(planner, step.clone())?;
+        planner.plan_structure(pos, step, structure)
     }
 
     pub fn plan_roads(self, planner: &mut ColonyPlanner) -> Result<(), String> {
