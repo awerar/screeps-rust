@@ -85,5 +85,7 @@ module.exports.loop = function() {
     module.exports.loop = loaded_loop;
     global.reset_memory = bot.reset_memory;
     global.refresh_colony_state = bot.refresh_colony_state;
+    global.clear_visuals = bot.clear_visuals;
+    global.visualize_plan_for = bot.visualize_plan_for;
     console.log(`loading complete, CPU used: ${Game.cpu.getUsed()}`)
 }

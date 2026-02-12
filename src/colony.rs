@@ -9,7 +9,7 @@ use crate::{memory::Memory, planning::{plan_center_in, plan_main_roads_in}};
 
 const CLAIM_FLAG_PREFIX: &str = "Claim";
 
-trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
+pub trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
     fn get_promotion(&self) -> Option<Self>;
     fn can_promote(&self, name: RoomName, mem: &Memory) -> bool;
 
@@ -17,6 +17,26 @@ trait State where Self : Sized + Default + Eq + Debug + Clone + Ord {
 
     fn on_transition_into(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()>;
     fn on_update(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()>;
+}
+
+pub struct StateIterator<S> where S : State {
+    state: S
+}
+
+impl<S> Iterator for StateIterator<S> where S : State {
+    type Item = S;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Some(promotion) = self.state.get_promotion() else { return None; };
+        self.state = promotion.clone();
+        Some(promotion)
+    }
+}
+
+impl ColonyState {
+    pub fn iter() -> StateIterator<Self> {
+        StateIterator { state: Default::default() }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
@@ -35,8 +55,25 @@ pub enum ColonyState {
 }
 
 impl ColonyState {
-    fn controller_level(&self) -> u8 {
+    pub fn controller_level(&self) -> u8 {
         unsafe { *(self as *const Self as *const u8) }
+    }
+
+    pub fn first_at_level(controller_level: u8) -> Option<Self> {
+        use ColonyState::*;
+
+        Some(match controller_level {
+            0 => Unclaimed,
+            1 => Level1(Default::default()),
+            2 => Level2,
+            3 => Level3,
+            4 => Level4,
+            5 => Level5,
+            6 => Level6,
+            7 => Level7,
+            8 => Level8,
+            _ => return None
+        })
     }
 
     fn transition_into(&self, next_state: Self, name: RoomName, mem: &mut Memory, transition_count: usize) -> Self {
@@ -202,9 +239,10 @@ impl State for ColonyState {
 #[repr(u8)]
 pub enum Level1State {
     #[default]
-    BuildContainerBuffer,
+    BuildContainerStorage,
     BuildSpawn,
-    BuildRoads,
+    BuildSourceContainers,
+    BuildArterialRoads,
     UpgradeController
 }
 
@@ -213,9 +251,10 @@ impl State for Level1State {
         use Level1State::*;
 
         match self {
-            BuildContainerBuffer => Some(BuildSpawn),
-            BuildSpawn => Some(BuildRoads),
-            BuildRoads => Some(UpgradeController),
+            BuildContainerStorage => Some(BuildSpawn),
+            BuildSpawn => Some(BuildSourceContainers),
+            BuildSourceContainers => Some(BuildArterialRoads),
+            BuildArterialRoads => Some(UpgradeController),
             UpgradeController => None,
         }
     }
@@ -224,9 +263,10 @@ impl State for Level1State {
         use Level1State::*;
 
         match self {
-            BuildContainerBuffer => mem.colony(name).unwrap().buffer_structure().is_some(),
+            BuildContainerStorage => mem.colony(name).unwrap().buffer_structure().is_some(),
             BuildSpawn => mem.colony(name).unwrap().spawn().is_some(),
-            BuildRoads => {
+            BuildSourceContainers => true,
+            BuildArterialRoads => {
                 mem.colony(name).unwrap().room().unwrap().find(find::CONSTRUCTION_SITES, None).into_iter()
                     .any(|site| site.structure_type() == StructureType::Road)
                     .not()
@@ -238,8 +278,8 @@ impl State for Level1State {
     fn get_demotion(&self, name: RoomName, mem: &Memory) -> Option<Self> {
         use Level1State::*;
 
-        if *self > BuildContainerBuffer && mem.colony(name).unwrap().buffer_structure().is_none() {
-            return Some(BuildContainerBuffer)
+        if *self > BuildContainerStorage && mem.colony(name).unwrap().buffer_structure().is_none() {
+            return Some(BuildContainerStorage)
         }
 
         if *self > BuildSpawn && mem.colony(name).unwrap().spawn().is_none() {
@@ -251,7 +291,7 @@ impl State for Level1State {
 
     fn on_transition_into(&self, name: RoomName, mem: &mut Memory) -> Result<(), ()> {
         match self {
-            Level1State::BuildContainerBuffer => {
+            Level1State::BuildContainerStorage => {
                 if !self.can_promote(name, mem) {
                     mem.remote_build_requests.create_request(mem.colony(name).unwrap().buffer_pos, StructureType::Container, None)
                 } else {
@@ -265,7 +305,8 @@ impl State for Level1State {
                     Ok(())
                 }
             },
-            Level1State::BuildRoads => Ok(plan_main_roads_in(&mem.colony(name).ok_or(())?.room().ok_or(())?)),
+            Level1State::BuildSourceContainers => Ok(()),
+            Level1State::BuildArterialRoads => Ok(plan_main_roads_in(&mem.colony(name).ok_or(())?.room().ok_or(())?)),
             Level1State::UpgradeController => Ok(()),
         }
     }

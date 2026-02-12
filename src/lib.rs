@@ -20,6 +20,9 @@ mod colony;
 mod remote_build;
 mod utils;
 mod messages;
+mod planner;
+mod pathfinding;
+mod visuals;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -63,4 +66,6 @@ pub fn game_loop() {
 
     mem.handle_callbacks();
     mem.screeps_serialize();
+
+    visuals::draw();
 }
