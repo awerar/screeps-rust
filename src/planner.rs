@@ -2,7 +2,7 @@ use std::{cmp::Reverse, collections::{BTreeMap, HashMap, HashSet, VecDeque}};
 
 use log::*;
 use itertools::Itertools;
-use screeps::{CircleStyle, CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, LineStyle, Mineral, ObjectId, Path, Position, Room, RoomCoordinate, RoomName, RoomTerrain, RoomVisual, RoomXY, Source, Step, StructureType, Terrain, TextStyle, find, game, pathfinder::SingleRoomCostResult};
+use screeps::{CircleStyle, CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, LineStyle, Mineral, ObjectId, Path, Position, Room, RoomCoordinate, RoomName, RoomTerrain, RoomVisual, RoomXY, Source, Step, StructureObject, StructureType, Terrain, TextStyle, find, game, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 use unionfind::HashUnionFindByRank;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -65,7 +65,68 @@ impl PlannedStructure {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ColonyPlanStep {
     new_roads: HashSet<RoomXY>,
-    new_structures: HashMap<RoomXY, PlannedStructure>
+    new_structures: HashMap<RoomXY, StructureType>
+}
+
+impl ColonyPlanStep {
+    fn build(&self, room: Room) -> Result<bool, ()> {
+        let built_roads = room.find(find::STRUCTURES, None).into_iter()
+            .flat_map(|structure| if let StructureObject::StructureRoad(road) = structure { Some(road) } else { None })
+            .map(|road| road.pos().xy());
+
+        let constructing_roads = room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
+            .filter(|site| matches!(site.structure_type(), StructureType::Road))
+            .map(|site| site.pos().xy());
+
+        let roads = built_roads.chain(constructing_roads).collect();
+        let missing_roads = self.new_roads.difference(&roads).cloned().collect_vec();
+
+        for road in &missing_roads {
+            Position::new(road.x, road.y, room.name()).create_construction_site(StructureType::Road, None).map_err(|_| ())?;
+        }
+
+        let all_built_structures = room.find(find::MY_STRUCTURES, None).into_iter()
+            .map(|structure| (structure.pos().xy(), structure.structure_type()));
+
+        let all_constructing_structures = room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
+            .map(|site| (site.pos().xy(), site.structure_type()));
+
+        let all_structures: HashMap<_, _> = all_built_structures
+            .chain(all_constructing_structures)
+            .filter(|(_, ty)| *ty != StructureType::Road)
+            .collect();
+
+        let good_structures: HashSet<_> = all_structures.iter()
+            .map(|(a, b)| (*a, *b))
+            .filter(|(pos, ty)| 
+                self.new_structures.get(pos).map_or(false, |new_ty| *ty == *new_ty)
+            ).map(|(pos, _)| pos)
+            .collect();
+
+        let missing_structures: HashMap<_, _> = self.new_structures.iter()
+            .map(|(a, b)| (*a, *b))
+            .filter(|(pos, _)| !good_structures.contains(pos))
+            .collect();
+
+        let missing_structure_keys: HashSet<_> = missing_structures.keys().cloned().collect();
+        let all_structure_keys: HashSet<_> = all_structures.keys().cloned().collect();
+        let overlap = all_structure_keys.union(&missing_structure_keys).collect_vec();
+
+        if !overlap.is_empty() {
+            warn!("Found structure overlap in {}:", room.name());
+            for pos in overlap {
+                warn!("For {:?} at {pos}", missing_structures[pos]);
+            }
+
+            return Err(())
+        }
+
+        for (pos, ty) in &missing_structures {
+            Position::new(pos.x, pos.y, room.name()).create_construction_site(*ty, None).map_err(|_| ())?;
+        }
+
+        Ok(missing_roads.len() == 0 && missing_structures.len() == 0)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -177,10 +238,10 @@ impl ColonyPlan {
             }
 
             let step = ColonyState::first_at_level(controller_level as u8).unwrap();
-            let plan_extensions = planner.count_left_for(PlannedStructure::Extension, step.clone());
-            let plan_towers = planner.count_left_for(PlannedStructure::Tower, step.clone());
+            let plan_extensions = planner.count_left_for(PlannedStructure::Extension, step);
+            let plan_towers = planner.count_left_for(PlannedStructure::Tower, step);
 
-            let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(&planner, step.clone())).collect::<Result<_, _>>()?;
+            let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(&planner, step)).collect::<Result<_, _>>()?;
             let mut towers = planner.structures2pos.get(&PlannedStructure::Tower).cloned().unwrap_or_default();
             let mut new_towers = Vec::new();
 
@@ -197,11 +258,11 @@ impl ColonyPlan {
             }
 
             for pos in avaliable_positions {
-                planner.plan_structure(pos, step.clone(), PlannedStructure::Extension)?;
+                planner.plan_structure(pos, step, PlannedStructure::Extension)?;
             }
 
             for pos in new_towers {
-                planner.plan_structure(pos, step.clone(), PlannedStructure::Tower)?;
+                planner.plan_structure(pos, step, PlannedStructure::Tower)?;
             }
         }
 
@@ -229,7 +290,7 @@ impl ColonyPlan {
 
             for new_road in &new_roads {
                 if network.find_shorten(new_road) != network.find_shorten(&center) {
-                    planner.plan_road_between(center, *new_road, step.clone())?;
+                    planner.plan_road_between(center, *new_road, step)?;
                     network.union_by_rank(new_road, &center).map_err(|e| e.to_string())?;
                 }
             }
@@ -245,7 +306,7 @@ impl ColonyPlan {
                 if new_structure == center { continue; }
                 if new_structure.neighbors().into_iter().any(|neigh| network.find_shorten(&neigh).is_some()) { continue; }
                 debug!("Connecting {center} and {new_structure}");
-                planner.plan_road_between(center, new_structure, step.clone())?;
+                planner.plan_road_between(center, new_structure, step)?;
             }
         }
 
@@ -365,15 +426,15 @@ impl ColonyPlanner {
             
             plan_step.new_roads.extend(self.roads.iter()
                 .filter(|(_, road_step)| **road_step == step)
-                .map(|(pos, _)| pos.clone())
+                .map(|(pos, _)| *pos)
             );
 
             plan_step.new_structures.extend(self.structures.iter()
                 .filter(|(_, road_step)| **road_step == step)
-                .map(|(pos, _)| (pos.clone(), self.pos2structure[pos]))
+                .map(|(pos, _)| (*pos, self.pos2structure[pos].structure_type()))
             );
 
-            plan_steps.insert(step.clone(), plan_step);
+            plan_steps.insert(step, plan_step);
         }
 
         Ok(ColonyPlan { steps: plan_steps })
@@ -381,7 +442,7 @@ impl ColonyPlanner {
 
     pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyState) -> u32 {
         ColonyState::iter().skip_while(|s| *s < step).map(|step| {
-            let placed_count = self.num_placed_by(structure.structure_type(), step.clone());
+            let placed_count = self.num_placed_by(structure.structure_type(), step);
             let max_count = structure.structure_type().controller_structures(step.controller_level() as u32);
             max_count.saturating_sub(placed_count as u32)
         }).min().unwrap()
@@ -436,13 +497,13 @@ impl ColonyPlanner {
 
     pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
         if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) };
-        if self.num_placed_by(structure.structure_type(), step.clone()) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
+        if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
         if self.pos2structure.get(&xy).map_or(false, |other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) };
         if self.structures.get(&xy).map_or(false, |old_step| step >= *old_step) { return Ok(()) }
 
         self.structures2pos.entry(structure).or_default().insert(xy);
         self.pos2structure.insert(xy, structure);
-        self.structures.insert(xy, step.clone());
+        self.structures.insert(xy, step);
         *self.structure_type_steps.entry(structure.structure_type()).or_default().entry(step).or_default() += 1;
 
         if !structure.walkable() {
@@ -471,14 +532,14 @@ impl ColonyPlanner {
     }
 
     pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyState) -> Result<(), String> {
-        let path = self.find_path_between(point1, point2, step.clone());
+        let path = self.find_path_between(point1, point2, step);
 
         let mut pos = Position::new(point1.x, point1.y, self.room.name());
         for path_step in path.iter() {
             pos.offset(path_step.dx, path_step.dy);
 
             if self.pos2structure.get(&pos.xy()).map_or(true, |structure| structure.walkable()) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
-                self.plan_road(pos.xy(), step.clone())?;
+                self.plan_road(pos.xy(), step)?;
             }
         }
 
@@ -511,7 +572,7 @@ impl CenterPlanner {
 
             for road_neigh in road_neighs {
                 let road_utility_increases = self.roads_utility_increases.entry(road_neigh).or_default();
-                road_utility_increases.push(step.clone());
+                road_utility_increases.push(step);
             }
 
             return Ok(pos); 
@@ -521,7 +582,7 @@ impl CenterPlanner {
     }
 
     pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
-        let pos = self.next_structure_pos(planner, step.clone())?;
+        let pos = self.next_structure_pos(planner, step)?;
         planner.plan_structure(pos, step, structure)
     }
 
@@ -639,7 +700,7 @@ impl ColonyPlan {
             let Some(step) = self.steps.get(&step) else { continue; };
 
             for (pos, structure) in &step.new_structures {
-                structure.draw(visuals, pos);
+                draw_structure(visuals, pos, *structure);
             }
 
             roads.extend(step.new_roads.iter().cloned());
@@ -653,24 +714,20 @@ impl ColonyPlan {
 
         let mut step = ColonyState::default();
         draw_in_room(room, move |visuals| {
-            plan.draw_until(visuals, Some(step.clone()));
+            plan.draw_until(visuals, Some(step));
             step = step.get_promotion().unwrap_or_default()
         });
     }
 }
 
-impl PlannedStructure {
-    fn draw(&self, visuals: &RoomVisual, pos: &RoomXY) {
-        match self {
-            PlannedStructure::Extension | PlannedStructure::SourceExtension(_) => {
-                visuals.circle(pos.x.u8() as f32, pos.y.u8() as f32, Some(CircleStyle::default().radius(0.3).opacity(0.75).fill("#b05836")));
-            },
-            _ => {
-                visuals.circle(pos.x.u8() as f32, pos.y.u8() as f32, Some(CircleStyle::default().radius(0.45).opacity(0.75).fill("#b05836")));
-
-                let label = self.structure_type().to_string();
-                visuals.text(pos.x.u8() as f32, pos.y.u8() as f32, label, Some(TextStyle::default().custom_font("0.35 Consolas").opacity(0.75).align(screeps::TextAlign::Center)));
-            }
+fn draw_structure(visuals: &RoomVisual, pos: &RoomXY, structure: StructureType) {
+    match structure {
+        StructureType::Extension => {
+            visuals.circle(pos.x.u8() as f32, pos.y.u8() as f32, Some(CircleStyle::default().radius(0.3).opacity(0.75).fill("#b05836")));
+        },
+        _ => {
+            visuals.circle(pos.x.u8() as f32, pos.y.u8() as f32, Some(CircleStyle::default().radius(0.45).opacity(0.75).fill("#b05836")));
+            visuals.text(pos.x.u8() as f32, pos.y.u8() as f32, structure.to_string(), Some(TextStyle::default().custom_font("0.35 Consolas").opacity(0.75).align(screeps::TextAlign::Center)));
         }
     }
 }

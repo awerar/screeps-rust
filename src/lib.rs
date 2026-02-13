@@ -10,7 +10,6 @@ use crate::{creeps::do_creeps, memory::Memory, spawn::do_spawns, tower::do_tower
 mod logging;
 mod names;
 mod memory;
-mod planning;
 mod tower;
 mod movement;
 mod spawn;
