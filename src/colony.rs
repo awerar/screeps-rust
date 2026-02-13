@@ -39,7 +39,7 @@ impl ColonyState {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]
 #[repr(u8)]
 pub enum ColonyState {
     #[default] 
@@ -235,7 +235,7 @@ impl State for ColonyState {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]
 #[repr(u8)]
 pub enum Level1State {
     #[default]
