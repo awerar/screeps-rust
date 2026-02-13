@@ -15,11 +15,10 @@ mod movement;
 mod spawn;
 mod creeps;
 mod callbacks;
-mod colony;
 mod remote_build;
 mod utils;
 mod messages;
-mod planner;
+mod colony;
 mod pathfinding;
 mod visuals;
 

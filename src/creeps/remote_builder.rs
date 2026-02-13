@@ -30,10 +30,10 @@ impl CreepState for RemoteBuilderState {
             Refilling => {
                 let colony = mem.colony(mem.creep(creep).ok_or(())?.home).ok_or(())?;
 
-                if !creep.pos().is_near_to(colony.buffer_pos) {
+                /*if !creep.pos().is_near_to(colony.buffer_pos) {
                     mem.movement.smart_move_creep_to(creep, colony.buffer_pos).ok();
                     return Ok(self.clone())
-                }
+                }*/ todo!();
 
                 let buffer = colony.buffer_structure().ok_or(())?;
                 creep.withdraw(buffer.as_withdrawable().ok_or(())?, ResourceType::Energy, None).map_err(|_| ())?;

@@ -52,7 +52,7 @@ impl CreepData {
     }
 
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
-        let home = mem.colony(creep.pos().room_name())
+        /*let home = mem.colony(creep.pos().room_name())
             .filter(|colony| colony.spawn().is_some())
             .or_else(|| 
                 mem.colonies.values()
@@ -76,7 +76,9 @@ impl CreepData {
             _ => CreepRole::Recycle(get_recycle_spawn(creep, mem).id())
         };
         
-        Some(CreepData::new(home.room_name, role))
+        Some(CreepData::new(home.room_name, role))*/
+
+        todo!()
     }
 }
 
