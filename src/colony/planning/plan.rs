@@ -1,20 +1,48 @@
-use std::{cell::RefCell, collections::{HashMap, HashSet}, marker::PhantomData};
+use std::collections::{HashMap, HashSet};
 
 use log::*;
 use itertools::Itertools;
-use screeps::{HasPosition, MaybeHasId, ObjectId, Position, RawObjectId, Room, RoomXY, StructureObject, StructureType, find, look};
+use screeps::{HasPosition, ObjectId, Position, Room, RoomXY, Source, StructureContainer, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find};
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsCast;
 
-use crate::colony::planning::steps::ColonyState;
+use crate::colony::planning::{planned_ref::PlannedStructureRef, steps::ColonyState};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
     pub steps: HashMap<ColonyState, ColonyPlanStep>,
 
-    //spawn: PlannedStructureRef<StructureSpawn>,
-    //storage: PlannedStructureRef<StructureStorage>,
-    //container_storage: PlannedStructureRef<StructureContainer>
+    pub center: CenterPlan,
+    pub mineral: MineralPlan,
+    pub sources: SourcesPlan
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CenterPlan {
+    pub spawn: PlannedStructureRef<StructureSpawn>,
+    pub storage: PlannedStructureRef<StructureStorage>,
+    pub container_storage: PlannedStructureRef<StructureContainer>,
+    pub link: PlannedStructureRef<StructureLink>,
+    pub terminal: PlannedStructureRef<StructureTerminal>,
+    pub observer: PlannedStructureRef<StructureObserver>,
+    pub towers: Vec<PlannedStructureRef<StructureTower>>,
+    pub extensions: Vec<PlannedStructureRef<StructureExtension>>
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SourcesPlan(pub HashMap<ObjectId<Source>, SourcePlan>);
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SourcePlan {
+    pub spawn: PlannedStructureRef<StructureSpawn>,
+    pub container: PlannedStructureRef<StructureContainer>,
+    pub link: PlannedStructureRef<StructureLink>,
+    pub extensions: Vec<PlannedStructureRef<StructureExtension>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MineralPlan {
+    pub container: PlannedStructureRef<StructureContainer>,
+    pub extractor: PlannedStructureRef<StructureExtractor>
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -81,37 +109,5 @@ impl ColonyPlanStep {
         }
 
         Ok(missing_roads.len() == 0 && missing_structures.len() == 0)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PlannedStructureRef<T> {
-    pub pos: Position,
-
-    id: RefCell<Option<RawObjectId>>,
-    phantom: PhantomData<fn() -> T>
-}
-
-impl<T> PlannedStructureRef<T> where T : TryFrom<StructureObject> + JsCast + MaybeHasId {
-    fn resolve(&self) -> Option<T> {
-        if let Some(id) = self.id.borrow().clone() {
-            if let Some(structure) = ObjectId::<T>::from(id).resolve() {
-                return Some(structure);
-            }
-
-            self.id.replace(None);
-        }
-
-        let structure = self.pos.look_for(look::STRUCTURES).ok()?.into_iter()
-            .flat_map(|structure| T::try_from(structure))
-            .next();
-
-        let Some(structure) = structure else { return None; };
-
-        if let Some(raw_id) = structure.try_raw_id() {
-            self.id.replace(Some(raw_id));
-        }
-
-        Some(structure)
     }
 }

@@ -13,6 +13,7 @@ pub mod steps;
 mod visuals;
 pub mod plan;
 mod floodfill;
+mod planned_ref;
 
 #[wasm_bindgen]
 pub fn visualize_plan_for(room: &str) {
@@ -56,7 +57,7 @@ impl ColonyPlan {
             let container_pos = deposit.pos().xy().neighbors().into_iter()
                 .filter(|neigh| planner.roads.contains_key(neigh))
                 .next().ok_or("Unable to find road around deposit")?;
-            planner.plan_structure(container_pos, Level6, PlannedStructure::MineralContainer(deposit.id()))?;
+            planner.plan_structure(container_pos, Level6, PlannedStructure::MineralContainer)?;
         }
 
         ensure_connectivity(&mut planner, center)?;

@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, Mineral, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 
-use crate::colony::planning::{steps::ColonyState, floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{ColonyPlan, ColonyPlanStep}};
+use crate::colony::planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::PlannedStructureRef, steps::ColonyState};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -13,7 +13,6 @@ pub enum PlannedStructure {
     SourceContainer(ObjectId<Source>),
     SourceLink(ObjectId<Source>),
     SourceExtension(ObjectId<Source>),
-    MineralContainer(ObjectId<Mineral>),
     Extension,
     Storage,
     Terminal,
@@ -21,6 +20,7 @@ pub enum PlannedStructure {
     Tower,
     CentralLink,
     Extractor,
+    MineralContainer,
     Observer,
 }
 
@@ -53,7 +53,7 @@ impl PlannedStructure {
             PlannedStructure::SourceLink(_) => Link,
             PlannedStructure::Terminal => Terminal,
             PlannedStructure::Extractor => Extractor,
-            PlannedStructure::MineralContainer(_) => Container,
+            PlannedStructure::MineralContainer => Container,
             PlannedStructure::Observer => Observer,
         }
     }
@@ -144,7 +144,75 @@ impl ColonyPlanner {
             plan_steps.insert(step, plan_step);
         }
 
-        Ok(ColonyPlan { steps: plan_steps })
+        Ok(ColonyPlan { 
+            steps: plan_steps,
+            center: self.compile_center()?,
+            sources: self.compile_sources()?,
+            mineral: self.compile_mineral()?
+        })
+    }
+
+    fn compile_center(&self) -> Result<CenterPlan, String> {
+        use PlannedStructure::*;
+
+        Ok(CenterPlan { 
+            spawn: self.get_structure_ref(MainSpawn)?, 
+            storage: self.get_structure_ref(Storage)?, 
+            container_storage: self.get_structure_ref(ContainerStorage)?, 
+            link: self.get_structure_ref(CentralLink)?, 
+            terminal: self.get_structure_ref(Terminal)?, 
+            observer: self.get_structure_ref(Observer)?, 
+            towers: self.get_structure_refs(Tower)?, 
+            extensions: self.get_structure_refs(Extension)?
+        })
+    }
+
+    fn compile_sources(&self) -> Result<SourcesPlan, String> {
+        use PlannedStructure::*;
+
+        Ok(SourcesPlan(
+            self.room.find(find::SOURCES, None).into_iter()
+            .map(|source| source.id())
+            .map(|source| {
+                let plan = SourcePlan {
+                    spawn: self.get_structure_ref(SourceSpawn(source))?,
+                    container: self.get_structure_ref(SourceContainer(source))?,
+                    link: self.get_structure_ref(SourceLink(source))?,
+                    extensions: self.get_structure_refs(SourceExtension(source))?,
+                };
+
+                Ok((source, plan))
+            }).collect::<Result<_, String>>()?
+        ))
+    }
+
+    fn compile_mineral(&self) -> Result<MineralPlan, String> {
+        use PlannedStructure::*;
+
+        Ok(MineralPlan { 
+            container: self.get_structure_ref(MineralContainer)?,
+            extractor: self.get_structure_ref(Extractor)?, 
+        })
+    }
+
+    pub fn get_structure_ref<T>(&self, structure: PlannedStructure) -> Result<PlannedStructureRef<T>, String> {
+        self.structures2pos.get(&structure)
+            .ok_or(format!("No {:?} was found", structure))
+            .and_then(|positions| {
+                if positions.len() == 0 { Err(format!("No {:?} was found", structure)) }
+                else if positions.len() > 1 { Err(format!("Unable to determine unique {:?}", structure)) }
+                else { Ok(positions.iter().next().unwrap().clone()) } 
+            })
+            .map(|pos| PlannedStructureRef::new(pos, &self.room))
+    }
+
+    pub fn get_structure_refs<T>(&self, structure: PlannedStructure) -> Result<Vec<PlannedStructureRef<T>>, String> {
+        let Some(positions) = self.structures2pos.get(&structure) else { return Ok(Vec::new()) };
+
+        Ok(positions.iter()
+            .cloned()
+            .map(|pos| PlannedStructureRef::new(pos, &self.room))
+            .collect())
     }
 
     pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyState) -> u32 {
