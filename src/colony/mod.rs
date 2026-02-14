@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Room, RoomName, StructureController, StructureObject, StructureSpawn, game};
+use screeps::{Creep, Flag, HasPosition, OwnedStructureProperties, Position, Resource, ResourceType, Room, RoomName, SharedCreepProperties, Store, StructureContainer, StructureController, StructureObject, StructureStorage, Transferable, Withdrawable, action_error_codes::WithdrawErrorCode, game, look};
 use serde::{Deserialize, Serialize};
 use log::*;
 
-use crate::{colony::planning::{plan::ColonyPlan, steps::ColonyState}, memory::Memory};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::PlannedStructureBuiltRef, steps::ColonyState}, memory::Memory};
 
 pub mod planning;
 
@@ -28,18 +28,14 @@ impl ColonyData {
         self.controller().map(|controller| controller.level()).unwrap_or(0)
     }
 
-    pub fn buffer_structure(&self) -> Option<StructureObject> {
-        /*self.buffer_pos.look_for(look::STRUCTURES).ok()?.into_iter()
-            .filter(|structure| matches!(structure, StructureObject::StructureStorage(_) | StructureObject::StructureContainer(_)))
-            .next()*/
-        todo!()
-    }
-
-    pub fn spawn(&self) -> Option<StructureSpawn> {
-        /*self.center.look_for(look::STRUCTURES).ok()?.into_iter()
-            .filter_map(|structure| structure.try_into().ok())
-            .next()*/
-        todo!()
+    pub fn buffer(&self) -> Option<ColonyBuffer> {
+        if let Some(storage) = self.plan.center.storage.resolve() { 
+            Some(ColonyBuffer::Storage(storage))
+        } else if let Some(container) = self.plan.center.container_storage.resolve() {
+            Some(ColonyBuffer::Container(container))
+        } else {
+            None
+        }
     }
 
     fn try_construct_from(name: RoomName) -> Option<Self> {
@@ -91,6 +87,44 @@ impl ColonyData {
         Some(Self { room_name: name, center, buffer_pos, state: Default::default()  })*/
 
         todo!()
+    }
+}
+
+pub enum ColonyBuffer {
+    Container(StructureContainer),
+    Storage(StructureStorage)
+}
+
+impl ColonyBuffer {
+    pub fn withdrawable(&self) -> &dyn Withdrawable {
+        match self {
+            ColonyBuffer::Container(container) => container,
+            ColonyBuffer::Storage(storage) => storage,
+        }
+    }
+
+    pub fn transferable(&self) -> &dyn Transferable {
+        match self {
+            ColonyBuffer::Container(container) => container,
+            ColonyBuffer::Storage(storage) => storage,
+        }
+    }
+
+    pub fn store(&self) -> Store {
+        match self {
+            ColonyBuffer::Container(container) => container.store(),
+            ColonyBuffer::Storage(storage) => storage.store(),
+        }
+    }
+}
+
+impl HasPosition for ColonyBuffer {
+    #[doc = " Position of the object."]
+    fn pos(&self) -> Position {
+        match self {
+            ColonyBuffer::Container(container) => container.pos(),
+            ColonyBuffer::Storage(storage) => storage.pos(),
+        }
     }
 }
 

@@ -52,12 +52,12 @@ impl CreepData {
     }
 
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
-        /*let home = mem.colony(creep.pos().room_name())
-            .filter(|colony| colony.spawn().is_some())
+        let home = mem.colony(creep.pos().room_name())
+            .filter(|colony| colony.plan.center.spawn.is_complete())
             .or_else(|| 
                 mem.colonies.values()
-                .filter(|colony| colony.spawn().is_some())
-                .min_by_key(|colony| colony.center.get_range_to(creep.pos()))
+                .filter(|colony| colony.plan.center.spawn.is_complete())
+                .min_by_key(|colony| colony.plan.center.pos.get_range_to(creep.pos()))
             )?;
 
         let role = match creep.name().split_ascii_whitespace().next()? {
@@ -76,9 +76,7 @@ impl CreepData {
             _ => CreepRole::Recycle(get_recycle_spawn(creep, mem).id())
         };
         
-        Some(CreepData::new(home.room_name, role))*/
-
-        todo!()
+        Some(CreepData::new(home.room_name, role))
     }
 }
 

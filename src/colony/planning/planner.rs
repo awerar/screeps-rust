@@ -155,9 +155,12 @@ impl ColonyPlanner {
     fn compile_center(&self) -> Result<CenterPlan, String> {
         use PlannedStructure::*;
 
-        Ok(CenterPlan { 
+        let storage_ref = self.get_structure_ref(Storage)?;
+
+        Ok(CenterPlan {
+            pos: storage_ref.pos,
             spawn: self.get_structure_ref(MainSpawn)?, 
-            storage: self.get_structure_ref(Storage)?, 
+            storage: storage_ref,
             container_storage: self.get_structure_ref(ContainerStorage)?, 
             link: self.get_structure_ref(CentralLink)?, 
             terminal: self.get_structure_ref(Terminal)?, 

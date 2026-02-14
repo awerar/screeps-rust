@@ -7,6 +7,8 @@ use wasm_bindgen::JsCast;
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct PlannedStructureRef<T> {
+    pub pos: Position,
+
     pub structure: PlannedStructureBuiltRef<T>,
     pub site: PlannedStructureSiteRef<T>
 }
@@ -16,9 +18,28 @@ impl<T> PlannedStructureRef<T> {
         let pos = Position::new(pos.x, pos.y, room.name());
 
         Self {
+            pos: pos,
             structure: PlannedStructureBuiltRef::new(pos),
             site: PlannedStructureSiteRef::new(pos),
         }
+    }
+}
+
+impl<T> PlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
+    pub fn is_complete(&self) -> bool {
+        self.structure.resolve().is_some()
+    }
+
+    pub fn is_being_built(&self) -> bool {
+        self.site.resolve().is_some()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.is_complete() && !self.is_being_built()
+    }
+
+    pub fn resolve(&self) -> Option<T> {
+        self.structure.resolve()
     }
 }
 
@@ -36,8 +57,8 @@ impl<T> PlannedStructureBuiltRef<T> {
     }
 }
 
-impl<T> PlannedStructureBuiltRef<T> where T : TryFrom<StructureObject> + JsCast + MaybeHasId {
-    fn resolve(&self) -> Option<T> {
+impl<T> PlannedStructureBuiltRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
+    pub fn resolve(&self) -> Option<T> {
         if let Some(id) = self.id.borrow().clone() {
             if let Some(structure) = ObjectId::<T>::from(id).resolve() {
                 return Some(structure);
@@ -48,7 +69,7 @@ impl<T> PlannedStructureBuiltRef<T> where T : TryFrom<StructureObject> + JsCast 
 
         let structure = self.pos.look_for(look::STRUCTURES).ok()?.into_iter()
             .filter(|structure| structure.as_owned().map_or(true, |x| x.my()))
-            .flat_map(|structure| T::try_from(structure))
+            .flat_map(|structure| structure.try_into())
             .next();
 
         let Some(structure) = structure else { return None; };
@@ -87,7 +108,7 @@ impl<T> PlannedStructureSiteRef<T> {
 }
 
 impl<T> PlannedStructureSiteRef<T> where T : ConstructionType {
-    fn resolve(&self) -> Option<ConstructionSite> {
+    pub fn resolve(&self) -> Option<ConstructionSite> {
         if let Some(id) = self.id.borrow().clone() {
             if let Some(site) = id.resolve() {
                 return Some(site);

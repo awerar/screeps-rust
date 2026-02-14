@@ -13,7 +13,7 @@ pub mod steps;
 mod visuals;
 pub mod plan;
 mod floodfill;
-mod planned_ref;
+pub mod planned_ref;
 
 #[wasm_bindgen]
 pub fn visualize_plan_for(room: &str) {

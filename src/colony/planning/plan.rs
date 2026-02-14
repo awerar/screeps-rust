@@ -18,6 +18,8 @@ pub struct ColonyPlan {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CenterPlan {
+    pub pos: Position,
+
     pub spawn: PlannedStructureRef<StructureSpawn>,
     pub storage: PlannedStructureRef<StructureStorage>,
     pub container_storage: PlannedStructureRef<StructureContainer>,
