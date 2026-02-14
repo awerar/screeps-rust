@@ -1,19 +1,19 @@
 use screeps::{Creep, Position, ResourceType, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::Memory};
+use crate::{memory::Memory, statemachine::StateMachine};
 
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone)]
-pub enum RemoteBuilderState {
+pub enum RemoteBuilderCreep {
     #[default]
     Idle,
     Refilling,
     Building(Position)
 }
 
-impl CreepState for RemoteBuilderState {
+impl StateMachine<Creep> for RemoteBuilderCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use RemoteBuilderState::*;
+        use RemoteBuilderCreep::*;
 
         match self {
             Idle => {

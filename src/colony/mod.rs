@@ -1,18 +1,19 @@
 use std::collections::HashSet;
 
-use screeps::{Creep, Flag, HasPosition, OwnedStructureProperties, Position, Resource, ResourceType, Room, RoomName, SharedCreepProperties, Store, StructureContainer, StructureController, StructureObject, StructureStorage, Transferable, Withdrawable, action_error_codes::WithdrawErrorCode, game, look};
+use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, game};
 use serde::{Deserialize, Serialize};
 use log::*;
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::PlannedStructureBuiltRef, steps::ColonyState}, memory::Memory};
+use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, memory::Memory};
 
 pub mod planning;
+mod steps;
 
 #[derive(Serialize, Deserialize)]
 pub struct ColonyData {
     pub room_name: RoomName,
     pub plan: ColonyPlan,
-    pub state: ColonyState
+    pub step: ColonyStep
 }
 
 impl ColonyData {
@@ -36,57 +37,6 @@ impl ColonyData {
         } else {
             None
         }
-    }
-
-    fn try_construct_from(name: RoomName) -> Option<Self> {
-        /*let center = game::rooms().get(name).and_then(|room| {
-            room.find(find::MY_SPAWNS, None).into_iter()
-                .sorted_by_key(|spawn| spawn.name())
-                .find_or_first(|spawn| spawn.name().starts_with("Center"))
-                .map(|spawn| spawn.pos())
-        }).or_else(|| {
-            find_claim_flags().into_iter()
-                .map(|flag| flag.pos())
-                .filter(|pos| pos.room_name() == name)
-                .next()
-        });
-
-        let Some(center) = center else { return None; };
-
-        let buffer_pos = game::rooms().get(name).and_then(|room| {
-            let structures = room.find(find::MY_STRUCTURES, None).into_iter()
-                .map(|structure| (structure.pos(), structure.structure_type()));
-
-            let sites = room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
-                .map(|site| (site.pos(), site.structure_type()));
-
-            structures.chain(sites)
-                .filter(|(pos, ty)| {
-                    match ty {
-                        StructureType::Storage => true,
-                        StructureType::Container => pos.get_range_to(center) == 1,
-                        _ => false
-                    }
-                }).next()
-                .map(|(pos, _)| pos)
-        }).unwrap_or_else(|| {
-            let mut terrain = RoomTerrain::new(name).unwrap();
-            let mut dir = Direction::BottomRight;
-            for _ in 0..4 {
-                let candidate = center + dir;
-                if terrain.get_xy(candidate.xy()) != Terrain::Wall {
-                    return candidate;
-                }
-
-                dir = dir.multi_rot(2);
-            }
-
-            unreachable!();
-        });
-
-        Some(Self { room_name: name, center, buffer_pos, state: Default::default()  })*/
-
-        todo!()
     }
 }
 
@@ -159,7 +109,8 @@ pub fn update_rooms(mem: &mut Memory) {
     }
 
     for name in curr_rooms {
-        if !mem.colonies.contains_key(&name) {
+        todo!();
+        /*if !mem.colonies.contains_key(&name) {
             let Some(colony) = ColonyData::try_construct_from(name) else {
                 error!("Unable to construct colony config for {name}");
                 continue; 
@@ -167,7 +118,7 @@ pub fn update_rooms(mem: &mut Memory) {
             mem.colonies.insert(name, colony);
         }
 
-        let state = mem.colonies[&name].state.clone();
-        mem.colonies.get_mut(&name).unwrap().state = state.update(name, mem, 0);
+        let step = mem.colonies[&name].step.clone();
+        mem.colonies.get_mut(&name).unwrap().steo = step.update(name, mem, 0);*/
     }
 }

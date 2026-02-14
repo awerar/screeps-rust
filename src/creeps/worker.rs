@@ -8,7 +8,7 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::Memory};
+use crate::{memory::Memory, statemachine::StateMachine};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -27,17 +27,17 @@ static FILL_PRIORITY: LazyLock<HashMap<StructureType, i32>> = LazyLock::new(|| {
 const REPAIR_THRESHOLD: f32 = 0.8;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
-pub enum WorkerState {
+pub enum WorkerCreep {
     #[default]
     Idle,
     Harvesting(ObjectId<Source>),
     Distributing(DistributionTarget)
 }
 
-impl WorkerState {
+impl WorkerCreep {
     fn is_idle(&self) -> bool {
         match self {
-            WorkerState::Idle => true,
+            WorkerCreep::Idle => true,
             _ => false
         }
     }
@@ -184,9 +184,9 @@ fn try_repair(creep: &Creep) -> Option<()> {
     Some(())
 }
 
-impl CreepState for WorkerState {
+impl StateMachine<Creep> for WorkerCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use WorkerState::*;
+        use WorkerCreep::*;
     
         match &self {
             Idle => {

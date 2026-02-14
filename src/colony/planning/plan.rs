@@ -5,11 +5,11 @@ use itertools::Itertools;
 use screeps::{HasPosition, ObjectId, Position, Room, RoomXY, Source, StructureContainer, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find};
 use serde::{Deserialize, Serialize};
 
-use crate::colony::planning::{planned_ref::PlannedStructureRef, steps::ColonyState};
+use crate::colony::{planning::planned_ref::PlannedStructureRef, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
-    pub steps: HashMap<ColonyState, ColonyPlanStep>,
+    pub steps: HashMap<ColonyStep, ColonyPlanStep>,
 
     pub center: CenterPlan,
     pub mineral: MineralPlan,
@@ -54,7 +54,7 @@ pub struct ColonyPlanStep {
 }
 
 impl ColonyPlanStep {
-    fn build(&self, room: Room) -> Result<bool, ()> {
+    pub fn build(&self, room: Room) -> Result<bool, ()> {
         let built_roads = room.find(find::STRUCTURES, None).into_iter()
             .flat_map(|structure| if let StructureObject::StructureRoad(road) = structure { Some(road) } else { None })
             .map(|road| road.pos().xy());

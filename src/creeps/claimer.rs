@@ -2,19 +2,19 @@ use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes
 use log::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::CreepState, memory::Memory};
+use crate::{memory::Memory, statemachine::StateMachine};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
-pub enum ClaimerState {
+pub enum ClaimerCreep {
     #[default]
     Idle,
     GoingTo(Position),
     Claiming(Position, ObjectId<StructureController>)
 }
 
-impl CreepState for ClaimerState {
+impl StateMachine<Creep> for ClaimerCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use ClaimerState::*;
+        use ClaimerCreep::*;
 
         match &self {
             Idle => {

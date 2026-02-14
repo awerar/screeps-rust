@@ -6,10 +6,9 @@ use screeps::{CircleStyle, Direction, HasId, HasPosition, Position, Room, RoomCo
 use unionfind::HashUnionFindByRank;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{colony::planning::{steps::{ColonyState, Level1State}, floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, pathfinding, visuals::draw_in_room};
+use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::{ColonyStep, Level1Step}}, pathfinding, visuals::draw_in_room};
 
 mod planner;
-pub mod steps;
 mod visuals;
 pub mod plan;
 mod floodfill;
@@ -22,8 +21,8 @@ pub fn visualize_plan_for(room: &str) {
 
 impl ColonyPlan {
     pub fn create_for(room: Room) -> Result<Self, String> {
-        use ColonyState::*;
-        use Level1State::*;
+        use ColonyStep::*;
+        use Level1Step::*;
 
         let mut planner = ColonyPlanner::new(room.clone());
         let center = find_center(room.clone());
@@ -67,8 +66,8 @@ impl ColonyPlan {
 }
 
 fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomXY>, String> {
-    use ColonyState::*;
-    use Level1State::*;
+    use ColonyStep::*;
+    use Level1Step::*;
 
     let mut harvester_positions = Vec::new();
     for source in planner.room.find(find::SOURCES, None) {
@@ -116,10 +115,10 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
 fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> Result<(), String> {
     for controller_level in 1..=8 {
         if controller_level == 8 {
-            center_planner.plan_structure(planner, ColonyState::Level8, PlannedStructure::Observer)?;
+            center_planner.plan_structure(planner, ColonyStep::Level8, PlannedStructure::Observer)?;
         }
 
-        let step = ColonyState::first_at_level(controller_level as u8).unwrap();
+        let step = ColonyStep::first_at_level(controller_level as u8);
         let plan_extensions = planner.count_left_for(PlannedStructure::Extension, step);
         let plan_towers = planner.count_left_for(PlannedStructure::Tower, step);
 
@@ -154,7 +153,7 @@ fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: 
 fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<(), String> {
     let mut network = HashUnionFindByRank::new(vec![center]).unwrap();
 
-    for step in ColonyState::iter() {
+    for step in ColonyStep::iter() {
         let new_roads: Vec<_> = planner.roads.iter()
             .filter(|(_, road_step)| step == **road_step)
             .map(|(pos, _)| pos)

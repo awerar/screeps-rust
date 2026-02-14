@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 
-use crate::colony::planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::PlannedStructureRef, steps::ColonyState};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::PlannedStructureRef}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -95,12 +95,12 @@ pub struct ColonyPlanner {
     pub terrain: RoomTerrain,
     pub room: Room,
 
-    pub roads: HashMap<RoomXY, ColonyState>,
-    pub structures: HashMap<RoomXY, ColonyState>,
+    pub roads: HashMap<RoomXY, ColonyStep>,
+    pub structures: HashMap<RoomXY, ColonyStep>,
 
     pub pos2structure: HashMap<RoomXY, PlannedStructure>,
     pub structures2pos: HashMap<PlannedStructure, HashSet<RoomXY>>,
-    pub structure_type_steps: HashMap<StructureType, BTreeMap<ColonyState, u32>>
+    pub structure_type_steps: HashMap<StructureType, BTreeMap<ColonyStep, u32>>
 }
 
 impl ColonyPlanner {
@@ -128,7 +128,7 @@ impl ColonyPlanner {
     pub fn compile(self) -> Result<ColonyPlan, String> {
         let mut plan_steps = HashMap::new();
 
-        for step in ColonyState::iter() {
+        for step in ColonyStep::iter() {
             let mut plan_step = ColonyPlanStep::default();
             
             plan_step.new_roads.extend(self.roads.iter()
@@ -218,8 +218,8 @@ impl ColonyPlanner {
             .collect())
     }
 
-    pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyState) -> u32 {
-        ColonyState::iter().skip_while(|s| *s < step).map(|step| {
+    pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyStep) -> u32 {
+        ColonyStep::iter().skip_while(|s| *s < step).map(|step| {
             let placed_count = self.num_placed_by(structure.structure_type(), step);
             let max_count = structure.structure_type().controller_structures(step.controller_level() as u32);
             max_count.saturating_sub(placed_count as u32)
@@ -230,7 +230,7 @@ impl ColonyPlanner {
         self.terrain.get(pos.x.u8(), pos.y.u8()) != Terrain::Wall && !self.pos2structure.contains_key(&pos)
     }
 
-    pub fn num_placed_by(&self, ty: StructureType, step: ColonyState) -> u32 {
+    pub fn num_placed_by(&self, ty: StructureType, step: ColonyStep) -> u32 {
         self.structure_type_steps.get(&ty)
             .map(|x| 
                 x.iter()
@@ -244,7 +244,7 @@ impl ColonyPlanner {
         self.cost_matrix.set_xy(xy, ty.cost());
     }
 
-    pub fn plan_road(&mut self, xy: RoomXY, step: ColonyState) -> Result<(), String> {
+    pub fn plan_road(&mut self, xy: RoomXY, step: ColonyStep) -> Result<(), String> {
         if self.roads.get(&xy).map_or(false, |old_step| step >= *old_step) { return Ok(()) }
 
         self.roads.insert(xy, step);
@@ -253,9 +253,9 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn plan_structure_earliest(&mut self, xy: RoomXY, structure: PlannedStructure) -> Result<ColonyState, String> {
+    pub fn plan_structure_earliest(&mut self, xy: RoomXY, structure: PlannedStructure) -> Result<ColonyStep, String> {
         let build_steps = &*self.structure_type_steps.entry(structure.structure_type()).or_default();
-        let built_by = ColonyState::iter()
+        let built_by = ColonyStep::iter()
             .map(|step| (step, build_steps.get(&step).cloned().unwrap_or(0)))
             .fold((0, HashMap::new()), |(mut count_acc, mut map_acc), (step, count)| {
                 count_acc += count;
@@ -263,7 +263,7 @@ impl ColonyPlanner {
                 (count_acc, map_acc)
             }).1;
 
-        let step = ColonyState::iter()
+        let step = ColonyStep::iter()
             .collect_vec()
             .into_iter()
             .rev()
@@ -273,7 +273,7 @@ impl ColonyPlanner {
         self.plan_structure(xy, step, structure).map(|_| step)
     }
 
-    pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
+    pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
         if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) };
         if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
         if self.pos2structure.get(&xy).map_or(false, |other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) };
@@ -291,7 +291,7 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: ColonyState) -> Vec<Step> {
+    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: ColonyStep) -> Vec<Step> {
         let mut cost_matrix = self.cost_matrix.clone();
         for pos in self.roads.iter().filter(|(_, road_step)| **road_step <= step).map(|(pos, _)| pos) {
             cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
@@ -309,7 +309,7 @@ impl ColonyPlanner {
         path
     }
 
-    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyState) -> Result<(), String> {
+    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyStep) -> Result<(), String> {
         let path = self.find_path_between(point1, point2, step);
 
         let mut pos = Position::new(point1.x, point1.y, self.room.name());
@@ -327,7 +327,7 @@ impl ColonyPlanner {
 
 pub struct CenterPlanner {
     flood_fill: FloodFill<DiagonalWalkableNeighs>,
-    roads_utility_increases: HashMap<RoomXY, Vec<ColonyState>>
+    roads_utility_increases: HashMap<RoomXY, Vec<ColonyStep>>
 }
 
 impl CenterPlanner {
@@ -338,7 +338,7 @@ impl CenterPlanner {
         }
     }
 
-    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyState) -> Result<RoomXY, String> {        
+    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> Result<RoomXY, String> {        
         while let Some((_, pos)) = self.flood_fill.next() {
             if planner.pos2structure.get(&pos).is_some() { continue; }
 
@@ -359,7 +359,7 @@ impl CenterPlanner {
         Err(format!("No more positions in center"))
     }
 
-    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyState, structure: PlannedStructure) -> Result<(), String> {
+    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
         let pos = self.next_structure_pos(planner, step)?;
         planner.plan_structure(pos, step, structure)
     }

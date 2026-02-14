@@ -1,23 +1,23 @@
 use screeps::{Creep, HasPosition};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{CreepData, CreepRole, CreepState, tugboat::TuggedState}, memory::Memory};
+use crate::{creeps::{CreepData, CreepRole, tugboat::TuggedCreep}, memory::Memory, statemachine::StateMachine};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum HarvesterState {
-    Going(TuggedState),
+pub enum HarvesterCreep {
+    Going(TuggedCreep),
     Mining
 }
 
-impl Default for HarvesterState {
+impl Default for HarvesterCreep {
     fn default() -> Self {
         Self::Going(Default::default())
     }
 }
 
-impl CreepState for HarvesterState {
+impl StateMachine<Creep> for HarvesterCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use HarvesterState::*;
+        use HarvesterCreep::*;
 
         let Some(CreepData { role: CreepRole::Harvester(_, source), .. }) = mem.creep(creep) else { return Err(()) };
         let source = source.resolve().ok_or(())?;

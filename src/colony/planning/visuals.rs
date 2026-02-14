@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use itertools::Itertools;
 use screeps::{CircleStyle, LineStyle, RoomName, RoomVisual, RoomXY, StructureType, TextStyle};
 
-use crate::{colony::planning::{steps::{ColonyState, State}, plan::ColonyPlan}, visuals::draw_in_room};
+use crate::{colony::{planning::plan::ColonyPlan, steps::{ColonyStep, ColonyStepStateMachine}}, visuals::draw_in_room};
 
 pub fn draw_roads(visuals: &RoomVisual, roads: &HashSet<RoomXY>) {
     let connections: HashSet<_> = roads.iter()
@@ -27,10 +27,10 @@ pub fn draw_roads(visuals: &RoomVisual, roads: &HashSet<RoomXY>) {
 }
 
 impl ColonyPlan {
-    pub fn draw_until(&self, visuals: &RoomVisual, stop_step: Option<ColonyState>) {
+    pub fn draw_until(&self, visuals: &RoomVisual, stop_step: Option<ColonyStep>) {
         let mut roads = HashSet::new();
 
-        for step in ColonyState::iter() {
+        for step in ColonyStep::iter() {
             if stop_step.as_ref().map_or(false, |stop_step| step > *stop_step) { break; }
             let Some(step) = self.steps.get(&step) else { continue; };
 
@@ -47,7 +47,7 @@ impl ColonyPlan {
     pub fn draw_progression(&self, room: RoomName) {
         let plan = self.clone();
 
-        let mut step = ColonyState::default();
+        let mut step = ColonyStep::default();
         draw_in_room(room, move |visuals| {
             plan.draw_until(visuals, Some(step));
             step = step.get_promotion().unwrap_or_default()

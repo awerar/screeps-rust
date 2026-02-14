@@ -21,6 +21,7 @@ mod messages;
 mod colony;
 mod pathfinding;
 mod visuals;
+mod statemachine;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

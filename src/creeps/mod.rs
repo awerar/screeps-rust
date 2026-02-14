@@ -4,41 +4,13 @@ use log::*;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{claimer::ClaimerState, harvester::HarvesterState, remote_builder::RemoteBuilderState, tugboat::TugboatState, worker::WorkerState}, memory::Memory, utils::adjacent_positions};
+use crate::{creeps::{claimer::ClaimerCreep, harvester::HarvesterCreep, remote_builder::RemoteBuilderCreep, tugboat::TugboatCreep, worker::WorkerCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
 
 mod claimer;
 mod worker;
 mod harvester;
 mod remote_builder;
 mod tugboat;
-
-pub trait CreepState where Self : Sized + Default + Eq + Debug {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()>;
-}
-
-fn transition<S>(state: &S, creep: &Creep, mem: &mut Memory, transition_count: usize) -> S where S : CreepState {
-    let Ok(new_state) = state.update(creep, mem) else {
-        if *state == S::default() {
-            error!("{} failed on default state", creep.name());
-            return S::default()
-        } else {
-            error!("{} failed on state {:?}. Falling back to default state", creep.name(), state);
-            return S::default() // TODO: This should probably execute the default state
-        }
-    };
-
-    if new_state != *state {
-        if transition_count <= 10 {
-            transition(&new_state, creep, mem, transition_count + 1)
-        } else {
-            warn!("Stopped {} prematurely. Transitioned too many times", creep.name());
-            new_state
-        }
-    } else {
-        new_state
-    }
-}
-
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CreepData {
@@ -82,11 +54,11 @@ impl CreepData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CreepRole {
-    Worker(WorkerState),
-    Harvester(HarvesterState, ObjectId<Source>),
-    Claimer(ClaimerState),
-    RemoteBuilder(RemoteBuilderState),
-    Tugboat(TugboatState, ObjectId<Creep>),
+    Worker(WorkerCreep),
+    Harvester(HarvesterCreep, ObjectId<Source>),
+    Claimer(ClaimerCreep),
+    RemoteBuilder(RemoteBuilderCreep),
+    Tugboat(TugboatCreep, ObjectId<Creep>),
     Recycle(ObjectId<StructureSpawn>)
 }
 
@@ -176,11 +148,11 @@ pub fn do_creeps(mem: &mut Memory) {
             let role = mem.creep(creep).unwrap().role.clone();
 
             let new_role = match &role {
-                Worker(state) => Worker(transition(&state, creep, mem, 0)),
-                Claimer(state) => Claimer(transition(&state, creep, mem, 0)),
-                RemoteBuilder(state) => RemoteBuilder(transition(&state, creep, mem, 0)),
-                Harvester(state, source) => Harvester(transition(&state, creep, mem, 0), *source),
-                Tugboat(state, tugged) => Tugboat(transition(&state, &creep, mem, 0), *tugged),
+                Worker(state) => Worker(transition(&state, creep, mem)),
+                Claimer(state) => Claimer(transition(&state, creep, mem)),
+                RemoteBuilder(state) => RemoteBuilder(transition(&state, creep, mem)),
+                Harvester(state, source) => Harvester(transition(&state, creep, mem), *source),
+                Tugboat(state, tugged) => Tugboat(transition(&state, &creep, mem), *tugged),
                 Recycle(spawn) => Recycle(do_recycle(creep, mem, spawn)),
             };
 

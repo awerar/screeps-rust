@@ -50,7 +50,7 @@ pub fn reset_memory() {
 }
 
 #[wasm_bindgen]
-pub fn refresh_colony_state(colony: String) {
+pub fn refresh_colony_step(colony: String) {
     REFRESH_COLONY.replace(Some(RoomName::new(&colony).unwrap()));
 }
 
@@ -87,7 +87,7 @@ impl Memory {
 
         REFRESH_COLONY.with_borrow_mut(|colony_option| {
             if let Some(colony) = colony_option {
-                mem.colonies.get_mut(colony).unwrap().state = Default::default();
+                mem.colonies.get_mut(colony).unwrap().step = Default::default();
                 *colony_option = None;
 
                 info!("Refreshed room by command");

@@ -2,10 +2,10 @@ use log::*;
 use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::CreepMoveToErrorCode, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{CreepData, CreepRole, CreepState, get_recycle_spawn, transition}, memory::Memory, messages::{CreepMessage, QuickCreepMessage, SpawnMessage}};
+use crate::{creeps::{CreepData, CreepRole, get_recycle_spawn, transition}, memory::Memory, messages::{CreepMessage, QuickCreepMessage, SpawnMessage}, statemachine::StateMachine};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
-pub enum TuggedState {
+pub enum TuggedCreep {
     #[default]
     Requesting,
     WaitingFor { tugboat: String },
@@ -13,9 +13,9 @@ pub enum TuggedState {
     Finished
 }
 
-impl CreepState for TuggedState {
+impl StateMachine<Creep> for TuggedCreep {
     fn update(&self, tugged: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use TuggedState::*;
+        use TuggedCreep::*;
 
         match self {
             Requesting => {
@@ -55,39 +55,39 @@ impl CreepState for TuggedState {
     }
 }
 
-impl TuggedState {
+impl TuggedCreep {
     pub fn move_tugged_to(&mut self, tugged: &Creep, mem: &mut Memory, target: Position, range: u32) {
         if tugged.pos().get_range_to(target.pos()) <= range {
-            *self = TuggedState::Finished;
+            *self = TuggedCreep::Finished;
             return;
         }
         
-        *self = transition(self, tugged, mem, 0);
+        *self = transition(self, tugged, mem);
 
         if !mem.messages.creep_quick(tugged).empty() { return; }
 
-        let TuggedState::GettingTugged(tugboat) = self else { return; };
+        let TuggedCreep::GettingTugged(tugboat) = self else { return; };
         let tugboat = tugboat.resolve().unwrap();
 
         mem.messages.creep_quick(&tugboat).send(QuickCreepMessage::TuggedRequestMove { target, range });
     }
 
     pub fn is_finished(&self) -> bool {
-        matches!(self, TuggedState::Finished)
+        matches!(self, TuggedCreep::Finished)
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
-pub enum TugboatState {
+pub enum TugboatCreep {
     #[default]
     GoingTo,
     Tugging { last_tug_tick: u32 },
     Recycling(ObjectId<StructureSpawn>)
 }
 
-impl CreepState for TugboatState {
+impl StateMachine<Creep> for TugboatCreep {
     fn update(&self, tugboat: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use TugboatState::*;
+        use TugboatCreep::*;
 
         let Some(CreepData { role: CreepRole::Tugboat(_, tugged), .. }) = mem.creep(tugboat) else { return Err(()) };
 
