@@ -1,11 +1,10 @@
-use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}};
+use std::{collections::{HashMap, HashSet, VecDeque}};
 
 use js_sys::{JsString, Reflect};
 use log::*;
 use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
 
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
 
 use crate::{callbacks::Callbacks, colony::ColonyData, creeps::CreepData, messages::Messages, movement::Movement, remote_build::RemoteBuildRequests};
 
@@ -38,22 +37,6 @@ pub struct Memory {
     #[serde(default)] pub messages: Messages
 }
 
-thread_local! {
-    static RESET_MEMORY: RefCell<bool> = RefCell::new(false);
-    static RESET_TILE_USAGE: RefCell<bool> = RefCell::new(false);
-    static REFRESH_COLONY: RefCell<Option<RoomName>> = RefCell::new(None);
-}
-
-#[wasm_bindgen]
-pub fn reset_memory() {
-    RESET_MEMORY.replace(true);
-}
-
-#[wasm_bindgen]
-pub fn refresh_colony_step(colony: String) {
-    REFRESH_COLONY.replace(Some(RoomName::new(&colony).unwrap()));
-}
-
 impl Memory {
     pub fn creep_home(&self, creep: &Creep) -> Option<&ColonyData> {
         self.creep(creep).and_then(|data| self.colony(data.home))
@@ -68,15 +51,6 @@ impl Memory {
     }
 
     pub fn screeps_deserialize() -> Self {
-        RESET_MEMORY.with_borrow_mut(|reset| {
-            if *reset {
-                screeps::raw_memory::set(&JsString::from("{}"));
-                *reset = false;
-
-                info!("Reset memory by command!");
-            }
-        });
-
         let mem = screeps::raw_memory::get();
         let mut mem: Memory = serde_json::from_str(&String::from(mem)).unwrap_or_else(|_| {
             warn!("Unable to parse raw memory. Resetting memory");
@@ -84,16 +58,6 @@ impl Memory {
         });
 
         mem._internal_creeps = None; // This is deserialized separately in JS
-
-        REFRESH_COLONY.with_borrow_mut(|colony_option| {
-            if let Some(colony) = colony_option {
-                mem.colonies.get_mut(colony).unwrap().step = Default::default();
-                *colony_option = None;
-
-                info!("Refreshed room by command");
-            }
-        });
-
         mem
     }
 

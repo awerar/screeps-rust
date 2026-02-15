@@ -4,7 +4,6 @@ use log::*;
 use itertools::Itertools;
 use screeps::{CircleStyle, Direction, HasId, HasPosition, Position, Room, RoomCoordinate, RoomName, RoomXY, Terrain, find, game};
 use unionfind::HashUnionFindByRank;
-use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::{ColonyStep, Level1Step}}, pathfinding, visuals::draw_in_room};
 
@@ -13,11 +12,6 @@ mod visuals;
 pub mod plan;
 mod floodfill;
 pub mod planned_ref;
-
-#[wasm_bindgen]
-pub fn visualize_plan_for(room: &str) {
-    ColonyPlan::create_for(game::rooms().get(RoomName::new(room).unwrap()).unwrap()).unwrap();
-}
 
 impl ColonyPlan {
     pub fn create_for(room: Room) -> Result<Self, String> {

@@ -83,9 +83,6 @@ module.exports.loop = function() {
     delete require.cache[MODULE_NAME];
     // replace this function with the post-load loop for next tick
     module.exports.loop = loaded_loop;
-    global.reset_memory = bot.reset_memory;
-    global.refresh_colony_step = bot.refresh_colony_step;
-    global.clear_visuals = bot.clear_visuals;
-    global.visualize_plan_for = bot.visualize_plan_for;
+    global.command = bot.command;
     console.log(`loading complete, CPU used: ${Game.cpu.getUsed()}`)
 }

@@ -18,7 +18,7 @@ impl<T> PlannedStructureRef<T> {
         let pos = Position::new(pos.x, pos.y, room.name());
 
         Self {
-            pos: pos,
+            pos,
             structure: PlannedStructureBuiltRef::new(pos),
             site: PlannedStructureSiteRef::new(pos),
         }

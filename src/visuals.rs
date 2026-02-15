@@ -1,7 +1,6 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use screeps::{RoomName, RoomVisual};
-use wasm_bindgen::prelude::wasm_bindgen;
 
 #[derive(Default)]
 struct StaticDrawers {
@@ -42,7 +41,6 @@ pub fn draw() {
     })
 }
 
-#[wasm_bindgen]
 pub fn clear_visuals() {
     STATIC_DRAWERS.replace(Default::default());
 }
