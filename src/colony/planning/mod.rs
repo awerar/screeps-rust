@@ -76,8 +76,8 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
             RoomCoordinate::new(harvest_pos.y as u8).unwrap()
         );
 
-        planner.plan_structure(harvester_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
         planner.plan_road(harvester_pos, Level1(BuildArterialRoads))?;
+        planner.plan_structure(harvester_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
 
         let slots = harvester_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))
@@ -90,6 +90,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
             RoomCoordinate::new(main_road_pos.y as u8).unwrap()
         );
 
+        planner.plan_road(main_road_pos, Level1(BuildArterialRoads))?;
         planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?;
 
         let mut slots = slots.filter(|slot| *slot != main_road_pos);

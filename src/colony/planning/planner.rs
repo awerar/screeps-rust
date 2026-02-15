@@ -28,7 +28,7 @@ impl PlannedStructure {
     fn walkable(&self) -> bool {
         use PlannedStructure::*;
 
-        matches!(self, SourceContainer(_) | ContainerStorage | SourceSpawn(_))
+        matches!(self, SourceContainer(_) | ContainerStorage | MineralContainer)
     }
 
     fn buildable_on_wall(&self) -> bool {
@@ -248,7 +248,10 @@ impl ColonyPlanner {
         if self.roads.get(&xy).map_or(false, |old_step| step >= *old_step) { return Ok(()) }
 
         self.roads.insert(xy, step);
-        self.update_tile_pathing(xy, TilePathing::PlannedRoad);
+
+        if !self.pos2structure.contains_key(&xy) {
+            self.update_tile_pathing(xy, TilePathing::PlannedRoad);
+        }
 
         Ok(())
     }
@@ -293,7 +296,13 @@ impl ColonyPlanner {
 
     pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: ColonyStep) -> Vec<Step> {
         let mut cost_matrix = self.cost_matrix.clone();
-        for pos in self.roads.iter().filter(|(_, road_step)| **road_step <= step).map(|(pos, _)| pos) {
+
+        let built_roads = self.roads.iter()
+            .filter(|(_, road_step)| **road_step <= step)
+            .filter(|(pos, _)| !self.pos2structure.contains_key(*pos))
+            .map(|(pos, _)| pos);
+
+        for pos in built_roads {
             cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
         }
         
