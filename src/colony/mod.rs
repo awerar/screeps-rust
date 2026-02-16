@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, hash_map};
 
 use itertools::Itertools;
 use js_sys::JsString;
@@ -35,11 +35,7 @@ impl ColonyData {
     pub fn buffer(&self) -> Option<ColonyBuffer> {
         if let Some(storage) = self.plan.center.storage.resolve() { 
             Some(ColonyBuffer::Storage(storage))
-        } else if let Some(container) = self.plan.center.container_storage.resolve() {
-            Some(ColonyBuffer::Container(container))
-        } else {
-            None
-        }
+        } else { self.plan.center.container_storage.resolve().map(ColonyBuffer::Container) }
     }
 }
 
@@ -106,19 +102,18 @@ pub fn update_rooms(mem: &mut Memory) {
         }).map(|(name, _)| name).collect_vec();
 
     if owned_rooms.len() == 1 {
-        let room = owned_rooms.iter().next().unwrap();
+        let room = owned_rooms.first().unwrap();
         let room = game::rooms().get(*room).unwrap();
         let controller = room.controller().unwrap();
 
-        if controller.level() == 1 && controller.progress().unwrap() == 0 {
-            if room.find(find::MY_CREEPS, None).len() == 0 
+        if controller.level() == 1 && controller.progress().unwrap() == 0
+            && room.find(find::MY_CREEPS, None).is_empty() 
             && room.find(find::MY_STRUCTURES, None).len() == 2
-            && room.find(find::MY_CONSTRUCTION_SITES, None).len() == 0
-            && room.find(find::FLAGS, None).len() == 0 {
+            && room.find(find::MY_CONSTRUCTION_SITES, None).is_empty()
+            && room.find(find::FLAGS, None).is_empty() {
                 let spawn = room.find(find::MY_SPAWNS, None).into_iter().next().unwrap();
                 spawn.pos().create_flag(Some(&JsString::from("Center")), None, None).ok();
             }
-        }
     }
 
     let claim_rooms = find_claim_flags().into_iter()
@@ -134,7 +129,7 @@ pub fn update_rooms(mem: &mut Memory) {
     }
 
     for name in curr_rooms {
-        if !mem.colonies.contains_key(&name) {
+        if let hash_map::Entry::Vacant(e) = mem.colonies.entry(name) {
             let Some(room) = game::rooms().get(name) else {
                 warn!("Unable to plan for {name} due to lack of vision");
                 continue;
@@ -164,7 +159,7 @@ pub fn update_rooms(mem: &mut Memory) {
 
             let plan = plan.tap_mut(|plan| plan.adapt_build_times_to(&room));
 
-            mem.colonies.insert(name, ColonyData { 
+            e.insert(ColonyData { 
                 room_name: room.name(), 
                 plan, 
                 step: Default::default()
@@ -186,7 +181,7 @@ pub fn update_rooms(mem: &mut Memory) {
         }
 
 
-        let step = mem.colonies[&name].step.clone();
+        let step = mem.colonies[&name].step;
         mem.colonies.get_mut(&name).unwrap().step = transition(&step, &name, mem);
 
         info!("{} is at step {:?}", name, mem.colonies.get(&name).unwrap().step);

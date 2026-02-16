@@ -4,13 +4,14 @@ use log::*;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{flagship::FlagshipCreep, excavator::ExcavatorCreep, remote_builder::RemoteBuilderCreep, tugboat::TugboatCreep, worker::WorkerCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
+use crate::{creeps::{dumptruck::DumptruckCreep, excavator::ExcavatorCreep, flagship::FlagshipCreep, remote_builder::RemoteBuilderCreep, tugboat::TugboatCreep, worker::WorkerCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
 
 mod flagship;
 mod worker;
 mod excavator;
 mod remote_builder;
 mod tugboat;
+mod dumptruck;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CreepData {
@@ -36,6 +37,7 @@ impl CreepData {
             "Worker" => CreepRole::Worker(Default::default()),
             "Flagship" => CreepRole::Flagship(Default::default()),
             "RemoteBuilder" => CreepRole::RemoteBuilder(Default::default()),
+            "Dumptruck" => CreepRole::Dumptruck(Default::default()),
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())
                     .flat_map(|pos| pos.look_for(look::SOURCES))
@@ -45,7 +47,7 @@ impl CreepData {
 
                 CreepRole::Excavator(Default::default(), source.id()) 
             },
-            _ => CreepRole::Recycle(get_recycle_spawn(creep, mem).id())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, mem).id())
         };
         
         Some(CreepData::new(home.room_name, role))
@@ -59,7 +61,8 @@ pub enum CreepRole {
     Flagship(FlagshipCreep),
     RemoteBuilder(RemoteBuilderCreep),
     Tugboat(TugboatCreep, ObjectId<Creep>),
-    Recycle(ObjectId<StructureSpawn>)
+    Scrap(ObjectId<StructureSpawn>),
+    Dumptruck(DumptruckCreep)
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
@@ -69,7 +72,8 @@ pub enum CreepType {
     Flagship,
     RemoteBuilder,
     Tugboat(ObjectId<Creep>),
-    Recycle(ObjectId<StructureSpawn>)
+    Scrap(ObjectId<StructureSpawn>),
+    Dumptruck
 }
 
 impl CreepRole {
@@ -80,7 +84,8 @@ impl CreepRole {
             CreepRole::RemoteBuilder(_) => CreepType::RemoteBuilder,
             CreepRole::Excavator(_, source) => CreepType::Excavator(*source),
             CreepRole::Tugboat(_, tugged) => CreepType::Tugboat(*tugged),
-            CreepRole::Recycle(source) => CreepType::Recycle(*source)
+            CreepRole::Scrap(source) => CreepType::Scrap(*source),
+            CreepRole::Dumptruck(_) => CreepType::Dumptruck
         }
     }
 }
@@ -93,7 +98,8 @@ impl CreepType {
             CreepType::RemoteBuilder => "RemoteBuilder",
             CreepType::Excavator(_) => "Excavator",
             CreepType::Tugboat(_) => "Tugboat",
-            CreepType::Recycle(_) => "Recycle"
+            CreepType::Scrap(_) => "Scrap",
+            CreepType::Dumptruck => "Dumptruck"
         }
     }
 
@@ -104,7 +110,8 @@ impl CreepType {
             CreepType::RemoteBuilder => CreepRole::RemoteBuilder(Default::default()),
             CreepType::Excavator(source) => CreepRole::Excavator(Default::default(), *source),
             CreepType::Tugboat(tugged) => CreepRole::Tugboat(Default::default(), *tugged),
-            CreepType::Recycle(spawn) => CreepRole::Recycle(*spawn)
+            CreepType::Scrap(spawn) => CreepRole::Scrap(*spawn),
+            CreepType::Dumptruck => CreepRole::Dumptruck(Default::default())
         }
     }
 }
@@ -131,7 +138,7 @@ pub fn do_creeps(mem: &mut Memory) {
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
             if !mem.creeps.contains_key(&creep.name()) {
-                let Some(config) = CreepData::try_recover_from(&creep, mem) else {
+                let Some(config) = CreepData::try_recover_from(creep, mem) else {
                     warn!("Unable to recover creep data for {}", creep.name());
                     return false;
                 };
@@ -143,24 +150,25 @@ pub fn do_creeps(mem: &mut Memory) {
         }).collect();
 
     let mut update_creeps = updatable_creeps.clone();
-    while update_creeps.len() > 0 {
+    while !update_creeps.is_empty() {
         for creep in &update_creeps {
             let role = mem.creep(creep).unwrap().role.clone();
 
             let new_role = match &role {
-                Worker(state) => Worker(transition(&state, creep, mem)),
-                Flagship(state) => Flagship(transition(&state, creep, mem)),
-                RemoteBuilder(state) => RemoteBuilder(transition(&state, creep, mem)),
-                Excavator(state, source) => Excavator(transition(&state, creep, mem), *source),
-                Tugboat(state, tugged) => Tugboat(transition(&state, &creep, mem), *tugged),
-                Recycle(spawn) => Recycle(do_recycle(creep, mem, spawn)),
+                Worker(state) => Worker(transition(state, creep, mem)),
+                Flagship(state) => Flagship(transition(state, creep, mem)),
+                RemoteBuilder(state) => RemoteBuilder(transition(state, creep, mem)),
+                Excavator(state, source) => Excavator(transition(state, creep, mem), *source),
+                Tugboat(state, tugged) => Tugboat(transition(state, creep, mem), *tugged),
+                Scrap(spawn) => Scrap(do_recycle(creep, mem, spawn)),
+                Dumptruck(state) => Dumptruck(transition(state, creep, mem))
             };
 
             mem.creeps.get_mut(&creep.name()).unwrap().role = new_role.clone();
         }
 
         for creep in &updatable_creeps {
-            mem.messages.creep_quick(&creep).flush();
+            mem.messages.creep_quick(creep).flush();
         }
 
         update_creeps = updatable_creeps.iter()
@@ -170,7 +178,7 @@ pub fn do_creeps(mem: &mut Memory) {
     }
 
     for creep in &updatable_creeps {
-        mem.messages.creep(&creep).flush();
+        mem.messages.creep(creep).flush();
     }
 }
 

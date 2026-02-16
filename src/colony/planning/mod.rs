@@ -48,8 +48,8 @@ impl ColonyPlan {
             planner.plan_road_between(center, deposit.pos().xy(), Level6)?;
 
             let container_pos = deposit.pos().xy().neighbors().into_iter()
-                .filter(|neigh| planner.roads.contains_key(neigh))
-                .next().ok_or("Unable to find road around deposit")?;
+                .find(|neigh| planner.roads.contains_key(neigh))
+                .ok_or("Unable to find road around deposit")?;
             planner.plan_structure(container_pos, Level6, PlannedStructure::MineralContainer)?;
         }
 
@@ -70,7 +70,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
 
         let path = planner.find_path_between(source_pos, center, Level1(BuildArterialRoads));
 
-        let harvest_pos = path.get(0).ok_or("Path to source had zero elements")?;
+        let harvest_pos = path.first().ok_or("Path to source had zero elements")?;
         let excavator_pos = RoomXY::new(
             RoomCoordinate::new(harvest_pos.x as u8).unwrap(), 
             RoomCoordinate::new(harvest_pos.y as u8).unwrap()
@@ -117,7 +117,7 @@ fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: 
         let plan_extensions = planner.count_left_for(PlannedStructure::Extension, step);
         let plan_towers = planner.count_left_for(PlannedStructure::Tower, step);
 
-        let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(&planner, step)).collect::<Result<_, _>>()?;
+        let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(planner, step)).collect::<Result<_, _>>()?;
         let mut towers = planner.structures2pos.get(&PlannedStructure::Tower).cloned().unwrap_or_default();
         let mut new_towers = Vec::new();
 
@@ -195,7 +195,7 @@ const MIN_ENTRANCE_DIST: usize = 8;
 const MIN_CANDIDATE_DIST: u8 = 4;
 fn find_center(room: Room) -> RoomXY {
     let center_flag = room.find(find::FLAGS, None).into_iter()
-        .filter(|flag| flag.name().to_lowercase().contains("center")).next();
+        .find(|flag| flag.name().to_lowercase().contains("center"));
     if let Some(center_flag) = center_flag { return center_flag.pos().xy() }
 
     let exits = room.find(find::EXIT, None).into_iter()

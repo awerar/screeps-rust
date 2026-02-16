@@ -16,8 +16,7 @@ pub struct BuildData {
 impl BuildData {
     pub fn site(&self) -> Option<ConstructionSite> {
         self.pos.look_for(look::CONSTRUCTION_SITES).unwrap().into_iter()
-            .filter(|site| site.structure_type() == self.structure_type)
-            .next()
+            .find(|site| site.structure_type() == self.structure_type)
     }
 }
 
@@ -32,17 +31,16 @@ impl RemoteBuildRequests {
             if game::rooms().get(pos.room_name()).is_none() { continue; }
 
             let structure = pos.look_for(look::STRUCTURES).unwrap().into_iter()
-                .filter(|structure| structure.structure_type() == build.structure_type)
-                .next();
+                .find(|structure| structure.structure_type() == build.structure_type);
 
             if structure.is_some() {
-                finished_requests.push(pos.clone());
+                finished_requests.push(*pos);
                 continue;
             }
 
             let Some(site) = build.site() else {
                 warn!("Remoted constructions site of {} at {pos} was unexpectedly removed", build.structure_type);
-                finished_requests.push(pos.clone());
+                finished_requests.push(*pos);
                 continue;
             };
 
@@ -67,7 +65,7 @@ impl RemoteBuildRequests {
 
         if already_sited { return Ok(()) }
 
-        let name = name.map(|name| JsString::from(name));
+        let name = name.map(JsString::from);
         pos.create_construction_site(structure_type, name.as_ref()).map_err(|_| ())?;
 
         Ok(())

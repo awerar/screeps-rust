@@ -70,11 +70,11 @@ pub struct Messages {
 
 impl Messages where {
     pub fn creep(&mut self, creep: &Creep) -> &mut Mailbox<CreepMessage> {
-        self.creeps.entry(creep.name()).or_insert_with(|| Mailbox::new())
+        self.creeps.entry(creep.name()).or_default()
     }
 
     pub fn creep_quick(&mut self, creep: &Creep) -> &mut Mailbox<QuickCreepMessage> {
-        self.creeps_quick.entry(creep.name()).or_insert_with(|| Mailbox::new())
+        self.creeps_quick.entry(creep.name()).or_default()
     }
 
     pub fn remove(&mut self, creep: &str) {

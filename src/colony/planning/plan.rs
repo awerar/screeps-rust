@@ -76,8 +76,7 @@ impl SourcePlan {
             .chain(self.extensions.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
             .chain(self.link.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
             .chain(self.container.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
-            .filter(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
-            .next()
+            .find(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
             .map(|fillable| fillable as Box<dyn Transferable>)
     }
 }
@@ -87,36 +86,36 @@ impl ColonyPlan {
         let planned_roads: HashSet<_> = self.steps.values()
             .flat_map(|step| step.new_roads.iter().cloned())
             .collect();
-        let all_roads: HashSet<_> = get_all_roads_in(&room).into_keys().collect();
+        let all_roads: HashSet<_> = get_all_roads_in(room).into_keys().collect();
 
         let missing_roads = planned_roads.difference(&all_roads)
-            .map(|pos| (pos.clone(), RoadDiff::Missing));
+            .map(|pos| (*pos, RoadDiff::Missing));
 
         let extra_roads = all_roads.difference(&planned_roads)
-            .map(|pos| (pos.clone(), RoadDiff::Extra));
+            .map(|pos| (*pos, RoadDiff::Extra));
 
         let road_diff: HashMap<_, _> = missing_roads.chain(extra_roads).collect();
 
         let planned_structures: HashMap<_, _> = self.steps.values()
-            .flat_map(|step| step.new_structures.iter().map(|(a, b)| (a.clone(), b.clone())))
+            .flat_map(|step| step.new_structures.iter().map(|(a, b)| (*a, *b)))
             .collect();
-        let all_structures = get_all_structures_in(&room);
+        let all_structures = get_all_structures_in(room);
 
         let planned_structure_positions: HashSet<_> = planned_structures.keys().cloned().collect();
         let all_structure_positions: HashSet<_> = all_structures.keys().cloned().collect();
 
         let missing_structures = planned_structure_positions.difference(&all_structure_positions)
-            .map(|pos| (pos.clone(), StructureDiff::Missing(planned_structures[pos])));
+            .map(|pos| (*pos, StructureDiff::Missing(planned_structures[pos])));
 
         let extra_structures = all_structure_positions.difference(&planned_structure_positions)
-            .map(|pos| (pos.clone(), all_structures[pos].0))
+            .map(|pos| (*pos, all_structures[pos].0))
             .filter(|(_, structure)| *structure != StructureType::Controller)
             .map(|(pos, structure)| (pos, StructureDiff::Extra(structure)));
 
         let different_structures = all_structure_positions.intersection(&planned_structure_positions)
-            .map(|pos| (pos.clone(), planned_structures[pos], all_structures[pos].0))
+            .map(|pos| (*pos, planned_structures[pos], all_structures[pos].0))
             .filter(|(_, expected, found)| *expected != *found)
-            .map(|(pos, expected, found)| (pos.clone(), StructureDiff::Different { expected, found }));
+            .map(|(pos, expected, found)| (pos, StructureDiff::Different { expected, found }));
         
         let structure_diff: HashMap<_, _> = missing_structures.chain(extra_structures).chain(different_structures).collect();
 
@@ -124,7 +123,7 @@ impl ColonyPlan {
     }
 
     pub fn adapt_build_times_to(&mut self, room: &Room) {
-        let mut structures_left_to_adjust: HashMap<_, VecDeque<_>> = get_all_structures_in(&room).into_iter()
+        let mut structures_left_to_adjust: HashMap<_, VecDeque<_>> = get_all_structures_in(room).into_iter()
             .map(|(pos, (ty, _))| (ty, pos))
             .filter(|(ty, _)| *ty != StructureType::Controller)
             .into_grouping_map()
@@ -149,7 +148,7 @@ impl ColonyPlan {
             }
         }
 
-        assert_eq!(structures_left_to_adjust.iter().flat_map(|(ty, positions)| positions.into_iter().map(|pos| (ty.clone(), pos))).collect_vec(), vec![])
+        assert_eq!(structures_left_to_adjust.iter().flat_map(|(ty, positions)| positions.iter().map(|pos| (*ty, pos))).collect_vec(), vec![])
     }
 }
 
@@ -167,7 +166,7 @@ impl ColonyPlanStep {
         let good_structures: HashSet<_> = all_structures.iter()
             .map(|(a, b)| (*a, *b))
             .filter(|(pos, (ty, _))| 
-                self.new_structures.get(pos).map_or(false, |new_ty| *ty == *new_ty)
+                self.new_structures.get(pos).is_some_and(|new_ty| *ty == *new_ty)
             ).map(|(pos, _)| pos)
             .collect();
 
@@ -213,7 +212,7 @@ fn get_all_roads_in(room: &Room) -> HashMap<RoomXY, bool> {
 
 fn get_all_structures_in(room: &Room) -> HashMap<RoomXY, (StructureType, bool)> {
     let all_built_structures = room.find(find::STRUCTURES, None).into_iter()
-        .filter(|structure| structure.as_owned().map_or(false, |owned| owned.my()) || matches!(structure.structure_type(), StructureType::Container | StructureType::Wall))
+        .filter(|structure| structure.as_owned().is_some_and(|owned| owned.my()) || matches!(structure.structure_type(), StructureType::Container | StructureType::Wall))
         .map(|structure| (structure.pos().xy(), (structure.structure_type(), true)));
 
     let all_constructing_structures = room.find(find::CONSTRUCTION_SITES, None).into_iter()
@@ -253,21 +252,21 @@ impl ColonyPlanDiff {
     pub fn get_removal_losses(&self) -> HashMap<RoomXY, u32> {
         let road_losses = self.roads.iter()
             .filter(|(_, diff)| matches!(diff, RoadDiff::Extra))
-            .map(|(pos, _)| (pos.clone(), StructureType::Road.construction_cost().unwrap()));
+            .map(|(pos, _)| (*pos, StructureType::Road.construction_cost().unwrap()));
 
         let structure_losses = self.structures.iter()
             .flat_map(|(pos, diff)| {
                 match diff {
-                    StructureDiff::Missing(_) => return None,
+                    StructureDiff::Missing(_) => None,
                     StructureDiff::Extra(found) |
-                    StructureDiff::Different { expected: _, found } => Some((pos.clone(), found.clone()))
+                    StructureDiff::Different { expected: _, found } => Some((*pos, *found))
                 }
             })
             .map(|(pos, structure)| {
                 if matches!(structure, StructureType::Rampart | StructureType::Wall) {
-                    (pos.clone(), 300000000)
+                    (pos, 300000000)
                 } else {
-                    (pos.clone(), structure.construction_cost().unwrap_or(0))
+                    (pos, structure.construction_cost().unwrap_or(0))
                 }
             });
 
@@ -277,14 +276,14 @@ impl ColonyPlanDiff {
     pub fn migrate(self, room: RoomName) {
         let road_removals = self.roads.iter()
             .filter(|(_, diff)| matches!(diff, RoadDiff::Extra))
-            .map(|(pos, _)| (pos.clone(), StructureType::Road));
+            .map(|(pos, _)| (*pos, StructureType::Road));
 
         let structure_removals = self.structures.iter()
             .flat_map(|(pos, diff)| {
                 match diff {
-                    StructureDiff::Missing(_) => return None,
+                    StructureDiff::Missing(_) => None,
                     StructureDiff::Extra(found) |
-                    StructureDiff::Different { expected: _, found } => Some((pos.clone(), found.clone()))
+                    StructureDiff::Different { expected: _, found } => Some((*pos, *found))
                 }
             });
 
@@ -292,13 +291,11 @@ impl ColonyPlanDiff {
             let pos = Position::new(pos.x, pos.y, room);
 
             let structure = pos.look_for(look::STRUCTURES).unwrap().into_iter()
-                .filter(|structure| structure.structure_type() == ty)
-                .next();
+                .find(|structure| structure.structure_type() == ty);
             if let Some(structure) = structure { structure.as_structure().destroy().ok(); }
 
             let site = pos.look_for(look::CONSTRUCTION_SITES).unwrap().into_iter()
-                .filter(|site| site.structure_type() == ty)
-                .next();
+                .find(|site| site.structure_type() == ty);
             if let Some(site) = site { site.remove().ok(); }
         }
     }

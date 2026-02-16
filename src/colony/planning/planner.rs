@@ -203,9 +203,9 @@ impl ColonyPlanner {
         self.structures2pos.get(&structure)
             .ok_or(format!("No {:?} was found", structure))
             .and_then(|positions| {
-                if positions.len() == 0 { Err(format!("No {:?} was found", structure)) }
+                if positions.is_empty() { Err(format!("No {:?} was found", structure)) }
                 else if positions.len() > 1 { Err(format!("Unable to determine unique {:?}", structure)) }
-                else { Ok(positions.iter().next().unwrap().clone()) } 
+                else { Ok(*positions.iter().next().unwrap()) } 
             })
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
     }
@@ -223,7 +223,7 @@ impl ColonyPlanner {
         ColonyStep::iter().skip_while(|s| *s < step).map(|step| {
             let placed_count = self.num_placed_by(structure.structure_type(), step);
             let max_count = structure.structure_type().controller_structures(step.controller_level() as u32);
-            max_count.saturating_sub(placed_count as u32)
+            max_count.saturating_sub(placed_count)
         }).min().unwrap()
     }
 
@@ -246,7 +246,7 @@ impl ColonyPlanner {
     }
 
     pub fn plan_road(&mut self, xy: RoomXY, step: ColonyStep) -> Result<(), String> {
-        if self.roads.get(&xy).map_or(false, |old_step| step >= *old_step) { return Ok(()) }
+        if self.roads.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
 
         self.roads.insert(xy, step);
 
@@ -280,8 +280,8 @@ impl ColonyPlanner {
     pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
         if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) };
         if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
-        if self.pos2structure.get(&xy).map_or(false, |other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) };
-        if self.structures.get(&xy).map_or(false, |old_step| step >= *old_step) { return Ok(()) }
+        if self.pos2structure.get(&xy).is_some_and(|other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) };
+        if self.structures.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
 
         self.structures2pos.entry(structure).or_default().insert(xy);
         self.pos2structure.insert(xy, structure);
@@ -326,7 +326,7 @@ impl ColonyPlanner {
         for path_step in path.iter() {
             pos.offset(path_step.dx, path_step.dy);
 
-            if self.pos2structure.get(&pos.xy()).map_or(true, |structure| structure.walkable()) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
+            if self.pos2structure.get(&pos.xy()).is_none_or(|structure| structure.walkable()) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
                 self.plan_road(pos.xy(), step)?;
             }
         }
@@ -349,8 +349,8 @@ impl CenterPlanner {
     }
 
     pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> Result<RoomXY, String> {        
-        while let Some((_, pos)) = self.flood_fill.next() {
-            if planner.pos2structure.get(&pos).is_some() { continue; }
+        for (_, pos) in self.flood_fill.by_ref() {
+            if planner.pos2structure.contains_key(&pos) { continue; }
 
             let road_neighs: Vec<_> = Direction::iter()
                 .filter(|dir| dir.is_orthogonal())
@@ -366,7 +366,7 @@ impl CenterPlanner {
             return Ok(pos); 
         }
 
-        Err(format!("No more positions in center"))
+        Err("No more positions in center".to_string())
     }
 
     pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
@@ -376,7 +376,7 @@ impl CenterPlanner {
 
     pub fn plan_roads(self, planner: &mut ColonyPlanner) -> Result<(), String> {
         for (road_pos, increases) in self.roads_utility_increases.into_iter() {
-            let Some(plan_step) = increases.into_iter().sorted().skip(2).next() else { continue; };
+            let Some(plan_step) = increases.into_iter().sorted().nth(2) else { continue; };
             planner.plan_road(road_pos, plan_step)?;
         }
 

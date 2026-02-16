@@ -23,7 +23,7 @@ impl Body {
                 if cost > energy {
                     let body = Body(self.0.iter()
                         .zip(counts.into_iter())
-                        .flat_map(|(part, count)| vec![part.clone(); count].into_iter())
+                        .flat_map(|(part, count)| vec![*part; count].into_iter())
                         .collect());
                     
                     if body.0.len() > min_parts {
@@ -67,7 +67,7 @@ impl Add for Body {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Body(self.0.into_iter().chain(rhs.0.into_iter()).collect())
+        Body(self.0.into_iter().chain(rhs.0).collect())
     }
 }
 
@@ -146,7 +146,7 @@ impl SpawnerData {
         Some(Self {
             name: spawn.name(),
             room: room.name(),
-            energy_capacity: energy_capacity,
+            energy_capacity,
             energy_avaliable: room.energy_available(),
             status: spawning.map_or(SpawnerStatus::Free, |(proto, time_left)| SpawnerStatus::Spawning(proto, time_left)),
         })
@@ -290,12 +290,12 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
             let any_source_constructions = mem.colony(room.name()).unwrap()
                 .plan.sources.0
                 .get(&source.id())
-                .map_or(false, |source_plan| source_plan.get_construction_site().is_some());
+                .is_some_and(|source_plan| source_plan.get_construction_site().is_some());
 
             let target_excavator_works = if any_source_constructions { 7 } else { 5 };
             let excavator_works = (spawner.energy_capacity as usize).saturating_sub(50 * excavator_carry).min(target_excavator_works);
             
-            let body =  Body::from(Carry) * excavator_carry as usize + Body::from(Work) * excavator_works as usize;
+            let body =  Body::from(Carry) * excavator_carry + Body::from(Work) * excavator_works;
             let prototype = CreepPrototype { 
                 body, 
                 ty: CreepType::Excavator(source.id()),
@@ -307,7 +307,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
     }
 }
 
-const WORKER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Work]) });
+static WORKER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Work]) });
 fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
@@ -340,9 +340,9 @@ fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
 }
 
 
-const FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
+static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
 fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
-    if mem.claim_requests.len() == 0 { return; }
+    if mem.claim_requests.is_empty() { return; }
 
     let flagship_count = schedule.all_creeps().filter_type(CreepType::Flagship).0.count();
     if flagship_count > 0 { return; }
@@ -356,7 +356,7 @@ fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
     });
 }
 
-const REMOTE_BUILDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Move, Carry, Move, Work]) });
+static REMOTE_BUILDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Move, Carry, Move, Work]) });
 fn schedule_remote_builders(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     let target_works = mem.remote_build_requests.get_total_work_ticks().div_ceil(750) as usize;
     let mut curr_works = schedule.all_creeps().filter_type(CreepType::RemoteBuilder).part_count(Part::Work);

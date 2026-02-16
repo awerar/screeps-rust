@@ -36,7 +36,7 @@ impl<S> Iterator for ColonyStepIterator<S> where S : ColonyStepStateMachine {
     type Item = S;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(promotion) = self.step.get_promotion() else { return None; };
+        let promotion = self.step.get_promotion()?;
         self.step = promotion.clone();
         Some(promotion)
     }
@@ -92,7 +92,7 @@ impl ColonyStepStateMachine for ColonyStep {
 
         match self {
             Unclaimed => Some(Level1(Default::default())),
-            Level1(substep) => substep.get_promotion().map(|substep| Level1(substep)).or(Some(Level2)),
+            Level1(substep) => substep.get_promotion().map(Level1).or(Some(Level2)),
             Level2 => Some(Level3),
             Level3 => Some(Level4),
             Level4 => Some(Level5),
@@ -132,6 +132,7 @@ impl ColonyStepStateMachine for ColonyStep {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]
 #[repr(u8)]
+#[expect(clippy::enum_variant_names)]
 pub enum Level1Step {
     #[default]
     BuildContainerStorage,

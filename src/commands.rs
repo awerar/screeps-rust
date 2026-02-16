@@ -19,7 +19,7 @@ pub fn command(command: String) {
 
 fn do_command(command: String) -> Result<(), String> {
     let command = shlex::split(&command).ok_or("Unable to lex command")?;
-    let tokens = iter::once("command".to_string()).chain(command.into_iter());
+    let tokens = iter::once("command".to_string()).chain(command);
     let command = Command::try_parse_from(tokens).map_err(|e| e.to_string())?;
 
     match command {

@@ -12,7 +12,7 @@ enum PeriodicCallback {
     RemoteBuildUpdate
 }
 
-const PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::new(|| {
+static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::new(|| {
     use PeriodicCallback::*;
 
     HashMap::from([
@@ -74,8 +74,7 @@ impl Callbacks {
 
 impl Memory {
     pub fn handle_callbacks(&mut self) {
-        loop {
-            let Some(callback) = self.callbacks.scheduled.peek() else { break };
+        while let Some(callback) = self.callbacks.scheduled.peek() {
             if game::time() < callback.0.0 { break; }
             let callback = self.callbacks.scheduled.pop().unwrap();
             callback.1.execute(self);

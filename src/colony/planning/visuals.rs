@@ -31,7 +31,7 @@ impl ColonyPlan {
         let mut roads = HashSet::new();
 
         for step in ColonyStep::iter() {
-            if stop_step.as_ref().map_or(false, |stop_step| step > *stop_step) { break; }
+            if stop_step.as_ref().is_some_and(|stop_step| step > *stop_step) { break; }
             let Some(step) = self.steps.get(&step) else { continue; };
 
             for (pos, structure) in &step.new_structures {

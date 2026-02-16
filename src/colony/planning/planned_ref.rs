@@ -26,7 +26,7 @@ impl<T> OptionalPlannedStructureRef<T> where T : JsCast + MaybeHasId + Construct
     }
     
     pub fn is_complete(&self) -> bool {
-        self.0.as_ref().map_or(false, |structure| structure.is_complete())
+        self.0.as_ref().is_some_and(|structure| structure.is_complete())
     }
 }
 
@@ -95,7 +95,7 @@ impl<T> PlannedStructureBuiltRef<T> {
 
 impl<T> PlannedStructureBuiltRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
     pub fn resolve(&self) -> Option<T> {
-        let id = self.id.borrow().clone();
+        let id = *self.id.borrow();
         if let Some(id) = id {
             if let Some(structure) = ObjectId::<T>::from(id).resolve() {
                 return Some(structure);
@@ -105,11 +105,9 @@ impl<T> PlannedStructureBuiltRef<T> where T : JsCast + MaybeHasId + Construction
         }
 
         let structure = self.pos.look_for(look::STRUCTURES).ok()?.into_iter()
-            .filter(|structure| structure.as_owned().map_or(true, |x| x.my()))
+            .filter(|structure| structure.as_owned().is_none_or(|x| x.my()))
             .flat_map(|structure| structure.try_into())
-            .next();
-
-        let Some(structure) = structure else { return None; };
+            .next()?;
 
         if let Some(raw_id) = structure.try_raw_id() {
             self.id.replace(Some(raw_id));
@@ -146,7 +144,7 @@ impl<T> PlannedStructureSiteRef<T> {
 
 impl<T> PlannedStructureSiteRef<T> where T : ConstructionType {
     pub fn resolve(&self) -> Option<ConstructionSite> {
-        let id = self.id.borrow().clone();
+        let id = *self.id.borrow();
         if let Some(id) = id {
             if let Some(site) = id.resolve() {
                 return Some(site);
@@ -156,10 +154,7 @@ impl<T> PlannedStructureSiteRef<T> where T : ConstructionType {
         }
 
         let site = self.pos.look_for(look::CONSTRUCTION_SITES).ok()?.into_iter()
-            .filter(|site| site.my() && site.structure_type() == T::structure_type())
-            .next();
-
-        let Some(site) = site else { return None; };
+            .find(|site| site.my() && site.structure_type() == T::structure_type())?;
 
         if let Some(id) = site.try_id() {
             self.id.replace(Some(id));

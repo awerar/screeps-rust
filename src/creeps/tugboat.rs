@@ -155,7 +155,7 @@ impl StateMachine<Creep> for TugboatCreep {
                     return Ok(Recycling(get_recycle_spawn(tugboat, mem).id()))
                 }
 
-                return Ok(self.clone())
+                Ok(self.clone())
             },
             Recycling(_) => unreachable!()
         }

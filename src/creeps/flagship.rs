@@ -27,7 +27,7 @@ impl StateMachine<Creep> for FlagshipCreep {
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name() {
                     if let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Claiming(target.clone(), controller.id()))
+                        return Ok(Claiming(*target, controller.id()))
                     }
                 }
 

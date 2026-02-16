@@ -8,17 +8,19 @@ pub enum RoomDrawerType {
     Diff
 }
 
+pub type Drawer = Box<dyn FnMut(&RoomVisual)>;
+
 #[derive(Default)]
 struct StaticDrawers {
-    rooms: HashMap<(RoomName, RoomDrawerType), Vec<Box<dyn FnMut(&RoomVisual) -> ()>>>,
-    global: Vec<Box<dyn FnMut(&RoomVisual) -> ()>>
+    rooms: HashMap<(RoomName, RoomDrawerType), Vec<Drawer>>,
+    global: Vec<Drawer>
 }
 
 thread_local! {
     static STATIC_DRAWERS: RefCell<StaticDrawers> = RefCell::new(Default::default());
 }
 
-pub fn draw_in_room(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&RoomVisual) -> () + 'static) {
+pub fn draw_in_room(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&RoomVisual) + 'static) {
     STATIC_DRAWERS.with_borrow_mut(|static_drawers| {
         static_drawers.rooms.entry((room, ty)).or_default().push(Box::new(f));
     })
@@ -30,13 +32,13 @@ pub fn clear_room_visual(room: RoomName, ty: RoomDrawerType) {
     });
 }
 
-pub fn draw_in_room_replaced(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&RoomVisual) -> () + 'static) {
+pub fn draw_in_room_replaced(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&RoomVisual) + 'static) {
     clear_room_visual(room, ty);
     draw_in_room(room, ty, f);
 }
 
 #[expect(unused)]
-pub fn draw_globally(f: impl FnMut(&RoomVisual) -> () + 'static) {
+pub fn draw_globally(f: impl FnMut(&RoomVisual) + 'static) {
     STATIC_DRAWERS.with_borrow_mut(|static_drawers| {
         static_drawers.global.push(Box::new(f));
     })

@@ -37,10 +37,7 @@ pub enum WorkerCreep {
 
 impl WorkerCreep {
     fn is_idle(&self) -> bool {
-        match self {
-            WorkerCreep::Idle => true,
-            _ => false
-        }
+        matches!(self, WorkerCreep::Idle)
     }
 }
 
@@ -103,15 +100,15 @@ impl DistributionTarget {
         match self {
             DistributionTarget::Controller(_) => true,
             DistributionTarget::Spawn(spawn) => 
-                spawn.resolve().map_or(false, |spawn| spawn.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
+                spawn.resolve().is_some_and(|spawn| spawn.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::Extension(extension) => 
-                extension.resolve().map_or(false, |extension| extension.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
+                extension.resolve().is_some_and(|extension| extension.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::Tower(tower) => 
-                tower.resolve().map_or(false, |tower| tower.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
+                tower.resolve().is_some_and(|tower| tower.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::Storage(storage) => 
-                storage.resolve().map_or(false, |storage| storage.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
+                storage.resolve().is_some_and(|storage| storage.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::Terminal(terminal) => 
-                terminal.resolve().map_or(false, |terminal| terminal.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
+                terminal.resolve().is_some_and(|terminal| terminal.store().get_free_capacity(Some(ResourceType::Energy)) > 0),
             DistributionTarget::ConstructionSite(site) => site.resolve().is_some(),
         }
     }
@@ -172,7 +169,7 @@ fn is_empty(creep: &Creep) -> bool {
 fn try_repair(creep: &Creep) -> Option<()> {
     let structures = creep.pos().find_in_range(find::STRUCTURES, 3);
     let repair_structures: Vec<_> = structures.iter()
-        .filter(|structure| if let StructureType::Road = structure.structure_type() { true } else { false })
+        .filter(|structure| matches!(structure.structure_type(), StructureType::Road))
         .flat_map(|structure| structure.as_repairable())
         .filter(|repairable| repairable.hits() <= ((repairable.hits_max() as f32) * REPAIR_THRESHOLD) as u32)
         .collect();
@@ -209,7 +206,7 @@ impl StateMachine<Creep> for WorkerCreep {
                             .any(|x| x)
                     }).collect();*/
 
-                    if sources.len() > 0 {
+                    if !sources.is_empty() {
                         let source = &sources[(random() * (sources.len() as f64)).floor() as usize];
                         next_state = Harvesting(source.id())
                     }
@@ -260,11 +257,10 @@ impl StateMachine<Creep> for WorkerCreep {
                 let target_pos = target.pos().ok_or(())?;
                 mem.movement.smart_move_creep_to(creep, target_pos).ok();
 
-                if creep.pos().get_range_to(target_pos) <= target.range() {
-                    if target.distribute(creep).is_none() {
+                if creep.pos().get_range_to(target_pos) <= target.range()
+                    && target.distribute(creep).is_none() {
                         return Ok(Idle)
                     }
-                }
 
                 if let DistributionTarget::ConstructionSite(site) = target {
                     if site.resolve().is_none() {
