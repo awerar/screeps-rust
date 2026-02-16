@@ -5,16 +5,16 @@ use serde::{Deserialize, Serialize};
 use crate::{memory::Memory, statemachine::StateMachine};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
-pub enum ClaimerCreep {
+pub enum FlagshipCreep {
     #[default]
     Idle,
     GoingTo(Position),
     Claiming(Position, ObjectId<StructureController>)
 }
 
-impl StateMachine<Creep> for ClaimerCreep {
+impl StateMachine<Creep> for FlagshipCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use ClaimerCreep::*;
+        use FlagshipCreep::*;
 
         match &self {
             Idle => {

@@ -30,7 +30,7 @@ impl ColonyPlan {
         center_planner.plan_structure(&mut planner, Level6, PlannedStructure::Terminal)?;
         center_planner.plan_structure(&mut planner, Level3, PlannedStructure::Tower)?;
 
-        let harvester_positions = plan_sources(&mut planner, center)?;
+        let excavator_positions = plan_sources(&mut planner, center)?;
 
         plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
         
@@ -39,7 +39,7 @@ impl ColonyPlan {
         let controller = room.controller().unwrap().pos().xy();
         planner.plan_road_between(center, controller, Level1(BuildArterialRoads))?;
 
-        for source in harvester_positions {
+        for source in excavator_positions {
             planner.plan_road_between(source, center, Level1(BuildArterialRoads))?;
         }
 
@@ -71,15 +71,15 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
         let path = planner.find_path_between(source_pos, center, Level1(BuildArterialRoads));
 
         let harvest_pos = path.get(0).ok_or("Path to source had zero elements")?;
-        let harvester_pos = RoomXY::new(
+        let excavator_pos = RoomXY::new(
             RoomCoordinate::new(harvest_pos.x as u8).unwrap(), 
             RoomCoordinate::new(harvest_pos.y as u8).unwrap()
         );
 
-        planner.plan_road(harvester_pos, Level1(BuildArterialRoads))?;
-        planner.plan_structure(harvester_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
+        planner.plan_road(excavator_pos, Level1(BuildArterialRoads))?;
+        planner.plan_structure(excavator_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
 
-        let slots = harvester_pos.neighbors().into_iter()
+        let slots = excavator_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))
             .collect_vec()
             .into_iter();

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use log::*;
 use itertools::Itertools;
-use screeps::{ConstructionSite, HasPosition, HasStore, ObjectId, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
+use screeps::{ConstructionSite, HasPosition, ObjectId, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 
@@ -194,7 +194,7 @@ impl ColonyPlanStep {
         }
 
         let has_finished_roads = self.new_roads.iter().all(|new_road| roads.get(new_road).cloned().unwrap_or(false));
-        let has_finished_structures = self.new_structures.iter().all(|(new_structure, _)| all_structures.get(new_structure).map(|(a, b)| b).cloned().unwrap_or(false));
+        let has_finished_structures = self.new_structures.iter().all(|(new_structure, _)| all_structures.get(new_structure).map(|(_, b)| b).cloned().unwrap_or(false));
         Ok(has_finished_roads && has_finished_structures)
     }
 }

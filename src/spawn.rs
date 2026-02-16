@@ -272,33 +272,33 @@ impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData
 }
 
 #[expect(unused)]
-fn schedule_harvesters(mem: &Memory, schedule: &mut SpawnSchedule) {
+fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
     for colony in mem.colonies.keys() {
         let Some(room) = game::rooms().get(*colony) else { continue; };
 
         for source in room.find(find::SOURCES, None) {
-            let any_harvester_already = schedule.all_creeps()
-                .0.any(|proto| matches!(proto.ty, CreepType::Harvester(harvester_source) if harvester_source == source.id()));
-            if any_harvester_already { continue; }
+            let any_excavator_already = schedule.all_creeps()
+                .0.any(|proto| matches!(proto.ty, CreepType::Excavator(excavator_source) if excavator_source == source.id()));
+            if any_excavator_already { continue; }
 
             let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
 
-            let harvester_carry = 2 - ((spawner.energy_capacity % 100) / 50) as usize;
+            let excavator_carry = 2 - ((spawner.energy_capacity % 100) / 50) as usize;
 
             let any_source_constructions = mem.colony(room.name()).unwrap()
                 .plan.sources.0
                 .get(&source.id())
                 .map_or(false, |source_plan| source_plan.get_construction_site().is_some());
 
-            let target_harvester_works = if any_source_constructions { 7 } else { 5 };
-            let harvester_works = (spawner.energy_capacity as usize).saturating_sub(50 * harvester_carry).min(target_harvester_works);
+            let target_excavator_works = if any_source_constructions { 7 } else { 5 };
+            let excavator_works = (spawner.energy_capacity as usize).saturating_sub(50 * excavator_carry).min(target_excavator_works);
             
-            let body =  Body::from(Carry) * harvester_carry as usize + Body::from(Work) * harvester_works as usize;
+            let body =  Body::from(Carry) * excavator_carry as usize + Body::from(Work) * excavator_works as usize;
             let prototype = CreepPrototype { 
                 body, 
-                ty: CreepType::Harvester(source.id()),
+                ty: CreepType::Excavator(source.id()),
                 home: *colony
             };
 
@@ -340,18 +340,18 @@ fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
 }
 
 
-const CLAIMER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
-fn schedule_claimers(mem: &Memory, schedule: &mut SpawnSchedule) {
+const FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
+fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
     if mem.claim_requests.len() == 0 { return; }
 
-    let claimer_count = schedule.all_creeps().filter_type(CreepType::Claimer).0.count();
-    if claimer_count > 0 { return; }
+    let flagship_count = schedule.all_creeps().filter_type(CreepType::Flagship).0.count();
+    if flagship_count > 0 { return; }
 
     let Some(spawner) = schedule.spawners().filter_free().0.next() else { return; };
 
     spawner.schedule_or_block(CreepPrototype { 
-        body: CLAIMER_TEMPLATE.clone(), 
-        ty: CreepType::Claimer, 
+        body: FLAGSHIP_TEMPLATE.clone(), 
+        ty: CreepType::Flagship, 
         home: spawner.room
     });
 }
@@ -409,9 +409,9 @@ pub fn do_spawns(mem: &mut Memory) {
     let mut schedule = SpawnSchedule::new(mem);
 
     schedule_tugboats(mem, &mut schedule);
-    //schedule_harvesters(mem, &mut schedule);
+    //schedule_excavators(mem, &mut schedule);
     schedule_workers(mem, &mut schedule);
-    schedule_claimers(mem, &mut schedule);
+    schedule_flagships(mem, &mut schedule);
     schedule_remote_builders(mem, &mut schedule);
 
     schedule.execute(mem);

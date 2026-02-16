@@ -1,26 +1,26 @@
-use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties};
+use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties};
 use serde::{Deserialize, Serialize};
 
 use crate::{creeps::{CreepData, CreepRole, tugboat::TuggedCreep}, memory::Memory, statemachine::StateMachine};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub enum HarvesterCreep {
+pub enum ExcavatorCreep {
     Going(TuggedCreep),
     Mining,
     Building(ObjectId<ConstructionSite>)
 }
 
-impl Default for HarvesterCreep {
+impl Default for ExcavatorCreep {
     fn default() -> Self {
         Self::Going(Default::default())
     }
 }
 
-impl StateMachine<Creep> for HarvesterCreep {
+impl StateMachine<Creep> for ExcavatorCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
-        use HarvesterCreep::*;
+        use ExcavatorCreep::*;
 
-        let Some(CreepData { role: CreepRole::Harvester(_, source), .. }) = mem.creep(creep) else { return Err(()) };
+        let Some(CreepData { role: CreepRole::Excavator(_, source), .. }) = mem.creep(creep) else { return Err(()) };
         let source = source.resolve().ok_or(())?;
 
         let plan = mem.creep_home(creep).ok_or(())?
