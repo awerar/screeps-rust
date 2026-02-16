@@ -5,7 +5,7 @@ use log::*;
 use screeps::{RoomName, StructureProperties, find, game};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{colony::planning::plan::ColonyPlan, visuals};
+use crate::{colony::planning::plan::ColonyPlan, memory::Memory, visuals};
 
 thread_local! {
     static COMMANDS: RefCell<HashSet<Command>> = RefCell::new(HashSet::new());
@@ -54,12 +54,12 @@ pub fn pop_command(cmd: Command) -> bool {
     })
 }
 
-pub fn handle_commands<F, R>(f: F) -> usize where F : Fn(&Command) -> bool {
+pub fn handle_commands<F>(mem: &mut Memory, f: F) -> usize where F : Fn(&Command, &mut Memory) -> bool {
     COMMANDS.with_borrow_mut(|commands| {
         let mut handled = Vec::new();
 
         for cmd in commands.iter() {
-            if f(cmd) {
+            if f(cmd, mem) {
                 handled.push(cmd.clone());
             }
         }
@@ -77,9 +77,10 @@ pub fn handle_commands<F, R>(f: F) -> usize where F : Fn(&Command) -> bool {
 pub enum Command {
     ClearVisuals,
     VisualizeNewPlan { room: String },
-    VisualizePlan { room: String },
+    VisualizePlan { room: String, #[clap(long, short)] animate: bool },
     CleanRoomStructures { room: String },
     CleanRoomSites { room: String },
     ResetColonyStep { room: String },
-    MigrateRoom { room: String }
+    ResetColony { room: String },
+    MigrateColony { room: String }
 }

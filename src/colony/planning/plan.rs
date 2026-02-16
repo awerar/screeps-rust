@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use log::*;
 use itertools::Itertools;
@@ -122,16 +122,45 @@ impl ColonyPlan {
 
         ColonyPlanDiff { roads: road_diff, structures: structure_diff }
     }
+
+    pub fn adapt_build_times_to(&mut self, room: &Room) {
+        let mut structures_left_to_adjust: HashMap<_, VecDeque<_>> = get_all_structures_in(&room).into_iter()
+            .map(|(pos, (ty, _))| (ty, pos))
+            .filter(|(ty, _)| *ty != StructureType::Controller)
+            .into_grouping_map()
+            .collect();
+
+        let mut adjusted_positions: HashSet<_> = structures_left_to_adjust.values().flatten().cloned().collect();
+
+        for step in ColonyStep::iter() {
+            let Some(step) = self.steps.get_mut(&step) else { continue; };
+
+            for (pos, ty) in step.new_structures.clone() {
+                let left_to_adjust = structures_left_to_adjust.entry(ty).or_default();
+                let Some(new_pos) = left_to_adjust.pop_front() else { continue; };
+
+                step.new_structures.remove(&pos);
+                step.new_structures.insert(new_pos, ty);
+
+                if !adjusted_positions.contains(&pos) {
+                    adjusted_positions.insert(pos);
+                    left_to_adjust.push_back(pos);
+                }
+            }
+        }
+
+        assert_eq!(structures_left_to_adjust.iter().flat_map(|(ty, positions)| positions.into_iter().map(|pos| (ty.clone(), pos))).collect_vec(), vec![])
+    }
 }
 
 impl ColonyPlanStep {
-    pub fn build(&self, room: Room) -> Result<bool, ()> {
+    pub fn build(&self, room: Room) -> Result<bool, String> {
         let roads = get_all_roads_in(&room);
         let roads_set: HashSet<_> = roads.keys().cloned().collect();
         let missing_roads = self.new_roads.difference(&roads_set).cloned().collect_vec();
 
         for road in &missing_roads {
-            Position::new(road.x, road.y, room.name()).create_construction_site(StructureType::Road, None).map_err(|_| ())?;
+            Position::new(road.x, road.y, room.name()).create_construction_site(StructureType::Road, None).map_err(|e| format!("Unable to create road at {road}: {e}"))?;
         }
 
         let all_structures = get_all_structures_in(&room);
@@ -157,11 +186,11 @@ impl ColonyPlanStep {
                 warn!("For {:?} at {pos}", missing_structures[pos]);
             }
 
-            return Err(())
+            return Err("Structure overlap".into())
         }
 
         for (pos, ty) in &missing_structures {
-            Position::new(pos.x, pos.y, room.name()).create_construction_site(*ty, None).map_err(|_| ())?;
+            Position::new(pos.x, pos.y, room.name()).create_construction_site(*ty, None).map_err(|e| format!("Unable to create structure {ty} at {pos}: {e}"))?;
         }
 
         let has_finished_roads = self.new_roads.iter().all(|new_road| roads.get(new_road).cloned().unwrap_or(false));

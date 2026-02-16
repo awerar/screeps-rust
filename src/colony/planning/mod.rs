@@ -63,8 +63,8 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
     use ColonyStep::*;
     use Level1Step::*;
 
-    let mut harvester_positions = Vec::new();
-    for source in planner.room.find(find::SOURCES, None) {
+    let mut connection_points = Vec::new();
+    for source in planner.room.find(find::SOURCES, None).into_iter().sorted_by_key(|source| source.id()) {
         let source_pos = source.pos().xy();
         let source_id = source.id();
 
@@ -101,10 +101,10 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
             planner.plan_structure_earliest(slot, PlannedStructure::SourceExtension(source_id))?;
         }
 
-        harvester_positions.push(harvester_pos);
+        connection_points.push(main_road_pos);
     }
 
-    Ok(harvester_positions)
+    Ok(connection_points)
 }
 
 fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> Result<(), String> {
@@ -122,7 +122,7 @@ fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: 
         let mut new_towers = Vec::new();
 
         for _ in 0..plan_towers {
-            let tower = avaliable_positions.iter().max_by_key(|pos| {
+            let tower = avaliable_positions.iter().sorted().max_by_key(|pos| {
                 towers.iter()
                     .map(|other| other.get_range_to(**pos) as u32)
                     .sum::<u32>()
@@ -153,6 +153,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
             .filter(|(_, road_step)| step == **road_step)
             .map(|(pos, _)| pos)
             .cloned()
+            .sorted()
             .collect();
 
         for new_road in &new_roads {
@@ -176,12 +177,13 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
             .map(|(pos, _)| pos)
             .filter(|pos| !matches!(planner.pos2structure[*pos], PlannedStructure::SourceContainer(_)))
             .cloned()
+            .sorted()
             .collect();
 
         for new_structure in new_structures {
             if new_structure == center { continue; }
             if new_structure.neighbors().into_iter().any(|neigh| network.find_shorten(&neigh).is_some()) { continue; }
-            //debug!("Connecting {center} and {new_structure}");
+            debug!("Connecting {center} and {new_structure}");
             planner.plan_road_between(center, new_structure, step)?;
         }
     }
@@ -209,7 +211,7 @@ fn find_center(room: Room) -> RoomXY {
         .map(|(x, y)| RoomXY::try_from((x, y)).unwrap());
 
     let candidates = FloodFill::<OrthogonalWalkableNeighs>::new(wall_blocks.chain(entrance_blocks), room.get_terrain())
-        .sorted_by_key(|(dist, _)| Reverse(*dist))
+        .sorted_by_key(|(dist, pos)| (Reverse(*dist), *pos))
         .dedup_by(|(d1, p1), (d2, p2)| *d1 == *d2 && p1.get_range_to(*p2) <= MIN_CANDIDATE_DIST)
         .take(5)
         .map(|(_, pos)| pos);

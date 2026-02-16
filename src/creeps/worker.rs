@@ -124,12 +124,12 @@ fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
     }
 
     let fill_target = room.find(find::MY_STRUCTURES, None).into_iter()
-        .filter(|structure| matches!(structure.structure_type(), StructureType::Spawn | StructureType::Extension | StructureType::Tower | StructureType::Storage | StructureType::Terminal))
         .filter(|structure| {
             let Some(has_store) = structure.as_has_store() else { return false };
             has_store.store().get_free_capacity(Some(ResourceType::Energy)) > 0 && 
             has_store.store().get_used_capacity(Some(ResourceType::Energy)) < 50000
         })
+        .filter(|structure| FILL_PRIORITY.contains_key(&structure.structure_type()))
         .max_set_by_key(|structure| FILL_PRIORITY.get(&structure.structure_type()).unwrap_or(&-1)).into_iter()
         .min_by_key(|site| site.pos().get_range_to(creep.pos()));
         

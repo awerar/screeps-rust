@@ -5,8 +5,9 @@ use js_sys::JsString;
 use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
 use serde::{Deserialize, Serialize};
 use log::*;
+use tap::Tap;
 
-use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, commands::{Command, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 mod steps;
@@ -91,6 +92,13 @@ fn find_claim_flags() -> Vec<Flag> {
 pub fn update_rooms(mem: &mut Memory) {
     info!("Updating rooms...");
 
+    handle_commands(mem, |command, mem| {
+        let Command::ResetColony { room: name } = command else { return false; };
+        let Ok(name) = RoomName::new(name) else { return true; };
+        mem.colonies.remove(&name);
+        true
+    });
+
     let owned_rooms = game::rooms().entries()
         .filter(|(_, room)| {
             if let Some(controller) = room.controller() { controller.my() }
@@ -141,7 +149,7 @@ pub fn update_rooms(mem: &mut Memory) {
 
             let diff = plan.diff_with(&room);
             if !diff.compatible() {
-                if pop_command(Command::MigrateRoom { room: name.to_string() }) {
+                if pop_command(Command::MigrateColony { room: name.to_string() }) {
                     info!("Migrating {}", name);
                     diff.migrate(name);
                 } else {
@@ -154,6 +162,8 @@ pub fn update_rooms(mem: &mut Memory) {
                 }
             }
 
+            let plan = plan.tap_mut(|plan| plan.adapt_build_times_to(&room));
+
             mem.colonies.insert(name, ColonyData { 
                 room_name: room.name(), 
                 plan, 
@@ -165,12 +175,20 @@ pub fn update_rooms(mem: &mut Memory) {
             mem.colonies.get_mut(&name).unwrap().step = Default::default();
         }
 
-        if pop_command(Command::VisualizePlan { room: name.to_string() }) {
+        if pop_command(Command::VisualizePlan { room: name.to_string(), animate: false }) {
             let plan_clone = mem.colonies.get(&name).unwrap().plan.clone();
             draw_in_room_replaced(name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
         }
 
+        if pop_command(Command::VisualizePlan { room: name.to_string(), animate: true }) {
+            let plan_clone = mem.colonies.get(&name).unwrap().plan.clone();
+            plan_clone.draw_progression(name);
+        }
+
+
         let step = mem.colonies[&name].step.clone();
         mem.colonies.get_mut(&name).unwrap().step = transition(&step, &name, mem);
+
+        info!("{} is at step {:?}", name, mem.colonies.get(&name).unwrap().step);
     }
 }
