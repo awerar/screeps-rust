@@ -1,8 +1,36 @@
 use std::{cell::RefCell, marker::PhantomData};
 
+use derive_deref::Deref;
 use screeps::{ConstructionSite, MaybeHasId, ObjectId, Position, RawObjectId, Room, RoomXY, StructureContainer, StructureExtension, StructureLink, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureType, look};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
+
+
+#[derive(Serialize, Deserialize, Clone, Default, Deref)]
+#[serde(bound = "")]
+pub struct OptionalPlannedStructureRef<T>(pub Option<PlannedStructureRef<T>>);
+
+impl<T> OptionalPlannedStructureRef<T> {
+    pub fn new(pos: RoomXY, room: &Room) -> Self {
+        Self(Some(PlannedStructureRef::new(pos, room)))
+    }
+}
+
+impl<T> OptionalPlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
+    pub fn resolve(&self) -> Option<T> {
+        self.0.as_ref().and_then(|structure| structure.resolve())
+    }
+    
+    pub fn is_complete(&self) -> bool {
+        self.0.as_ref().map_or(false, |structure| structure.is_complete())
+    }
+}
+
+impl<T> From<PlannedStructureRef<T>> for OptionalPlannedStructureRef<T> {
+    fn from(value: PlannedStructureRef<T>) -> Self {
+        Self(Some(value))
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
@@ -52,7 +80,7 @@ pub struct PlannedStructureBuiltRef<T> {
 }
 
 impl<T> PlannedStructureBuiltRef<T> {
-    fn new(pos: Position) -> Self {
+    pub fn new(pos: Position) -> Self {
         Self { pos, id: RefCell::new(None), phantom: PhantomData }
     }
 }
@@ -102,7 +130,7 @@ impl ConstructionType for StructureLink { fn structure_type() -> StructureType {
 impl ConstructionType for StructureTerminal { fn structure_type() -> StructureType { StructureType::Terminal } }
 
 impl<T> PlannedStructureSiteRef<T> {
-    fn new(pos: Position) -> Self {
+    pub fn new(pos: Position) -> Self {
         Self { pos, id: RefCell::new(None), phantom: PhantomData }
     }
 }

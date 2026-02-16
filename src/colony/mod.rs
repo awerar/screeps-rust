@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, game};
+use itertools::Itertools;
+use js_sys::JsString;
+use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
 use serde::{Deserialize, Serialize};
 use log::*;
 
-use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, memory::Memory};
+use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, commands::{Command, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 mod steps;
@@ -93,13 +95,28 @@ pub fn update_rooms(mem: &mut Memory) {
         .filter(|(_, room)| {
             if let Some(controller) = room.controller() { controller.my() }
             else { false }
-        }).map(|(name, _)| name);
+        }).map(|(name, _)| name).collect_vec();
 
+    if owned_rooms.len() == 1 {
+        let room = owned_rooms.iter().next().unwrap();
+        let room = game::rooms().get(*room).unwrap();
+        let controller = room.controller().unwrap();
+
+        if controller.level() == 1 && controller.progress().unwrap() == 0 {
+            if room.find(find::MY_CREEPS, None).len() == 0 
+            && room.find(find::MY_STRUCTURES, None).len() == 2
+            && room.find(find::MY_CONSTRUCTION_SITES, None).len() == 0
+            && room.find(find::FLAGS, None).len() == 0 {
+                let spawn = room.find(find::MY_SPAWNS, None).into_iter().next().unwrap();
+                spawn.pos().create_flag(Some(&JsString::from("Center")), None, None).ok();
+            }
+        }
+    }
 
     let claim_rooms = find_claim_flags().into_iter()
         .map(|flag| flag.pos().room_name());
 
-    let curr_rooms: HashSet<_> = owned_rooms.chain(claim_rooms).collect();
+    let curr_rooms: HashSet<_> = owned_rooms.into_iter().chain(claim_rooms).collect();
     let prev_rooms: HashSet<_> = mem.colonies.keys().cloned().collect();
 
     let lost_rooms = prev_rooms.difference(&curr_rooms);
@@ -109,16 +126,51 @@ pub fn update_rooms(mem: &mut Memory) {
     }
 
     for name in curr_rooms {
-        todo!();
-        /*if !mem.colonies.contains_key(&name) {
-            let Some(colony) = ColonyData::try_construct_from(name) else {
-                error!("Unable to construct colony config for {name}");
-                continue; 
+        if !mem.colonies.contains_key(&name) {
+            let Some(room) = game::rooms().get(name) else {
+                warn!("Unable to plan for {name} due to lack of vision");
+                continue;
             };
-            mem.colonies.insert(name, colony);
+
+            let plan = ColonyPlan::create_for(&room);
+            let Ok(plan) = plan else {
+                let Err(err) = plan else { unreachable!() };
+                warn!("Unable to create plan for {name}: {err}");
+                continue;
+            };
+
+            let diff = plan.diff_with(&room);
+            if !diff.compatible() {
+                if pop_command(Command::MigrateRoom { room: name.to_string() }) {
+                    info!("Migrating {}", name);
+                    diff.migrate(name);
+                } else {
+                    diff.draw(name);
+
+                    let plan_clone = plan.clone();
+                    draw_in_room_replaced(name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
+                    warn!("Plan for {name} is not compatible with current layout");
+                    continue;
+                }
+            }
+
+            mem.colonies.insert(name, ColonyData { 
+                room_name: room.name(), 
+                plan, 
+                step: Default::default()
+            });
+        }
+
+        if pop_command(Command::ResetColonyStep { room: name.to_string() }) {
+            mem.colonies.get_mut(&name).unwrap().step = Default::default();
+        }
+
+        if pop_command(Command::VisualizePlan { room: name.to_string() }) {
+            let plan_clone = mem.colonies.get(&name).unwrap().plan.clone();
+            draw_in_room_replaced(name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
         }
 
         let step = mem.colonies[&name].step.clone();
-        mem.colonies.get_mut(&name).unwrap().steo = step.update(name, mem, 0);*/
+        mem.colonies.get_mut(&name).unwrap().step = transition(&step, &name, mem);
     }
 }

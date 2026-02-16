@@ -64,7 +64,7 @@ pub fn game_loop() {
     mem.tick_times.push_front(game::cpu::get_used());
     if mem.tick_times.len() > 500 { mem.tick_times.pop_back(); }
 
-    //mem.handle_callbacks(); //todo
+    mem.handle_callbacks();
     mem.screeps_serialize();
 
     visuals::draw();

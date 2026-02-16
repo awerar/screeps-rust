@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::PlannedStructureRef}, steps::ColonyStep};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef}}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -148,7 +148,8 @@ impl ColonyPlanner {
             steps: plan_steps,
             center: self.compile_center()?,
             sources: self.compile_sources()?,
-            mineral: self.compile_mineral()?
+            mineral: self.compile_mineral()?,
+            controller: PlannedStructureBuiltRef::new(self.room.controller().ok_or("No controller")?.pos())
         })
     }
 
@@ -160,11 +161,11 @@ impl ColonyPlanner {
         Ok(CenterPlan {
             pos: storage_ref.pos,
             spawn: self.get_structure_ref(MainSpawn)?, 
-            storage: storage_ref,
-            container_storage: self.get_structure_ref(ContainerStorage)?, 
-            link: self.get_structure_ref(CentralLink)?, 
-            terminal: self.get_structure_ref(Terminal)?, 
-            observer: self.get_structure_ref(Observer)?, 
+            storage: storage_ref.into(),
+            container_storage: self.get_structure_ref(ContainerStorage)?.into(), 
+            link: self.get_structure_ref(CentralLink)?.into(), 
+            terminal: self.get_structure_ref(Terminal)?.into(), 
+            observer: self.get_structure_ref(Observer)?.into(), 
             towers: self.get_structure_refs(Tower)?, 
             extensions: self.get_structure_refs(Extension)?
         })
@@ -178,9 +179,9 @@ impl ColonyPlanner {
             .map(|source| source.id())
             .map(|source| {
                 let plan = SourcePlan {
-                    spawn: self.get_structure_ref(SourceSpawn(source))?,
-                    container: self.get_structure_ref(SourceContainer(source))?,
-                    link: self.get_structure_ref(SourceLink(source))?,
+                    spawn: self.get_structure_ref(SourceSpawn(source))?.into(),
+                    container: self.get_structure_ref(SourceContainer(source))?.into(),
+                    link: self.get_structure_ref(SourceLink(source))?.into(),
                     extensions: self.get_structure_refs(SourceExtension(source))?,
                 };
 
@@ -193,8 +194,8 @@ impl ColonyPlanner {
         use PlannedStructure::*;
 
         Ok(MineralPlan { 
-            container: self.get_structure_ref(MineralContainer)?,
-            extractor: self.get_structure_ref(Extractor)?, 
+            container: self.get_structure_ref(MineralContainer)?.into(),
+            extractor: self.get_structure_ref(Extractor)?.into(), 
         })
     }
 

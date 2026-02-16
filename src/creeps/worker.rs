@@ -4,7 +4,7 @@ use itertools::Itertools;
 use js_sys::Math::random;
 use log::*;
 use screeps::{
-    ConstructionSite, Position, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, action_error_codes::HarvestErrorCode, find, local::ObjectId, objects::{Creep, Source}, prelude::*
+    ConstructionSite, Position, Resource, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, action_error_codes::HarvestErrorCode, find, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,7 @@ pub enum WorkerCreep {
     #[default]
     Idle,
     Harvesting(ObjectId<Source>),
+    PickingUp(ObjectId<Resource>),
     Distributing(DistributionTarget)
 }
 
@@ -211,11 +212,10 @@ impl StateMachine<Creep> for WorkerCreep {
                         let source = &sources[(random() * (sources.len() as f64)).floor() as usize];
                         next_state = Harvesting(source.id())
                     }
-                }
 
-                match next_state {
-                    Idle => info!("{} has no assignment. Idling.", creep.name()),
-                    _ => next_state = next_state.update(creep, mem)?
+                    if let Some(resource) = creep.room().ok_or(())?.find(find::DROPPED_RESOURCES, None).into_iter().min_by_key(|resource| resource.amount()) {
+                        next_state = PickingUp(resource.id())
+                    }
                 }
 
                 Ok(next_state)
@@ -234,6 +234,17 @@ impl StateMachine<Creep> for WorkerCreep {
                 if is_full(creep) { Ok(Idle) }
                 else { Ok(self.clone()) }
             },
+            PickingUp(resource) => {
+                let Some(resource) = resource.resolve() else { return Ok(Idle) };
+
+                if creep.pos().is_near_to(resource.pos()) {
+                    creep.pickup(&resource).ok();
+                    Ok(Idle)
+                } else {
+                    mem.movement.smart_move_creep_to(creep, &resource).ok();
+                    Ok(self.clone())
+                }
+            }
             Distributing(target) => {
                 if !(matches!(target, DistributionTarget::Controller(_)) 
                     && mem.creep_home(creep)

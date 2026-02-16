@@ -2,10 +2,10 @@ use std::{cmp::Reverse, collections::HashSet};
 
 use log::*;
 use itertools::Itertools;
-use screeps::{CircleStyle, Direction, HasId, HasPosition, Position, Room, RoomCoordinate, RoomName, RoomXY, Terrain, find, game};
+use screeps::{Direction, HasId, HasPosition, Position, Room, RoomCoordinate, RoomXY, Terrain, find};
 use unionfind::HashUnionFindByRank;
 
-use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::{ColonyStep, Level1Step}}, pathfinding, visuals::draw_in_room};
+use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::{ColonyStep, Level1Step}}, pathfinding};
 
 mod planner;
 mod visuals;
@@ -14,7 +14,7 @@ mod floodfill;
 pub mod planned_ref;
 
 impl ColonyPlan {
-    pub fn create_for(room: Room) -> Result<Self, String> {
+    pub fn create_for(room: &Room) -> Result<Self, String> {
         use ColonyStep::*;
         use Level1Step::*;
 
@@ -55,7 +55,7 @@ impl ColonyPlan {
 
         ensure_connectivity(&mut planner, center)?;
 
-        planner.compile().inspect(|plan| plan.draw_progression(room.name()))
+        planner.compile()
     }
 }
 
@@ -181,7 +181,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
         for new_structure in new_structures {
             if new_structure == center { continue; }
             if new_structure.neighbors().into_iter().any(|neigh| network.find_shorten(&neigh).is_some()) { continue; }
-            debug!("Connecting {center} and {new_structure}");
+            //debug!("Connecting {center} and {new_structure}");
             planner.plan_road_between(center, new_structure, step)?;
         }
     }
@@ -192,6 +192,10 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
 const MIN_ENTRANCE_DIST: usize = 8;
 const MIN_CANDIDATE_DIST: u8 = 4;
 fn find_center(room: Room) -> RoomXY {
+    let center_flag = room.find(find::FLAGS, None).into_iter()
+        .filter(|flag| flag.name().to_lowercase().contains("center")).next();
+    if let Some(center_flag) = center_flag { return center_flag.pos().xy() }
+
     let exits = room.find(find::EXIT, None).into_iter()
         .map(|pos| Position::from(pos).xy());
 
@@ -208,8 +212,8 @@ fn find_center(room: Room) -> RoomXY {
         .sorted_by_key(|(dist, _)| Reverse(*dist))
         .dedup_by(|(d1, p1), (d2, p2)| *d1 == *d2 && p1.get_range_to(*p2) <= MIN_CANDIDATE_DIST)
         .take(5)
-        .map(|(_, pos)| pos)
-        .inspect(|candidate| { let (x,y) = (candidate.x.u8(), candidate.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.35).fill("#469ff2")))); });
+        .map(|(_, pos)| pos);
+        //.inspect(|candidate| { let (x,y) = (candidate.x.u8(), candidate.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.35).fill("#469ff2")))); });
 
     candidates.min_by_key(|candidate| {
         let candidate_pos = Position::new(candidate.x, candidate.y, room.name());
@@ -223,6 +227,6 @@ fn find_center(room: Room) -> RoomXY {
         points_of_interest.into_iter()
             .map(|poi| pathfinding::search(candidate_pos, poi, 1).path().len())
             .sum::<usize>()
-    }).inspect(|best| { let (x,y) = (best.x.u8(), best.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.5).fill("#46f263")))); })
+    })//.inspect(|best| { let (x,y) = (best.x.u8(), best.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.5).fill("#46f263")))); })
     .unwrap()
 }

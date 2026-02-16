@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashSet, iter};
 
 use clap::Parser;
 use log::*;
-use screeps::{RoomName, game};
+use screeps::{RoomName, StructureProperties, find, game};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{colony::planning::plan::ColonyPlan, visuals};
@@ -24,9 +24,23 @@ fn do_command(command: String) -> Result<(), String> {
 
     match command {
         Command::ClearVisuals => visuals::clear_visuals(),
-        Command::VisualizePlan { room } => {
-            ColonyPlan::create_for(game::rooms().get(RoomName::new(&room).unwrap()).unwrap()).unwrap();
-        }
+        Command::VisualizeNewPlan { room } => {
+            let room = RoomName::new(&room).unwrap();
+            ColonyPlan::create_for(&game::rooms().get(room).unwrap()).unwrap().draw_progression(room);
+        },
+        Command::CleanRoomStructures { room } => {
+            game::rooms().get(RoomName::new(&room).unwrap())
+                .unwrap()
+                .find(find::STRUCTURES, None).into_iter()
+                .for_each(|structure| { structure.destroy().ok(); });
+        },
+        Command::CleanRoomSites { room } => {
+            game::rooms().get(RoomName::new(&room).unwrap())
+                .unwrap()
+                .find(find::MY_CONSTRUCTION_SITES, None).into_iter()
+                .for_each(|site| { site.remove().ok(); });
+        },
+        _ => { COMMANDS.with_borrow_mut(|commands| commands.insert(command)); }
     }
 
     Ok(())
@@ -34,7 +48,9 @@ fn do_command(command: String) -> Result<(), String> {
 
 pub fn pop_command(cmd: Command) -> bool {
     COMMANDS.with_borrow_mut(|commands| {
-        commands.remove(&cmd)
+        let did_pop = commands.remove(&cmd);
+        if did_pop { info!("Processing command {cmd:?}"); }
+        did_pop
     })
 }
 
@@ -50,6 +66,7 @@ pub fn handle_commands<F, R>(f: F) -> usize where F : Fn(&Command) -> bool {
 
         for cmd in &handled {
             commands.remove(cmd);
+            info!("Processing command {cmd:?}");
         }
 
         handled.len()
@@ -59,7 +76,10 @@ pub fn handle_commands<F, R>(f: F) -> usize where F : Fn(&Command) -> bool {
 #[derive(Parser, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum Command {
     ClearVisuals,
-    VisualizePlan {
-        room: String
-    }
+    VisualizeNewPlan { room: String },
+    VisualizePlan { room: String },
+    CleanRoomStructures { room: String },
+    CleanRoomSites { room: String },
+    ResetColonyStep { room: String },
+    MigrateRoom { room: String }
 }
