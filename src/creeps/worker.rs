@@ -124,6 +124,7 @@ fn get_distribution_target(creep: &Creep) -> Option<DistributionTarget> {
     }
 
     let fill_target = room.find(find::MY_STRUCTURES, None).into_iter()
+        .filter(|structure| matches!(structure.structure_type(), StructureType::Spawn | StructureType::Extension | StructureType::Tower | StructureType::Storage | StructureType::Terminal))
         .filter(|structure| {
             let Some(has_store) = structure.as_has_store() else { return false };
             has_store.store().get_free_capacity(Some(ResourceType::Energy)) > 0 && 

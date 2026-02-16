@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use log::*;
 use itertools::Itertools;
-use screeps::{HasPosition, ObjectId, Position, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find, look};
+use screeps::{ConstructionSite, HasPosition, HasStore, ObjectId, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::*;
 
@@ -55,6 +55,31 @@ pub struct ColonyPlanStep {
     pub new_roads: HashSet<RoomXY>,
     #[serde(with = "any_key_map")] 
     pub new_structures: HashMap<RoomXY, StructureType>
+}
+
+trait SourceFillable: Transferable + screeps::HasStore {}
+impl SourceFillable for StructureSpawn {}
+impl SourceFillable for StructureLink {}
+impl SourceFillable for StructureExtension {}
+impl SourceFillable for StructureContainer {}
+
+impl SourcePlan {
+    pub fn get_construction_site(&self) -> Option<ConstructionSite> {
+        if let site@Some(_) = self.container.resolve_site() { return site; }
+        if let site@Some(_) = self.link.resolve_site() { return site; }
+        if let site@Some(_) = self.spawn.resolve_site() { return site; }
+        self.extensions.iter().flat_map(|extension| extension.resolve_site()).next()
+    }
+
+    pub fn get_fillable(&self) -> Option<Box<dyn Transferable>> {
+        self.spawn.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>))
+            .chain(self.extensions.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+            .chain(self.link.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+            .chain(self.container.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+            .filter(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
+            .next()
+            .map(|fillable| fillable as Box<dyn Transferable>)
+    }
 }
 
 impl ColonyPlan {

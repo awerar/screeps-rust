@@ -279,29 +279,30 @@ fn schedule_harvesters(mem: &Memory, schedule: &mut SpawnSchedule) {
         let Some(room) = game::rooms().get(*colony) else { continue; };
 
         for source in room.find(find::SOURCES, None) {
-            let mut total_harvester_works: usize = schedule.all_creeps()
-                .filter_home(*colony)
-                .filter_type(CreepType::Harvester(source.id()))
-                .part_count(Part::Work);
+            let any_harvester_already = schedule.all_creeps()
+                .0.any(|proto| matches!(proto.ty, CreepType::Harvester(harvester_source) if harvester_source == source.id()));
+            if any_harvester_already { continue; }
 
-            let target_harvester_works = 5 * room.find(find::SOURCES, None).len();
+            let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
 
-            for spawner in schedule.spawners().filter_room(*colony).filter_free().0 {
-                if total_harvester_works >= target_harvester_works { break; };
+            let harvester_carry = 2 - ((spawner.energy_capacity % 100) / 50) as usize;
 
-                let harvester_carry = 2 - ((spawner.energy_capacity % 100) / 50) as usize;
-                let harvester_works = (spawner.energy_capacity as usize).saturating_sub(50 * harvester_carry).min(5);
-                let body =  Body::from(Carry) * harvester_carry as usize + Body::from(Work) * harvester_works as usize;
-                let prototype = CreepPrototype { 
-                    body, 
-                    ty: CreepType::Harvester(source.id()),
-                    home: *colony
-                };
+            let any_source_constructions = mem.colony(room.name()).unwrap()
+                .plan.sources.0
+                .get(&source.id())
+                .map_or(false, |source_plan| source_plan.get_construction_site().is_some());
 
-                if spawner.schedule_or_block(prototype) {
-                    total_harvester_works += harvester_works;
-                }
-            }
+            let target_harvester_works = if any_source_constructions { 7 } else { 5 };
+            let harvester_works = (spawner.energy_capacity as usize).saturating_sub(50 * harvester_carry).min(target_harvester_works);
+            
+            let body =  Body::from(Carry) * harvester_carry as usize + Body::from(Work) * harvester_works as usize;
+            let prototype = CreepPrototype { 
+                body, 
+                ty: CreepType::Harvester(source.id()),
+                home: *colony
+            };
+
+            spawner.schedule_or_block(prototype);
         }
     }
 }

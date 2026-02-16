@@ -20,6 +20,10 @@ impl<T> OptionalPlannedStructureRef<T> where T : JsCast + MaybeHasId + Construct
     pub fn resolve(&self) -> Option<T> {
         self.0.as_ref().and_then(|structure| structure.resolve())
     }
+
+    pub fn resolve_site(&self) -> Option<ConstructionSite> {
+        self.0.as_ref().and_then(|structure| structure.resolve_site())
+    }
     
     pub fn is_complete(&self) -> bool {
         self.0.as_ref().map_or(false, |structure| structure.is_complete())
@@ -69,6 +73,10 @@ impl<T> PlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType,
     pub fn resolve(&self) -> Option<T> {
         self.structure.resolve()
     }
+
+    pub fn resolve_site(&self) -> Option<ConstructionSite> {
+        self.site.resolve()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -87,7 +95,8 @@ impl<T> PlannedStructureBuiltRef<T> {
 
 impl<T> PlannedStructureBuiltRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
     pub fn resolve(&self) -> Option<T> {
-        if let Some(id) = self.id.borrow().clone() {
+        let id = self.id.borrow().clone();
+        if let Some(id) = id {
             if let Some(structure) = ObjectId::<T>::from(id).resolve() {
                 return Some(structure);
             } else {
@@ -137,7 +146,8 @@ impl<T> PlannedStructureSiteRef<T> {
 
 impl<T> PlannedStructureSiteRef<T> where T : ConstructionType {
     pub fn resolve(&self) -> Option<ConstructionSite> {
-        if let Some(id) = self.id.borrow().clone() {
+        let id = self.id.borrow().clone();
+        if let Some(id) = id {
             if let Some(site) = id.resolve() {
                 return Some(site);
             } else {

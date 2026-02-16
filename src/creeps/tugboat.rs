@@ -1,5 +1,5 @@
 use log::*;
-use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::CreepMoveToErrorCode, game};
+use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
 use crate::{creeps::{CreepData, CreepRole, get_recycle_spawn, transition}, memory::Memory, messages::{CreepMessage, QuickCreepMessage, SpawnMessage}, statemachine::StateMachine};
@@ -127,21 +127,27 @@ impl StateMachine<Creep> for TugboatCreep {
                 for msg in mem.messages.creep_quick(tugboat).read_all() {
                     let QuickCreepMessage::TuggedRequestMove { target, range } = msg else { continue; };
 
-                    let (target, next_state) = if tugboat.pos().get_range_to(target) > range {
-                        (target, Tugging { last_tug_tick: game::time() })
+                    if tugboat.pos().get_range_to(target) > range {
+                        return match tugboat.move_to(target) {
+                            Ok(()) => {
+                                tugboat.pull(&tugged).map_err(|_| ())?;
+                                mem.messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
+                                Ok(Tugging { last_tug_tick: game::time() })
+                            }
+                            Err(CreepMoveToErrorCode::Tired) => Ok(self.clone()),
+                            Err(_) => Err(())
+                        }
                     } else {
                         let recycle_spawn = get_recycle_spawn(tugboat, mem);
-                        (recycle_spawn.pos(), Recycling(recycle_spawn.id()))
-                    };
-
-                    return match tugboat.move_to(target) {
-                        Ok(()) => {
-                            tugboat.pull(&tugged).map_err(|_| ())?;
-                            mem.messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
-                            Ok(next_state)
+                        return match tugboat.move_direction(tugboat.pos().get_direction_to(tugged.pos()).ok_or(())?) {
+                            Ok(()) => {
+                                tugboat.pull(&tugged).map_err(|_| ())?;
+                                mem.messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
+                                Ok(Recycling(recycle_spawn.id()))
+                            }
+                            Err(CreepMoveDirectionErrorCode::Tired) => Ok(self.clone()),
+                            Err(_) => Err(())
                         }
-                        Err(CreepMoveToErrorCode::Tired) => Ok(self.clone()),
-                        Err(_) => Err(())
                     }
                 }
 

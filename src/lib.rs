@@ -1,5 +1,6 @@
 #![feature(map_try_insert)]
 #![feature(variant_count)]
+#![feature(impl_trait_in_bindings)]
 
 use log::*;
 use screeps::game;
