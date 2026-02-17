@@ -124,7 +124,7 @@ pub fn get_new_creep_name() -> String {
     for _ in 0..20 {
         let first_name = FIRST_NAMES[(random() * FIRST_NAMES.len() as f64) as usize];
         let last_name = LAST_NAMES[(random() * LAST_NAMES.len() as f64) as usize];
-        let name = format!("{} {}", first_name, last_name);
+        let name = format!("{first_name} {last_name}");
         
         if game::creeps().get(name.clone()).is_none() { return name; }
     }

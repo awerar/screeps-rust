@@ -1,7 +1,7 @@
 use std::{fmt::Write, panic};
 
 use js_sys::JsString;
-use log::*;
+use log::error;
 use screeps::game;
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::console;
@@ -39,7 +39,7 @@ pub fn setup_logging(verbosity: log::LevelFilter) {
                 record.level(),
                 record.target(),
                 message
-            ))
+            ));
         })
         .chain(Box::new(JsLog) as Box<dyn log::Log>)
         .chain(
@@ -47,7 +47,7 @@ pub fn setup_logging(verbosity: log::LevelFilter) {
                 .level(log::LevelFilter::Warn)
                 .format(|out, message, _record| {
                     let time = game::time();
-                    out.finish(format_args!("[{}] {}", time, message))
+                    out.finish(format_args!("[{time}] {message}"));
                 })
                 .chain(Box::new(JsNotify) as Box<dyn log::Log>),
         )
@@ -75,7 +75,7 @@ fn panic_hook(info: &panic::PanicHookInfo) {
     // Node 8 does support this API: https://nodejs.org/docs/latest-v8.x/api/errors.html#errors_error_stack
 
     let mut fmt_error = String::new();
-    let _ = writeln!(fmt_error, "{}", info);
+    let _ = writeln!(fmt_error, "{info}");
 
     // this could be controlled with an env var at compilation instead
     const SHOW_BACKTRACE: bool = true;
@@ -92,15 +92,15 @@ fn panic_hook(info: &panic::PanicHookInfo) {
                 .skip_while(|line| !line.contains("__rust_end_short_backtrace"))
                 .skip(1)
             {
-                let _ = writeln!(fmt_error, "{}", line);
+                let _ = writeln!(fmt_error, "{line}");
             }
         } else {
             // If there was no `__rust_end_short_backtrace` symbol, use the whole stack
             // but skip the first line, it just says Error.
             let (_, stack) = stack.split_once('\n').unwrap();
-            let _ = writeln!(fmt_error, "{}", stack);
+            let _ = writeln!(fmt_error, "{stack}");
         }
     }
 
-    error!("{}", fmt_error);
+    error!("{fmt_error}");
 }

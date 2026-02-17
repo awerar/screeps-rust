@@ -269,16 +269,16 @@ impl ColonyPlanner {
             .collect_vec()
             .into_iter()
             .rev()
-            .take_while(|step| built_by[step] < structure.structure_type().controller_structures(step.controller_level() as u32))
+            .take_while(|step| built_by[step] < structure.structure_type().controller_structures(u32::from(step.controller_level())))
             .last().ok_or(format!("Unable to build any more {structure:?}"))?;
 
-        self.plan_structure(xy, step, structure).map(|_| step)
+        self.plan_structure(xy, step, structure).map(|()| step)
     }
 
     pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
-        if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) };
+        if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) }
         if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
-        if self.pos2structure.get(&xy).is_some_and(|other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) };
+        if self.pos2structure.get(&xy).is_some_and(|other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) }
         if self.structures.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
 
         self.structures2pos.entry(structure).or_default().insert(xy);
@@ -321,10 +321,10 @@ impl ColonyPlanner {
         let path = self.find_path_between(point1, point2, step);
 
         let mut pos = Position::new(point1.x, point1.y, self.room.name());
-        for path_step in path.iter() {
+        for path_step in &path {
             pos.offset(path_step.dx, path_step.dy);
 
-            if self.pos2structure.get(&pos.xy()).is_none_or(|structure| structure.walkable()) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
+            if self.pos2structure.get(&pos.xy()).is_none_or(PlannedStructure::walkable) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
                 self.plan_road(pos.xy(), step);
             }
         }
@@ -352,7 +352,7 @@ impl CenterPlanner {
 
             let road_neighs: Vec<_> = Direction::iter()
                 .filter(|dir| dir.is_orthogonal())
-                .flat_map(|dir| pos.checked_add_direction(*dir))
+                .filter_map(|dir| pos.checked_add_direction(*dir))
                 .filter(|neigh| planner.terrain.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
                 .collect();
 
@@ -373,7 +373,7 @@ impl CenterPlanner {
     }
 
     pub fn plan_roads(self, planner: &mut ColonyPlanner) -> Result<(), String> {
-        for (road_pos, increases) in self.roads_utility_increases.into_iter() {
+        for (road_pos, increases) in self.roads_utility_increases {
             let Some(plan_step) = increases.into_iter().sorted().nth(2) else { continue; };
             planner.plan_road(road_pos, plan_step);
         }

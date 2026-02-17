@@ -1,7 +1,7 @@
 use std::{cmp::Reverse, iter, ops::{Add, Mul}, sync::LazyLock};
 
 use itertools::Itertools;
-use log::*;
+use log::{warn, info};
 use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
 use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
@@ -28,9 +28,9 @@ impl Body {
                     
                     if body.0.len() > min_parts {
                         return Some(body);
-                    } else {
-                        return None;
                     }
+                    
+                    return None;
                 }
 
                 counts[i] += 1;
@@ -161,10 +161,10 @@ impl SpawnerData {
 
     fn schedule_or_block(&mut self, prototype: CreepPrototype) -> bool {
         if self.is_free() {
-            if !self.schedule(prototype) {
+            if self.schedule(prototype) { true } else {
                 self.status = SpawnerStatus::Blocked;
                 false
-            } else { true }
+            }
         } else { false }
     }
 
@@ -182,10 +182,10 @@ impl SpawnSchedule {
     fn new(mem: &Memory) -> Self {
         Self {
             spawners: game::spawns().values()
-                .flat_map(|spawn| SpawnerData::try_from(mem, spawn))
+                .filter_map(|spawn| SpawnerData::try_from(mem, spawn))
                 .collect(),
             already_spawned: game::creeps().values()
-                .flat_map(|creep| CreepPrototype::try_from_existing(mem, creep))
+                .filter_map(|creep| CreepPrototype::try_from_existing(mem, creep))
                 .collect()
         }
     }
@@ -194,7 +194,7 @@ impl SpawnSchedule {
         PrototypeIterator(
             self.already_spawned.iter().chain(
                 self.spawners.iter()
-                .flat_map(|spawner| {
+                .filter_map(|spawner| {
                     use SpawnerStatus::*;
 
                     match &spawner.status {
@@ -224,7 +224,7 @@ impl SpawnSchedule {
             info!("Spawning new creep: {name}");
 
             if let Err(err) = spawn.spawn_creep(&proto.body.0, &name) {
-                warn!("Couldn't spawn creep: {}", err);
+                warn!("Couldn't spawn creep: {err}");
                 continue;
             }
 
@@ -322,7 +322,7 @@ fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
         let target_worker_works = 5 * room.find(find::SOURCES, None).len() * 4;
 
         for spawner in schedule.spawners().filter_room(*colony).filter_free().0 {
-            if total_worker_works >= target_worker_works { continue; };
+            if total_worker_works >= target_worker_works { continue; }
 
             let Some(body) = WORKER_TEMPLATE.scaled(spawner.energy_capacity, None) else { continue; };
             let num_work = body.num(Work);

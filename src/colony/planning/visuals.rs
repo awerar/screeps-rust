@@ -18,9 +18,9 @@ pub fn draw_roads(visuals: &RoomVisual, roads: &HashSet<RoomXY>) {
                 )
         ).collect();
 
-    for (a, b) in connections.into_iter() {
-        let a = (a.x.u8() as f32, a.y.u8() as f32);
-        let b = (b.x.u8() as f32, b.y.u8() as f32);
+    for (a, b) in connections {
+        let a = (f32::from(a.x.u8()), f32::from(a.y.u8()));
+        let b = (f32::from(b.x.u8()), f32::from(b.y.u8()));
 
         visuals.line(a, b, Some(LineStyle::default().opacity(0.75).width(0.2).color("#335882")));
     }
@@ -38,7 +38,7 @@ impl ColonyPlan {
                 draw_structure(visuals, pos, *structure);
             }
 
-            roads.extend(step.new_roads.iter().cloned());
+            roads.extend(step.new_roads.iter().copied());
         }
 
         draw_roads(visuals, &roads);
@@ -50,7 +50,7 @@ impl ColonyPlan {
         let mut step = ColonyStep::default();
         draw_in_room_replaced(room, RoomDrawerType::Plan, move |visuals| {
             plan.draw_until(visuals, Some(step));
-            step = step.get_promotion().unwrap_or_default()
+            step = step.get_promotion().unwrap_or_default();
         });
     }
 }
@@ -62,11 +62,11 @@ impl ColonyPlanDiff {
 
         draw_in_room_replaced(room, RoomDrawerType::Diff, move |visuals| {
             for (pos, loss) in &losses {
-                let a1 = (pos.x.u8() as f32 + Self::CROSS_RADIUS, pos.y.u8() as f32 + Self::CROSS_RADIUS);
-                let a2 = (pos.x.u8() as f32 - Self::CROSS_RADIUS, pos.y.u8() as f32 - Self::CROSS_RADIUS);
+                let a1 = (f32::from(pos.x.u8()) + Self::CROSS_RADIUS, f32::from(pos.y.u8()) + Self::CROSS_RADIUS);
+                let a2 = (f32::from(pos.x.u8()) - Self::CROSS_RADIUS, f32::from(pos.y.u8()) - Self::CROSS_RADIUS);
 
-                let b1 = (pos.x.u8() as f32 + Self::CROSS_RADIUS, pos.y.u8() as f32 - Self::CROSS_RADIUS);
-                let b2 = (pos.x.u8() as f32 - Self::CROSS_RADIUS, pos.y.u8() as f32 + Self::CROSS_RADIUS);
+                let b1 = (f32::from(pos.x.u8()) + Self::CROSS_RADIUS, f32::from(pos.y.u8()) - Self::CROSS_RADIUS);
+                let b2 = (f32::from(pos.x.u8()) - Self::CROSS_RADIUS, f32::from(pos.y.u8()) + Self::CROSS_RADIUS);
 
                 let cross_style = LineStyle::default().color("#ff4747").width(0.1);
 
@@ -76,23 +76,20 @@ impl ColonyPlanDiff {
                 let mut text_style = TextStyle::default().color("#ff4747").background_color("#ffffff").background_padding(0.1).align(TextAlign::Center).custom_font("0.3 Consolas");
                 if *loss > StructureType::Road.construction_cost().unwrap() {
                     text_style = text_style.custom_font("0.5 Consolas");
-                };
+                }
 
                 let label = if *loss < 1000 { loss.to_string() } else if *loss < 1000000 { format!("{}k", loss / 1000) } else { format!("{}M", loss / 1000000) };
-                visuals.text(pos.x.u8() as f32, pos.y.u8() as f32 + 0.3, label, Some(text_style));
+                visuals.text(f32::from(pos.x.u8()), f32::from(pos.y.u8()) + 0.3, label, Some(text_style));
             }
         });
     }
 }
 
 pub fn draw_structure(visuals: &RoomVisual, pos: &RoomXY, structure: StructureType) {
-    match structure {
-        StructureType::Extension => {
-            visuals.circle(pos.x.u8() as f32, pos.y.u8() as f32, Some(CircleStyle::default().radius(0.3).opacity(0.75).fill("#b05836")));
-        },
-        _ => {
-            visuals.circle(pos.x.u8() as f32, pos.y.u8() as f32, Some(CircleStyle::default().radius(0.45).opacity(0.75).fill("#b05836")));
-            visuals.text(pos.x.u8() as f32, pos.y.u8() as f32, structure.to_string(), Some(TextStyle::default().custom_font("0.35 Consolas").opacity(0.75).align(screeps::TextAlign::Center)));
-        }
+    if structure == StructureType::Extension {
+        visuals.circle(f32::from(pos.x.u8()), f32::from(pos.y.u8()), Some(CircleStyle::default().radius(0.3).opacity(0.75).fill("#b05836")));
+    } else {
+        visuals.circle(f32::from(pos.x.u8()), f32::from(pos.y.u8()), Some(CircleStyle::default().radius(0.45).opacity(0.75).fill("#b05836")));
+        visuals.text(f32::from(pos.x.u8()), f32::from(pos.y.u8()), structure.to_string(), Some(TextStyle::default().custom_font("0.35 Consolas").opacity(0.75).align(screeps::TextAlign::Center)));
     }
 }

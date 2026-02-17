@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use log::*;
+use log::{error, warn};
 use screeps::{Creep, RoomName, SharedCreepProperties};
 
 use crate::memory::Memory;
@@ -21,20 +21,18 @@ fn transition_counted<S, O>(state: &S, underlying: &O, mem: &mut Memory, transit
         if *state == S::default() {
             error!("{} failed on default state", underlying.name());
             return S::default()
-        } else {
-            error!("{} failed on state {state:?}. Falling back to default state", underlying.name());
-            return S::default() // TODO: This should probably execute the default state
         }
+        
+        error!("{} failed on state {state:?}. Falling back to default state", underlying.name());
+        return S::default() // TODO: This should probably execute the default state
     };
 
-    if new_state != *state {
-        if transition_count <= 10 {
-            transition_counted(&new_state, underlying, mem, transition_count + 1)
-        } else {
-            warn!("Stopped {} prematurely. Transitioned too many times", underlying.name());
-            new_state
-        }
+    if new_state == *state {
+        new_state
+    } else if transition_count <= 10 {
+        transition_counted(&new_state, underlying, mem, transition_count + 1)
     } else {
+        warn!("Stopped {} prematurely. Transitioned too many times", underlying.name());
         new_state
     }
 }

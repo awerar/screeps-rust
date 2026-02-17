@@ -1,4 +1,4 @@
-use log::*;
+use log::{warn, error};
 use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +45,7 @@ impl StateMachine<Creep> for TuggedCreep {
                 };
 
                 if mem.messages.creep_quick(tugged).read(QuickCreepMessage::TugMove) {
-                    tugged.move_pulled_by(&tugboat).inspect_err(|e| error!("Pull failed: {}", e)).map_err(|_| ())?;
+                    tugged.move_pulled_by(&tugboat).inspect_err(|e| error!("Pull failed: {e}")).map_err(|_| ())?;
                 }
             },
             Finished => {  },

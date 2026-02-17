@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashSet, iter};
 
 use clap::Parser;
-use log::*;
+use log::info;
 use screeps::{RoomName, StructureProperties, find, game};
 use wasm_bindgen::prelude::wasm_bindgen;
 

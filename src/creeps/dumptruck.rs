@@ -9,7 +9,7 @@ pub enum DumptruckCreep {
 }
 
 impl StateMachine<Creep> for DumptruckCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
+    fn update(&self, _creep: &Creep, _mem: &mut Memory) -> Result<Self, ()> {
         todo!()
     }
 }

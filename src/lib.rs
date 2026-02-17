@@ -4,7 +4,7 @@
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation)]
 
-use log::*;
+use log::{info, Log};
 use screeps::game;
 use wasm_bindgen::prelude::*;
 

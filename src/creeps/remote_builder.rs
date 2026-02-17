@@ -58,7 +58,7 @@ impl StateMachine<Creep> for RemoteBuilderCreep {
                         return Ok(Idle)
                     };
 
-                    creep.build(&site).map_err(|_| ())?
+                    creep.build(&site).map_err(|_| ())?;
                 }
                 
                 if !creep.pos().is_near_to(build_data.pos) {

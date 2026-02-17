@@ -2,13 +2,13 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use itertools::Itertools;
 use js_sys::Math::random;
-use log::*;
+use log::warn;
 use screeps::{
     ConstructionSite, Position, Resource, ResourceType, StructureController, StructureExtension, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, action_error_codes::HarvestErrorCode, find, local::ObjectId, objects::{Creep, Source}, prelude::*
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, statemachine::StateMachine};
+use crate::{colony::ColonyData, memory::Memory, statemachine::StateMachine};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -170,7 +170,7 @@ fn try_repair(creep: &Creep) -> Option<()> {
     let structures = creep.pos().find_in_range(find::STRUCTURES, 3);
     let repair_structures: Vec<_> = structures.iter()
         .filter(|structure| matches!(structure.structure_type(), StructureType::Road))
-        .flat_map(|structure| structure.as_repairable())
+        .filter_map(|structure| structure.as_repairable())
         .filter(|repairable| repairable.hits() <= ((repairable.hits_max() as f32) * REPAIR_THRESHOLD) as u32)
         .collect();
 
@@ -193,7 +193,7 @@ impl StateMachine<Creep> for WorkerCreep {
 
                 if !is_empty(creep) {
                     if let Some(target) = get_distribution_target(creep) {
-                        next_state = Distributing(target)
+                        next_state = Distributing(target);
                     }
                 }
 
@@ -208,11 +208,11 @@ impl StateMachine<Creep> for WorkerCreep {
 
                     if !sources.is_empty() {
                         let source = &sources[(random() * (sources.len() as f64)).floor() as usize];
-                        next_state = Harvesting(source.id())
+                        next_state = Harvesting(source.id());
                     }
 
-                    if let Some(resource) = creep.room().ok_or(())?.find(find::DROPPED_RESOURCES, None).into_iter().min_by_key(|resource| resource.amount()) {
-                        next_state = PickingUp(resource.id())
+                    if let Some(resource) = creep.room().ok_or(())?.find(find::DROPPED_RESOURCES, None).into_iter().min_by_key(screeps::Resource::amount) {
+                        next_state = PickingUp(resource.id());
                     }
                 }
 
@@ -246,9 +246,9 @@ impl StateMachine<Creep> for WorkerCreep {
             Distributing(target) => {
                 if !(matches!(target, DistributionTarget::Controller(_)) 
                     && mem.creep_home(creep)
-                        .and_then(|home| home.controller())
+                        .and_then(ColonyData::controller)
                         .and_then(|controller| controller.ticks_to_downgrade())
-                        .map(|ticks| ticks < 5000).unwrap_or(false)) {
+                        .is_some_and(|ticks| ticks < 5000)) {
                     try_repair(creep);
                 }
 

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use log::*;
+use log::error;
 use screeps::{RoomName, game};
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ impl<T> StateMachine<RoomName> for T where T : ColonyStepStateMachine {
         Ok(match self.update_step(*name, mem)? {
             ColonyStepTransition::None => self.clone(),
             ColonyStepTransition::Promotion => 
-                self.get_promotion().ok_or(()).inspect_err(|_| error!("Promotion discreprancy for {self:?}"))?,
+                self.get_promotion().ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self:?}"))?,
             ColonyStepTransition::Demotion(demotion) => demotion,
         })
     }
@@ -65,7 +65,7 @@ pub enum ColonyStep {
 
 impl ColonyStep {
     pub fn controller_level(&self) -> u8 {
-        unsafe { *(self as *const Self as *const u8) }
+        unsafe { *std::ptr::from_ref::<Self>(self).cast::<u8>() }
     }
 
     pub fn first_at_level(controller_level: u8) -> Self {

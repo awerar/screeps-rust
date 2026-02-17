@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use log::*;
+use log::{warn, Log};
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -174,7 +174,7 @@ pub fn do_creeps(mem: &mut Memory) {
         update_creeps = updatable_creeps.iter()
             .filter(|creep| !mem.messages.creep_quick(creep).empty())
             .cloned()
-            .collect()
+            .collect();
     }
 
     for creep in &updatable_creeps {

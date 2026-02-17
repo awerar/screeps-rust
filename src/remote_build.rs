@@ -4,7 +4,7 @@ use screeps::{ConstructionSite, Position, StructureType, game, look};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use serde_json_any_key::*;
+use serde_json_any_key::any_key_map;
 
 #[derive(Serialize, Deserialize)]
 pub struct BuildData {
@@ -27,7 +27,7 @@ impl RemoteBuildRequests {
     pub fn update_requests(&mut self) {
         let mut finished_requests = Vec::new();
         
-        for (pos, build) in self.0.iter_mut() {
+        for (pos, build) in &mut self.0 {
             if game::rooms().get(pos.room_name()).is_none() { continue; }
 
             let structure = pos.look_for(look::STRUCTURES).unwrap().into_iter()
@@ -72,7 +72,7 @@ impl RemoteBuildRequests {
     }
 
     pub fn get_new_request(&self) -> Option<Position> {
-        self.0.keys().next().cloned()
+        self.0.keys().next().copied()
     }
 
     pub fn get_request_data(&self, pos: &Position) -> Option<&BuildData> {

@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet, VecDeque}};
 
 use js_sys::{JsString, Reflect};
-use log::*;
+use log::{warn, info};
 use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
 
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,7 @@ impl Memory {
     }
 
     pub fn cleanup_creep(&mut self, name: &str) {
-        info!("Cleaning up dead creep {}", name);
+        info!("Cleaning up dead creep {name}");
 
         self.creeps.remove(name);
 

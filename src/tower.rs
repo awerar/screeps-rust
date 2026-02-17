@@ -1,4 +1,4 @@
-use log::*;
+use log::error;
 use screeps::{StructureObject, StructureTower, StructureType, find, game, prelude::*};
 
 const FIX_THRESHOLD: f32 = 0.5;
@@ -38,7 +38,7 @@ fn do_tower(tower: &StructureTower) -> Option<()> {
     let structures = room.find(find::STRUCTURES, None);
     let repairable = structures.iter()
         .filter(|structure| structure.structure_type() == StructureType::Road)
-        .flat_map(|structure| structure.as_repairable().map(|repairable| (repairable, structure)))
+        .filter_map(|structure| structure.as_repairable().map(|repairable| (repairable, structure)))
         .filter(|(repairable, _)| repairable.hits() < (repairable.hits_max() as f32 * FIX_THRESHOLD) as u32)
         .min_by_key(|(_, structure)| tower.pos().get_range_to(structure.pos()))
         .map(|(repairable, _)| repairable);

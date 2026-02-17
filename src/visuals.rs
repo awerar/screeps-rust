@@ -23,7 +23,7 @@ thread_local! {
 pub fn draw_in_room(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&RoomVisual) + 'static) {
     STATIC_DRAWERS.with_borrow_mut(|static_drawers| {
         static_drawers.rooms.entry((room, ty)).or_default().push(Box::new(f));
-    })
+    });
 }
 
 pub fn clear_room_visual(room: RoomName, ty: RoomDrawerType) {
@@ -41,7 +41,7 @@ pub fn draw_in_room_replaced(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&
 pub fn draw_globally(f: impl FnMut(&RoomVisual) + 'static) {
     STATIC_DRAWERS.with_borrow_mut(|static_drawers| {
         static_drawers.global.push(Box::new(f));
-    })
+    });
 }
 
 pub fn draw() {
@@ -57,7 +57,7 @@ pub fn draw() {
                 drawer(&mut room_visual);
             }
         }
-    })
+    });
 }
 
 pub fn clear_visuals() {

@@ -1,5 +1,5 @@
 use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
-use log::*;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::{memory::Memory, statemachine::StateMachine};
