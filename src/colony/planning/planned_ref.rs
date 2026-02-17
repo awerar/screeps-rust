@@ -1,7 +1,7 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use derive_deref::Deref;
-use screeps::{ConstructionSite, MaybeHasId, ObjectId, Position, RawObjectId, Room, RoomXY, StructureContainer, StructureExtension, StructureLink, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureType, look};
+use screeps::{ConstructionSite, MaybeHasId, ObjectId, OwnedStructureProperties, Position, RawObjectId, Room, RoomXY, StructureContainer, StructureExtension, StructureLink, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureType, look};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
@@ -10,23 +10,18 @@ use wasm_bindgen::JsCast;
 #[serde(bound = "")]
 pub struct OptionalPlannedStructureRef<T>(pub Option<PlannedStructureRef<T>>);
 
-impl<T> OptionalPlannedStructureRef<T> {
-    pub fn new(pos: RoomXY, room: &Room) -> Self {
-        Self(Some(PlannedStructureRef::new(pos, room)))
-    }
-}
-
 impl<T> OptionalPlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
     pub fn resolve(&self) -> Option<T> {
-        self.0.as_ref().and_then(|structure| structure.resolve())
+        self.0.as_ref().and_then(PlannedStructureRef::resolve)
     }
 
     pub fn resolve_site(&self) -> Option<ConstructionSite> {
-        self.0.as_ref().and_then(|structure| structure.resolve_site())
+        self.0.as_ref().and_then(PlannedStructureRef::resolve_site)
     }
     
+    #[expect(unused)]
     pub fn is_complete(&self) -> bool {
-        self.0.as_ref().is_some_and(|structure| structure.is_complete())
+        self.0.as_ref().is_some_and(PlannedStructureRef::is_complete)
     }
 }
 
@@ -66,6 +61,7 @@ impl<T> PlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType,
         self.site.resolve().is_some()
     }
 
+    #[expect(unused)]
     pub fn is_empty(&self) -> bool {
         !self.is_complete() && !self.is_being_built()
     }
@@ -99,14 +95,14 @@ impl<T> PlannedStructureBuiltRef<T> where T : JsCast + MaybeHasId + Construction
         if let Some(id) = id {
             if let Some(structure) = ObjectId::<T>::from(id).resolve() {
                 return Some(structure);
-            } else {
-                self.id.replace(None);
             }
+
+            self.id.replace(None);
         }
 
         let structure = self.pos.look_for(look::STRUCTURES).ok()?.into_iter()
-            .filter(|structure| structure.as_owned().is_none_or(|x| x.my()))
-            .flat_map(|structure| structure.try_into())
+            .filter(|structure| structure.as_owned().is_none_or(OwnedStructureProperties::my))
+            .flat_map(TryInto::try_into)
             .next()?;
 
         if let Some(raw_id) = structure.try_raw_id() {
@@ -148,9 +144,9 @@ impl<T> PlannedStructureSiteRef<T> where T : ConstructionType {
         if let Some(id) = id {
             if let Some(site) = id.resolve() {
                 return Some(site);
-            } else {
-                self.id.replace(None);
             }
+            
+            self.id.replace(None);
         }
 
         let site = self.pos.look_for(look::CONSTRUCTION_SITES).ok()?.into_iter()

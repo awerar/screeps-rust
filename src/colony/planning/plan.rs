@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use log::*;
+use log::warn;
 use itertools::Itertools;
-use screeps::{ConstructionSite, HasPosition, ObjectId, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
+use screeps::{ConstructionSite, HasPosition, ObjectId, OwnedStructureProperties, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
 use serde::{Deserialize, Serialize};
-use serde_json_any_key::*;
+use serde_json_any_key::any_key_map;
 
 use crate::colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef}, steps::ColonyStep};
 
@@ -68,14 +68,14 @@ impl SourcePlan {
         if let site@Some(_) = self.container.resolve_site() { return site; }
         if let site@Some(_) = self.link.resolve_site() { return site; }
         if let site@Some(_) = self.spawn.resolve_site() { return site; }
-        self.extensions.iter().flat_map(|extension| extension.resolve_site()).next()
+        self.extensions.iter().find_map(PlannedStructureRef::resolve_site)
     }
 
     pub fn get_fillable(&self) -> Option<Box<dyn Transferable>> {
-        self.spawn.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>))
-            .chain(self.extensions.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
-            .chain(self.link.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
-            .chain(self.container.iter().flat_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+        self.spawn.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>))
+            .chain(self.extensions.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+            .chain(self.link.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+            .chain(self.container.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
             .find(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
             .map(|fillable| fillable as Box<dyn Transferable>)
     }
@@ -84,7 +84,7 @@ impl SourcePlan {
 impl ColonyPlan {
     pub fn diff_with(&self, room: &Room) -> ColonyPlanDiff {
         let planned_roads: HashSet<_> = self.steps.values()
-            .flat_map(|step| step.new_roads.iter().cloned())
+            .flat_map(|step| step.new_roads.iter().copied())
             .collect();
         let all_roads: HashSet<_> = get_all_roads_in(room).into_keys().collect();
 
@@ -101,8 +101,8 @@ impl ColonyPlan {
             .collect();
         let all_structures = get_all_structures_in(room);
 
-        let planned_structure_positions: HashSet<_> = planned_structures.keys().cloned().collect();
-        let all_structure_positions: HashSet<_> = all_structures.keys().cloned().collect();
+        let planned_structure_positions: HashSet<_> = planned_structures.keys().copied().collect();
+        let all_structure_positions: HashSet<_> = all_structures.keys().copied().collect();
 
         let missing_structures = planned_structure_positions.difference(&all_structure_positions)
             .map(|pos| (*pos, StructureDiff::Missing(planned_structures[pos])));
@@ -129,7 +129,7 @@ impl ColonyPlan {
             .into_grouping_map()
             .collect();
 
-        let mut adjusted_positions: HashSet<_> = structures_left_to_adjust.values().flatten().cloned().collect();
+        let mut adjusted_positions: HashSet<_> = structures_left_to_adjust.values().flatten().copied().collect();
 
         for step in ColonyStep::iter() {
             let Some(step) = self.steps.get_mut(&step) else { continue; };
@@ -148,21 +148,21 @@ impl ColonyPlan {
             }
         }
 
-        assert_eq!(structures_left_to_adjust.iter().flat_map(|(ty, positions)| positions.iter().map(|pos| (*ty, pos))).collect_vec(), vec![])
+        assert_eq!(structures_left_to_adjust.iter().flat_map(|(ty, positions)| positions.iter().map(|pos| (*ty, pos))).collect_vec(), vec![]);
     }
 }
 
 impl ColonyPlanStep {
-    pub fn build(&self, room: Room) -> Result<bool, String> {
-        let roads = get_all_roads_in(&room);
-        let roads_set: HashSet<_> = roads.keys().cloned().collect();
-        let missing_roads = self.new_roads.difference(&roads_set).cloned().collect_vec();
+    pub fn build(&self, room: &Room) -> Result<bool, String> {
+        let roads = get_all_roads_in(room);
+        let roads_set: HashSet<_> = roads.keys().copied().collect();
+        let missing_roads = self.new_roads.difference(&roads_set).copied().collect_vec();
 
         for road in &missing_roads {
             Position::new(road.x, road.y, room.name()).create_construction_site(StructureType::Road, None).map_err(|e| format!("Unable to create road at {road}: {e}"))?;
         }
 
-        let all_structures = get_all_structures_in(&room);
+        let all_structures = get_all_structures_in(room);
         let good_structures: HashSet<_> = all_structures.iter()
             .map(|(a, b)| (*a, *b))
             .filter(|(pos, (ty, _))| 
@@ -175,8 +175,8 @@ impl ColonyPlanStep {
             .filter(|(pos, _)| !good_structures.contains(pos))
             .collect();
 
-        let missing_structure_keys: HashSet<_> = missing_structures.keys().cloned().collect();
-        let all_structure_keys: HashSet<_> = all_structures.keys().cloned().collect();
+        let missing_structure_keys: HashSet<_> = missing_structures.keys().copied().collect();
+        let all_structure_keys: HashSet<_> = all_structures.keys().copied().collect();
         let overlap = all_structure_keys.intersection(&missing_structure_keys).collect_vec();
 
         if !overlap.is_empty() {
@@ -192,15 +192,15 @@ impl ColonyPlanStep {
             Position::new(pos.x, pos.y, room.name()).create_construction_site(*ty, None).map_err(|e| format!("Unable to create structure {ty} at {pos}: {e}"))?;
         }
 
-        let has_finished_roads = self.new_roads.iter().all(|new_road| roads.get(new_road).cloned().unwrap_or(false));
-        let has_finished_structures = self.new_structures.iter().all(|(new_structure, _)| all_structures.get(new_structure).map(|(_, b)| b).cloned().unwrap_or(false));
+        let has_finished_roads = self.new_roads.iter().all(|new_road| roads.get(new_road).copied().unwrap_or(false));
+        let has_finished_structures = self.new_structures.iter().all(|(new_structure, _)| all_structures.get(new_structure).map(|(_, b)| b).copied().unwrap_or(false));
         Ok(has_finished_roads && has_finished_structures)
     }
 }
 
 fn get_all_roads_in(room: &Room) -> HashMap<RoomXY, bool> {
     let built_roads = room.find(find::STRUCTURES, None).into_iter()
-        .flat_map(|structure| if let StructureObject::StructureRoad(road) = structure { Some(road) } else { None })
+        .filter_map(|structure| if let StructureObject::StructureRoad(road) = structure { Some(road) } else { None })
         .map(|road| (road.pos().xy(), true));
 
     let constructing_roads = room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
@@ -212,7 +212,7 @@ fn get_all_roads_in(room: &Room) -> HashMap<RoomXY, bool> {
 
 fn get_all_structures_in(room: &Room) -> HashMap<RoomXY, (StructureType, bool)> {
     let all_built_structures = room.find(find::STRUCTURES, None).into_iter()
-        .filter(|structure| structure.as_owned().is_some_and(|owned| owned.my()) || matches!(structure.structure_type(), StructureType::Container | StructureType::Wall))
+        .filter(|structure| structure.as_owned().is_some_and(OwnedStructureProperties::my) || matches!(structure.structure_type(), StructureType::Container | StructureType::Wall))
         .map(|structure| (structure.pos().xy(), (structure.structure_type(), true)));
 
     let all_constructing_structures = room.find(find::CONSTRUCTION_SITES, None).into_iter()
@@ -255,7 +255,7 @@ impl ColonyPlanDiff {
             .map(|(pos, _)| (*pos, StructureType::Road.construction_cost().unwrap()));
 
         let structure_losses = self.structures.iter()
-            .flat_map(|(pos, diff)| {
+            .filter_map(|(pos, diff)| {
                 match diff {
                     StructureDiff::Missing(_) => None,
                     StructureDiff::Extra(found) |
@@ -264,7 +264,7 @@ impl ColonyPlanDiff {
             })
             .map(|(pos, structure)| {
                 if matches!(structure, StructureType::Rampart | StructureType::Wall) {
-                    (pos, 300000000)
+                    (pos, 300_000_000)
                 } else {
                     (pos, structure.construction_cost().unwrap_or(0))
                 }
@@ -279,7 +279,7 @@ impl ColonyPlanDiff {
             .map(|(pos, _)| (*pos, StructureType::Road));
 
         let structure_removals = self.structures.iter()
-            .flat_map(|(pos, diff)| {
+            .filter_map(|(pos, diff)| {
                 match diff {
                     StructureDiff::Missing(_) => None,
                     StructureDiff::Extra(found) |

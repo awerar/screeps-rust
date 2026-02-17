@@ -4,7 +4,7 @@ use itertools::Itertools;
 use js_sys::JsString;
 use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
 use serde::{Deserialize, Serialize};
-use log::*;
+use log::{info, warn};
 use tap::Tap;
 
 use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
@@ -29,7 +29,7 @@ impl ColonyData {
     }
 
     pub fn level(&self) -> u8 {
-        self.controller().map(|controller| controller.level()).unwrap_or(0)
+        self.controller().map_or(0, |controller| controller.level())
     }
 
     pub fn buffer(&self) -> Option<ColonyBuffer> {
@@ -52,6 +52,7 @@ impl ColonyBuffer {
         }
     }
 
+    #[expect(unused)]
     pub fn transferable(&self) -> &dyn Transferable {
         match self {
             ColonyBuffer::Container(container) => container,
@@ -59,6 +60,7 @@ impl ColonyBuffer {
         }
     }
 
+    #[expect(unused)]
     pub fn store(&self) -> Store {
         match self {
             ColonyBuffer::Container(container) => container.store(),
@@ -120,12 +122,12 @@ pub fn update_rooms(mem: &mut Memory) {
         .map(|flag| flag.pos().room_name());
 
     let curr_rooms: HashSet<_> = owned_rooms.into_iter().chain(claim_rooms).collect();
-    let prev_rooms: HashSet<_> = mem.colonies.keys().cloned().collect();
+    let prev_rooms: HashSet<_> = mem.colonies.keys().copied().collect();
 
     let lost_rooms = prev_rooms.difference(&curr_rooms);
     for room in lost_rooms {
         mem.colonies.remove(room);
-        warn!("Lost room {}", room);
+        warn!("Lost room {room}");
     }
 
     for name in curr_rooms {
@@ -145,7 +147,7 @@ pub fn update_rooms(mem: &mut Memory) {
             let diff = plan.diff_with(&room);
             if !diff.compatible() {
                 if pop_command(Command::MigrateColony { room: name.to_string() }) {
-                    info!("Migrating {}", name);
+                    info!("Migrating {name}");
                     diff.migrate(name);
                 } else {
                     diff.draw(name);
@@ -162,12 +164,12 @@ pub fn update_rooms(mem: &mut Memory) {
             e.insert(ColonyData { 
                 room_name: room.name(), 
                 plan, 
-                step: Default::default()
+                step: ColonyStep::default()
             });
         }
 
         if pop_command(Command::ResetColonyStep { room: name.to_string() }) {
-            mem.colonies.get_mut(&name).unwrap().step = Default::default();
+            mem.colonies.get_mut(&name).unwrap().step = ColonyStep::default();
         }
 
         if pop_command(Command::VisualizePlan { room: name.to_string(), animate: false }) {

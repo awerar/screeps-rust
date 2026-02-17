@@ -4,6 +4,9 @@ version = "0.0.0"
 authors = []
 edition = "2021"
 
+[lints.clippy]
+pedantic = "warn"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

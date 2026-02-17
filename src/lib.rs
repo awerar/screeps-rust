@@ -1,6 +1,8 @@
 #![feature(map_try_insert)]
 #![feature(variant_count)]
-#![feature(impl_trait_in_bindings)]
+
+#![allow(clippy::enum_glob_use)]
+#![allow(clippy::cast_possible_truncation)]
 
 use log::*;
 use screeps::game;

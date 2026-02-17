@@ -1,6 +1,6 @@
 use std::{cmp::Reverse, collections::HashSet};
 
-use log::*;
+use log::debug;
 use itertools::Itertools;
 use screeps::{Direction, HasId, HasPosition, Position, Room, RoomCoordinate, RoomXY, Terrain, find};
 use unionfind::HashUnionFindByRank;
@@ -19,7 +19,7 @@ impl ColonyPlan {
         use Level1Step::*;
 
         let mut planner = ColonyPlanner::new(room.clone());
-        let center = find_center(room.clone());
+        let center = find_center(room);
         planner.plan_structure(center + Direction::Right, Level1(BuildContainerStorage), PlannedStructure::ContainerStorage)?;
 
         let mut center_planner = CenterPlanner::new(&planner, center);
@@ -64,7 +64,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
     use Level1Step::*;
 
     let mut connection_points = Vec::new();
-    for source in planner.room.find(find::SOURCES, None).into_iter().sorted_by_key(|source| source.id()) {
+    for source in planner.room.find(find::SOURCES, None).into_iter().sorted_by_key(screeps::HasId::id) {
         let source_pos = source.pos().xy();
         let source_id = source.id();
 
@@ -76,7 +76,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
             RoomCoordinate::new(harvest_pos.y as u8).unwrap()
         );
 
-        planner.plan_road(excavator_pos, Level1(BuildArterialRoads))?;
+        planner.plan_road(excavator_pos, Level1(BuildArterialRoads));
         planner.plan_structure(excavator_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
 
         let slots = excavator_pos.neighbors().into_iter()
@@ -90,7 +90,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
             RoomCoordinate::new(main_road_pos.y as u8).unwrap()
         );
 
-        planner.plan_road(main_road_pos, Level1(BuildArterialRoads))?;
+        planner.plan_road(main_road_pos, Level1(BuildArterialRoads));
         planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?;
 
         let mut slots = slots.filter(|slot| *slot != main_road_pos);
@@ -108,12 +108,12 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
 }
 
 fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> Result<(), String> {
-    for controller_level in 1..=8 {
+    for controller_level in 1_u8..=8 {
         if controller_level == 8 {
             center_planner.plan_structure(planner, ColonyStep::Level8, PlannedStructure::Observer)?;
         }
 
-        let step = ColonyStep::first_at_level(controller_level as u8);
+        let step = ColonyStep::first_at_level(controller_level);
         let plan_extensions = planner.count_left_for(PlannedStructure::Extension, step);
         let plan_towers = planner.count_left_for(PlannedStructure::Tower, step);
 
@@ -124,9 +124,9 @@ fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: 
         for _ in 0..plan_towers {
             let tower = avaliable_positions.iter().sorted().max_by_key(|pos| {
                 towers.iter()
-                    .map(|other| other.get_range_to(**pos) as u32)
+                    .map(|other| u32::from(other.get_range_to(**pos)))
                     .sum::<u32>()
-            }).cloned().unwrap();
+            }).copied().unwrap();
 
             avaliable_positions.remove(&tower);
             towers.insert(tower);
@@ -152,7 +152,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
         let new_roads: Vec<_> = planner.roads.iter()
             .filter(|(_, road_step)| step == **road_step)
             .map(|(pos, _)| pos)
-            .cloned()
+            .copied()
             .sorted()
             .collect();
 
@@ -176,7 +176,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
             .filter(|(_, road_step)| step == **road_step)
             .map(|(pos, _)| pos)
             .filter(|pos| !matches!(planner.pos2structure[*pos], PlannedStructure::SourceContainer(_)))
-            .cloned()
+            .copied()
             .sorted()
             .collect();
 
@@ -193,7 +193,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
 
 const MIN_ENTRANCE_DIST: usize = 8;
 const MIN_CANDIDATE_DIST: u8 = 4;
-fn find_center(room: Room) -> RoomXY {
+fn find_center(room: &Room) -> RoomXY {
     let center_flag = room.find(find::FLAGS, None).into_iter()
         .find(|flag| flag.name().to_lowercase().contains("center"));
     if let Some(center_flag) = center_flag { return center_flag.pos().xy() }

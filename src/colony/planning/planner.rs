@@ -41,19 +41,19 @@ impl PlannedStructure {
         use StructureType::*;
 
         match self {
-            PlannedStructure::MainSpawn => Spawn,
-            PlannedStructure::SourceSpawn(_) => Spawn,
-            PlannedStructure::SourceContainer(_) => Container,
-            PlannedStructure::Extension => Extension,
-            PlannedStructure::SourceExtension(_) => Extension,
+            PlannedStructure::MainSpawn
+            | PlannedStructure::SourceSpawn(_) => Spawn,
+            PlannedStructure::SourceContainer(_) 
+            | PlannedStructure::ContainerStorage 
+            | PlannedStructure::MineralContainer => Container,
+            PlannedStructure::Extension 
+            | PlannedStructure::SourceExtension(_) => Extension,
+            PlannedStructure::CentralLink 
+            | PlannedStructure::SourceLink(_) => Link,
             PlannedStructure::Storage => Storage,
-            PlannedStructure::ContainerStorage => Container,
             PlannedStructure::Tower => Tower,
-            PlannedStructure::CentralLink => Link,
-            PlannedStructure::SourceLink(_) => Link,
             PlannedStructure::Terminal => Terminal,
             PlannedStructure::Extractor => Extractor,
-            PlannedStructure::MineralContainer => Container,
             PlannedStructure::Observer => Observer,
         }
     }
@@ -79,7 +79,7 @@ impl From<Terrain> for TilePathing {
 }
 
 impl TilePathing {
-    fn cost(&self) -> u8 {
+    fn cost(self) -> u8 {
         match self {
             TilePathing::BuiltRoad => 5,
             TilePathing::PlannedRoad => 6,
@@ -166,8 +166,8 @@ impl ColonyPlanner {
             link: self.get_structure_ref(CentralLink)?.into(), 
             terminal: self.get_structure_ref(Terminal)?.into(), 
             observer: self.get_structure_ref(Observer)?.into(), 
-            towers: self.get_structure_refs(Tower)?, 
-            extensions: self.get_structure_refs(Extension)?
+            towers: self.get_structure_refs(Tower), 
+            extensions: self.get_structure_refs(Extension)
         })
     }
 
@@ -182,7 +182,7 @@ impl ColonyPlanner {
                     spawn: self.get_structure_ref(SourceSpawn(source))?.into(),
                     container: self.get_structure_ref(SourceContainer(source))?.into(),
                     link: self.get_structure_ref(SourceLink(source))?.into(),
-                    extensions: self.get_structure_refs(SourceExtension(source))?,
+                    extensions: self.get_structure_refs(SourceExtension(source)),
                 };
 
                 Ok((source, plan))
@@ -201,28 +201,28 @@ impl ColonyPlanner {
 
     pub fn get_structure_ref<T>(&self, structure: PlannedStructure) -> Result<PlannedStructureRef<T>, String> {
         self.structures2pos.get(&structure)
-            .ok_or(format!("No {:?} was found", structure))
+            .ok_or(format!("No {structure:?} was found"))
             .and_then(|positions| {
-                if positions.is_empty() { Err(format!("No {:?} was found", structure)) }
-                else if positions.len() > 1 { Err(format!("Unable to determine unique {:?}", structure)) }
+                if positions.is_empty() { Err(format!("No {structure:?} was found")) }
+                else if positions.len() > 1 { Err(format!("Unable to determine unique {structure:?}")) }
                 else { Ok(*positions.iter().next().unwrap()) } 
             })
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
     }
 
-    pub fn get_structure_refs<T>(&self, structure: PlannedStructure) -> Result<Vec<PlannedStructureRef<T>>, String> {
-        let Some(positions) = self.structures2pos.get(&structure) else { return Ok(Vec::new()) };
+    pub fn get_structure_refs<T>(&self, structure: PlannedStructure) -> Vec<PlannedStructureRef<T>> {
+        let Some(positions) = self.structures2pos.get(&structure) else { return Vec::new() };
 
-        Ok(positions.iter()
-            .cloned()
+        positions.iter()
+            .copied()
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
-            .collect())
+            .collect()
     }
 
     pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyStep) -> u32 {
         ColonyStep::iter().skip_while(|s| *s < step).map(|step| {
             let placed_count = self.num_placed_by(structure.structure_type(), step);
-            let max_count = structure.structure_type().controller_structures(step.controller_level() as u32);
+            let max_count = structure.structure_type().controller_structures(u32::from(step.controller_level()));
             max_count.saturating_sub(placed_count)
         }).min().unwrap()
     }
@@ -233,34 +233,32 @@ impl ColonyPlanner {
 
     pub fn num_placed_by(&self, ty: StructureType, step: ColonyStep) -> u32 {
         self.structure_type_steps.get(&ty)
-            .map(|x| 
+            .map_or(0, |x| 
                 x.iter()
                     .take_while(|(place_step, _)| **place_step <= step)
                     .map(|(_, count)| *count)
                     .sum::<u32>()
-            ).unwrap_or(0)
+            )
     }
 
     fn update_tile_pathing(&mut self, xy: RoomXY, ty: TilePathing) {
         self.cost_matrix.set_xy(xy, ty.cost());
     }
 
-    pub fn plan_road(&mut self, xy: RoomXY, step: ColonyStep) -> Result<(), String> {
-        if self.roads.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
+    pub fn plan_road(&mut self, xy: RoomXY, step: ColonyStep) {
+        if self.roads.get(&xy).is_some_and(|old_step| step >= *old_step) { return; }
 
         self.roads.insert(xy, step);
 
         if !self.pos2structure.contains_key(&xy) {
             self.update_tile_pathing(xy, TilePathing::PlannedRoad);
         }
-
-        Ok(())
     }
 
     pub fn plan_structure_earliest(&mut self, xy: RoomXY, structure: PlannedStructure) -> Result<ColonyStep, String> {
         let build_steps = &*self.structure_type_steps.entry(structure.structure_type()).or_default();
         let built_by = ColonyStep::iter()
-            .map(|step| (step, build_steps.get(&step).cloned().unwrap_or(0)))
+            .map(|step| (step, build_steps.get(&step).copied().unwrap_or(0)))
             .fold((0, HashMap::new()), |(mut count_acc, mut map_acc), (step, count)| {
                 count_acc += count;
                 map_acc.insert(step, count_acc);
@@ -327,7 +325,7 @@ impl ColonyPlanner {
             pos.offset(path_step.dx, path_step.dy);
 
             if self.pos2structure.get(&pos.xy()).is_none_or(|structure| structure.walkable()) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
-                self.plan_road(pos.xy(), step)?;
+                self.plan_road(pos.xy(), step);
             }
         }
 
@@ -377,7 +375,7 @@ impl CenterPlanner {
     pub fn plan_roads(self, planner: &mut ColonyPlanner) -> Result<(), String> {
         for (road_pos, increases) in self.roads_utility_increases.into_iter() {
             let Some(plan_step) = increases.into_iter().sorted().nth(2) else { continue; };
-            planner.plan_road(road_pos, plan_step)?;
+            planner.plan_road(road_pos, plan_step);
         }
 
         Ok(())

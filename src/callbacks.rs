@@ -13,12 +13,10 @@ enum PeriodicCallback {
 }
 
 static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::new(|| {
-    use PeriodicCallback::*;
-
     HashMap::from([
-        ( MemoryCleanup, 100 ),
-        ( RoomUpdate, 10 ),
-        ( RemoteBuildUpdate, 5 )
+        ( PeriodicCallback::MemoryCleanup, 100 ),
+        ( PeriodicCallback::RoomUpdate, 10 ),
+        ( PeriodicCallback::RemoteBuildUpdate, 5 )
     ])
 });
 

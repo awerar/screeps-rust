@@ -112,7 +112,7 @@ impl ColonyStepStateMachine for ColonyStep {
 
         let controller_is_upgraded = controller_level > self.controller_level();
         let built_step = if let Some(plan_step) = mem.colony(name).unwrap().plan.steps.get(self) {
-            plan_step.build(game::rooms().get(name).ok_or(())?).map_err(|e| { error!("Unable to build {self:?}: {e}"); })?
+            plan_step.build(&game::rooms().get(name).ok_or(())?).map_err(|e| { error!("Unable to build {self:?}: {e}"); })?
         } else { true };
 
         let can_level_promote = controller_is_upgraded && built_step;

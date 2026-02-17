@@ -7,7 +7,7 @@ impl Neigh for WalkableNeighs {
 
     fn neighbors_of(&self, pos: RoomXY) -> impl Iterator<Item = RoomXY> {
         Direction::iter()
-            .flat_map(move |dir| pos.checked_add_direction(*dir))
+            .filter_map(move |dir| pos.checked_add_direction(*dir))
             .filter(|neigh| self.0.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
     }
 }
@@ -19,7 +19,7 @@ impl Neigh for DiagonalWalkableNeighs {
     fn neighbors_of(&self, pos: RoomXY) -> impl Iterator<Item = RoomXY> {
         Direction::iter()
             .filter(|dir| dir.is_diagonal())
-            .flat_map(move |dir| pos.checked_add_direction(*dir))
+            .filter_map(move |dir| pos.checked_add_direction(*dir))
             .filter(|neigh| self.0.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
     }
 }
@@ -31,7 +31,7 @@ impl Neigh for OrthogonalWalkableNeighs {
     fn neighbors_of(&self, pos: RoomXY) -> impl Iterator<Item = RoomXY> {
         Direction::iter()
             .filter(|dir| dir.is_orthogonal())
-            .flat_map(move |dir| pos.checked_add_direction(*dir))
+            .filter_map(move |dir| pos.checked_add_direction(*dir))
             .filter(|neigh| self.0.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
     }
 }
