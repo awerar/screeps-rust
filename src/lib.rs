@@ -2,9 +2,10 @@
 #![feature(variant_count)]
 
 #![allow(clippy::enum_glob_use)]
-#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#![allow(clippy::cast_sign_loss, clippy::cast_precision_loss )]
 
-use log::{info, Log};
+use log::info;
 use screeps::game;
 use wasm_bindgen::prelude::*;
 

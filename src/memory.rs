@@ -50,17 +50,19 @@ impl Memory {
         self.colonies.get(&name)
     }
 
+    #[expect(clippy::used_underscore_binding)]
     pub fn screeps_deserialize() -> Self {
         let mem = screeps::raw_memory::get();
         let mut mem: Memory = serde_json::from_str(&String::from(mem)).unwrap_or_else(|_| {
             warn!("Unable to parse raw memory. Resetting memory");
-            Default::default()
+            Memory::default()
         });
 
         mem._internal_creeps = None; // This is deserialized separately in JS
         mem
     }
 
+    #[expect(clippy::used_underscore_binding)]
     pub fn screeps_serialize(&mut self) {
         #[allow(deprecated)]
         let new_internal_creeps = Reflect::get(&screeps::memory::ROOT, &JsString::from("creeps")).ok();
@@ -83,6 +85,7 @@ impl Memory {
         self.messages.remove(name);
     }
 
+    #[expect(clippy::used_underscore_binding)]
     pub fn periodic_cleanup(&mut self) {
         let alive_creeps: HashSet<_> = game::creeps().keys().collect();
         let dead_creeps: HashSet<_> = self.last_alive_creeps.difference(&alive_creeps).cloned().collect();

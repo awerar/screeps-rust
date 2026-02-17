@@ -30,15 +30,11 @@ pub struct Mailbox<T> {
 
 impl<T> Default for Mailbox<T> {
     fn default() -> Self {
-        Self { new: Default::default(), readable: Default::default() }
+        Self { new: HashSet::default(), readable: HashSet::default() }
     }
 }
 
 impl<T> Mailbox<T> where T : Eq + Hash + Clone + Serialize + DeserializeOwned {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn flush(&mut self) {
         self.readable = mem::take(&mut self.new);
     }
@@ -47,6 +43,7 @@ impl<T> Mailbox<T> where T : Eq + Hash + Clone + Serialize + DeserializeOwned {
         self.readable.iter().cloned().collect_vec()
     }
 
+    #[expect(clippy::needless_pass_by_value)]
     pub fn read(&self, msg: T) -> bool {
         self.readable.contains(&msg)
     }

@@ -35,7 +35,7 @@ impl ColonyPlan {
             let Some(step) = self.steps.get(&step) else { continue; };
 
             for (pos, structure) in &step.new_structures {
-                draw_structure(visuals, pos, *structure);
+                draw_structure(visuals, *pos, *structure);
             }
 
             roads.extend(step.new_roads.iter().copied());
@@ -78,14 +78,14 @@ impl ColonyPlanDiff {
                     text_style = text_style.custom_font("0.5 Consolas");
                 }
 
-                let label = if *loss < 1000 { loss.to_string() } else if *loss < 1000000 { format!("{}k", loss / 1000) } else { format!("{}M", loss / 1000000) };
+                let label = if *loss < 1000 { loss.to_string() } else if *loss < 1_000_000 { format!("{}k", loss / 1000) } else { format!("{}M", loss / 1_000_000) };
                 visuals.text(f32::from(pos.x.u8()), f32::from(pos.y.u8()) + 0.3, label, Some(text_style));
             }
         });
     }
 }
 
-pub fn draw_structure(visuals: &RoomVisual, pos: &RoomXY, structure: StructureType) {
+pub fn draw_structure(visuals: &RoomVisual, pos: RoomXY, structure: StructureType) {
     if structure == StructureType::Extension {
         visuals.circle(f32::from(pos.x.u8()), f32::from(pos.y.u8()), Some(CircleStyle::default().radius(0.3).opacity(0.75).fill("#b05836")));
     } else {

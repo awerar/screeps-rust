@@ -74,11 +74,11 @@ fn panic_hook(info: &panic::PanicHookInfo) {
     // import JS Error API to get backtrace info (backtraces don't work in wasm)
     // Node 8 does support this API: https://nodejs.org/docs/latest-v8.x/api/errors.html#errors_error_stack
 
-    let mut fmt_error = String::new();
-    let _ = writeln!(fmt_error, "{info}");
-
     // this could be controlled with an env var at compilation instead
     const SHOW_BACKTRACE: bool = true;
+
+    let mut fmt_error = String::new();
+    let _ = writeln!(fmt_error, "{info}");
 
     if SHOW_BACKTRACE {
         Error::stack_trace_limit(10000_f32);

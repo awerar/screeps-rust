@@ -53,7 +53,7 @@ impl RemoteBuildRequests {
     }
 
     pub fn create_request(&mut self, pos: Position, structure_type: StructureType, name: Option<&str>) -> Result<(), ()> {
-        if let Some(build) = self.get_request_data(&pos) {
+        if let Some(build) = self.get_request_data(pos) {
             if build.structure_type == structure_type {
                 return Ok(())
             }
@@ -75,8 +75,8 @@ impl RemoteBuildRequests {
         self.0.keys().next().copied()
     }
 
-    pub fn get_request_data(&self, pos: &Position) -> Option<&BuildData> {
-        self.0.get(pos)
+    pub fn get_request_data(&self, pos: Position) -> Option<&BuildData> {
+        self.0.get(&pos)
     }
 
     pub fn get_total_work_ticks(&self) -> u32 {

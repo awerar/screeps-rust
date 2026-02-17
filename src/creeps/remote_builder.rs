@@ -45,7 +45,7 @@ impl StateMachine<Creep> for RemoteBuilderCreep {
                 }
             },
             Building(pos) => {
-                let Some(build_data) = mem.remote_build_requests.get_request_data(pos) else {
+                let Some(build_data) = mem.remote_build_requests.get_request_data(*pos) else {
                     return Ok(Idle)
                 };
 

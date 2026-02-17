@@ -137,17 +137,17 @@ impl StateMachine<Creep> for TugboatCreep {
                             Err(CreepMoveToErrorCode::Tired) => Ok(self.clone()),
                             Err(_) => Err(())
                         }
-                    } else {
-                        let recycle_spawn = get_recycle_spawn(tugboat, mem);
-                        return match tugboat.move_direction(tugboat.pos().get_direction_to(tugged.pos()).ok_or(())?) {
-                            Ok(()) => {
-                                tugboat.pull(&tugged).map_err(|_| ())?;
-                                mem.messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
-                                Ok(Recycling(recycle_spawn.id()))
-                            }
-                            Err(CreepMoveDirectionErrorCode::Tired) => Ok(self.clone()),
-                            Err(_) => Err(())
+                    }
+                    
+                    let recycle_spawn = get_recycle_spawn(tugboat, mem);
+                    return match tugboat.move_direction(tugboat.pos().get_direction_to(tugged.pos()).ok_or(())?) {
+                        Ok(()) => {
+                            tugboat.pull(&tugged).map_err(|_| ())?;
+                            mem.messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
+                            Ok(Recycling(recycle_spawn.id()))
                         }
+                        Err(CreepMoveDirectionErrorCode::Tired) => Ok(self.clone()),
+                        Err(_) => Err(())
                     }
                 }
 

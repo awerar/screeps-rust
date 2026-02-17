@@ -44,10 +44,11 @@ impl<S> Iterator for ColonyStepIterator<S> where S : ColonyStepStateMachine {
 
 impl ColonyStep {
     pub fn iter() -> ColonyStepIterator<Self> {
-        ColonyStepIterator { step: Default::default() }
+        ColonyStepIterator { step: ColonyStep::default() }
     }
 }
 
+#[expect(clippy::unsafe_derive_deserialize)]
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]
 #[repr(u8)]
 pub enum ColonyStep {
@@ -73,7 +74,7 @@ impl ColonyStep {
 
         match controller_level {
             0 => Unclaimed,
-            1 => Level1(Default::default()),
+            1 => Level1(Level1Step::default()),
             2 => Level2,
             3 => Level3,
             4 => Level4,
@@ -91,7 +92,7 @@ impl ColonyStepStateMachine for ColonyStep {
         use ColonyStep::*;
 
         match self {
-            Unclaimed => Some(Level1(Default::default())),
+            Unclaimed => Some(Level1(Level1Step::default())),
             Level1(substep) => substep.get_promotion().map(Level1).or(Some(Level2)),
             Level2 => Some(Level3),
             Level3 => Some(Level4),
@@ -163,7 +164,7 @@ mod tests {
     use super::*;
 
     fn discriminant<T>(step: &T) -> u8 where T : ColonyStepStateMachine {
-        unsafe { *(step as *const T as *const u8) }
+        unsafe { *std::ptr::from_ref::<T>(step).cast::<u8>() }
     }
 
     fn test_promotion<T>() where T : ColonyStepStateMachine {
@@ -177,7 +178,7 @@ mod tests {
             step = promotion;
         }
 
-        assert!(discriminant(&step) == (mem::variant_count::<T>() - 1) as u8)
+        assert!(discriminant(&step) == (mem::variant_count::<T>() - 1) as u8);
     }
 
     #[test]

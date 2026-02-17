@@ -17,7 +17,7 @@ struct StaticDrawers {
 }
 
 thread_local! {
-    static STATIC_DRAWERS: RefCell<StaticDrawers> = RefCell::new(Default::default());
+    static STATIC_DRAWERS: RefCell<StaticDrawers> = RefCell::new(StaticDrawers::default());
 }
 
 pub fn draw_in_room(room: RoomName, ty: RoomDrawerType, f: impl FnMut(&RoomVisual) + 'static) {
@@ -61,5 +61,5 @@ pub fn draw() {
 }
 
 pub fn clear_visuals() {
-    STATIC_DRAWERS.replace(Default::default());
+    STATIC_DRAWERS.replace(StaticDrawers::default());
 }

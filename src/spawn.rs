@@ -29,7 +29,7 @@ impl Body {
                     if body.0.len() > min_parts {
                         return Some(body);
                     }
-                    
+
                     return None;
                 }
 
@@ -90,7 +90,7 @@ struct CreepPrototype {
 }
 
 impl CreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: Creep) -> Option<Self> {
+    fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
         let creep_data = mem.creeps.get(&creep.name())?;
 
         Some(Self {
@@ -127,12 +127,12 @@ struct SpawnerData {
 }
 
 impl SpawnerData {
-    fn try_from(mem: &Memory, spawn: StructureSpawn) -> Option<Self> {
+    fn try_from(mem: &Memory, spawn: &StructureSpawn) -> Option<Self> {
         let room = spawn.room()?;
         let spawning = spawn.spawning()
             .and_then(|spawning| {
                 let prototype = game::creeps().get(spawning.name().into())
-                .and_then(|creep| CreepPrototype::try_from_existing(mem, creep))?;
+                .and_then(|creep| CreepPrototype::try_from_existing(mem, &creep))?;
 
                 Some((prototype, spawning.remaining_time()))
             });
@@ -182,10 +182,10 @@ impl SpawnSchedule {
     fn new(mem: &Memory) -> Self {
         Self {
             spawners: game::spawns().values()
-                .filter_map(|spawn| SpawnerData::try_from(mem, spawn))
+                .filter_map(|spawn| SpawnerData::try_from(mem, &spawn))
                 .collect(),
             already_spawned: game::creeps().values()
-                .filter_map(|creep| CreepPrototype::try_from_existing(mem, creep))
+                .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
                 .collect()
         }
     }

@@ -12,7 +12,7 @@ pub enum ExcavatorCreep {
 
 impl Default for ExcavatorCreep {
     fn default() -> Self {
-        Self::Going(Default::default())
+        Self::Going(TuggedCreep::default())
     }
 }
 

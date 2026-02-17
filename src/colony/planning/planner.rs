@@ -317,7 +317,7 @@ impl ColonyPlanner {
         path
     }
 
-    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyStep) -> Result<(), String> {
+    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyStep) {
         let path = self.find_path_between(point1, point2, step);
 
         let mut pos = Position::new(point1.x, point1.y, self.room.name());
@@ -328,8 +328,6 @@ impl ColonyPlanner {
                 self.plan_road(pos.xy(), step);
             }
         }
-
-        Ok(())
     }
 }
 
@@ -372,12 +370,10 @@ impl CenterPlanner {
         planner.plan_structure(pos, step, structure)
     }
 
-    pub fn plan_roads(self, planner: &mut ColonyPlanner) -> Result<(), String> {
+    pub fn plan_roads(self, planner: &mut ColonyPlanner) {
         for (road_pos, increases) in self.roads_utility_increases {
             let Some(plan_step) = increases.into_iter().sorted().nth(2) else { continue; };
             planner.plan_road(road_pos, plan_step);
         }
-
-        Ok(())
     }
 }

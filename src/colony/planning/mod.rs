@@ -34,18 +34,18 @@ impl ColonyPlan {
 
         plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
         
-        center_planner.plan_roads(&mut planner)?;
+        center_planner.plan_roads(&mut planner);
 
         let controller = room.controller().unwrap().pos().xy();
-        planner.plan_road_between(center, controller, Level1(BuildArterialRoads))?;
+        planner.plan_road_between(center, controller, Level1(BuildArterialRoads));
 
         for source in excavator_positions {
-            planner.plan_road_between(source, center, Level1(BuildArterialRoads))?;
+            planner.plan_road_between(source, center, Level1(BuildArterialRoads));
         }
 
         for deposit in room.find(find::MINERALS, None) {
             planner.plan_structure(deposit.pos().xy(), Level6, PlannedStructure::Extractor)?;
-            planner.plan_road_between(center, deposit.pos().xy(), Level6)?;
+            planner.plan_road_between(center, deposit.pos().xy(), Level6);
 
             let container_pos = deposit.pos().xy().neighbors().into_iter()
                 .find(|neigh| planner.roads.contains_key(neigh))
@@ -167,7 +167,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
 
         for new_road in &new_roads {
             if network.find_shorten(new_road) != network.find_shorten(&center) {
-                planner.plan_road_between(center, *new_road, step)?;
+                planner.plan_road_between(center, *new_road, step);
                 network.union_by_rank(new_road, &center).map_err(|e| e.to_string())?;
             }
         }
@@ -184,7 +184,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
             if new_structure == center { continue; }
             if new_structure.neighbors().into_iter().any(|neigh| network.find_shorten(&neigh).is_some()) { continue; }
             debug!("Connecting {center} and {new_structure}");
-            planner.plan_road_between(center, new_structure, step)?;
+            planner.plan_road_between(center, new_structure, step);
         }
     }
 

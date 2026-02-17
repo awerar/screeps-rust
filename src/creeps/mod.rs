@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use log::{warn, Log};
+use log::warn;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -34,10 +34,10 @@ impl CreepData {
             )?;
 
         let role = match creep.name().split_ascii_whitespace().next()? {
-            "Worker" => CreepRole::Worker(Default::default()),
-            "Flagship" => CreepRole::Flagship(Default::default()),
-            "RemoteBuilder" => CreepRole::RemoteBuilder(Default::default()),
-            "Dumptruck" => CreepRole::Dumptruck(Default::default()),
+            "Worker" => CreepRole::Worker(WorkerCreep::default()),
+            "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
+            "RemoteBuilder" => CreepRole::RemoteBuilder(RemoteBuilderCreep::default()),
+            "Dumptruck" => CreepRole::Dumptruck(DumptruckCreep::default()),
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())
                     .flat_map(|pos| pos.look_for(look::SOURCES))
@@ -45,7 +45,7 @@ impl CreepData {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(Default::default(), source.id()) 
+                CreepRole::Excavator(ExcavatorCreep::default(), source.id()) 
             },
             _ => CreepRole::Scrap(get_recycle_spawn(creep, mem).id())
         };
@@ -105,13 +105,13 @@ impl CreepType {
 
     pub fn default_role(&self) -> CreepRole {
         match self {
-            CreepType::Worker => CreepRole::Worker(Default::default()),
-            CreepType::Flagship => CreepRole::Flagship(Default::default()),
-            CreepType::RemoteBuilder => CreepRole::RemoteBuilder(Default::default()),
-            CreepType::Excavator(source) => CreepRole::Excavator(Default::default(), *source),
-            CreepType::Tugboat(tugged) => CreepRole::Tugboat(Default::default(), *tugged),
+            CreepType::Worker => CreepRole::Worker(WorkerCreep::default()),
+            CreepType::Flagship => CreepRole::Flagship(FlagshipCreep::default()),
+            CreepType::RemoteBuilder => CreepRole::RemoteBuilder(RemoteBuilderCreep::default()),
+            CreepType::Excavator(source) => CreepRole::Excavator(ExcavatorCreep::default(), *source),
+            CreepType::Tugboat(tugged) => CreepRole::Tugboat(TugboatCreep::default(), *tugged),
             CreepType::Scrap(spawn) => CreepRole::Scrap(*spawn),
-            CreepType::Dumptruck => CreepRole::Dumptruck(Default::default())
+            CreepType::Dumptruck => CreepRole::Dumptruck(DumptruckCreep::default())
         }
     }
 }

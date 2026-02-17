@@ -166,7 +166,7 @@ fn is_empty(creep: &Creep) -> bool {
     creep.store().get_used_capacity(None) == 0
 }
 
-fn try_repair(creep: &Creep) -> Option<()> {
+fn try_repair(creep: &Creep) {
     let structures = creep.pos().find_in_range(find::STRUCTURES, 3);
     let repair_structures: Vec<_> = structures.iter()
         .filter(|structure| matches!(structure.structure_type(), StructureType::Road))
@@ -179,8 +179,6 @@ fn try_repair(creep: &Creep) -> Option<()> {
             break;
         }
     }
-
-    Some(())
 }
 
 impl StateMachine<Creep> for WorkerCreep {
