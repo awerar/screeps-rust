@@ -6,7 +6,7 @@ use screeps::{ConstructionSite, HasPosition, ObjectId, OwnedStructureProperties,
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 
-use crate::colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs, ResolvableRef}, steps::ColonyStep};
+use crate::colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs, ResolvableSiteRef, ResolvableStructureRef}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
@@ -34,7 +34,11 @@ pub struct CenterPlan {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct SourcesPlan(#[serde(with = "any_key_map")] pub HashMap<ObjectId<Source>, SourcePlan>);
+pub struct SourcesPlan {
+    #[serde(with = "any_key_map")] 
+    pub source_plans: HashMap<ObjectId<Source>, SourcePlan>,
+    pub source_containers: PlannedStructureRefs<StructureContainer>
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourcePlan {
@@ -65,18 +69,20 @@ impl SourceFillable for StructureContainer {}
 
 impl SourcePlan {
     pub fn get_construction_site(&self) -> Option<ConstructionSite> {
-        if let site@Some(_) = self.container.resolve() { return site; }
-        if let site@Some(_) = self.link.resolve() { return site; }
-        if let site@Some(_) = self.spawn.resolve() { return site; }
-        self.extensions.iter().find_map(PlannedStructureRef::resolve)
+        if let site@Some(_) = self.container.resolve_site() { return site; }
+        if let site@Some(_) = self.link.resolve_site() { return site; }
+        if let site@Some(_) = self.spawn.resolve_site() { return site; }
+        self.extensions.iter().find_map(PlannedStructureRef::resolve_site)
     }
 
     pub fn get_fillable(&self) -> Option<Box<dyn Transferable>> {
         let mut fillables = Vec::new();
-        fillables.extend(self.spawn.resolve().map(|x: StructureSpawn| Box::new(x) as Box<dyn SourceFillable>));;
-            //.chain(self.extensions.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
-            //.chain(self.link.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
-            //.chain(self.container.iter().filter_map(|r| r.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>)))
+
+        fillables.extend(self.spawn.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>));
+        fillables.extend(self.extensions.resolve().into_iter().map(|x| Box::new(x) as Box<dyn SourceFillable>));
+        fillables.extend(self.link.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>));
+        fillables.extend(self.container.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>));
+
         fillables.into_iter()
             .find(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
             .map(|fillable| fillable as Box<dyn Transferable>)

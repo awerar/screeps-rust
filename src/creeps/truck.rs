@@ -2,7 +2,7 @@ use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Positio
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
-use crate::{colony::planning::planned_ref::{ConstructionType, OptionalPlannedStructureRef, PlannedStructureRef, StructureRefReq, PlannedStructureRefs}, memory::Memory, statemachine::StateMachine, tasks::MultiTasksQueue};
+use crate::{colony::planning::planned_ref::{ConstructionType, OptionalPlannedStructureRef, PlannedStructureRef, PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}, memory::Memory, statemachine::StateMachine, tasks::MultiTasksQueue};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub enum TruckCreep {
@@ -70,24 +70,18 @@ impl TruckTaskCoordinator {
 
         let mut providers = Vec::new();
         providers.extend(plan.center.link.resolve_provider());
-        providers.extend(
-            plan.sources.0.values()
-            .filter_map(|source_plan| source_plan.container.resolve())
-            .map(|container| (ProviderId::new(container.clone()), container.store()))
+        providers.extend(plan.sources.source_containers.resolve_providers());
+
+        self.providers.set_tasks(
+            providers.into_iter()
+                .map(|(provider, store)| (provider, store.get_used_capacity(Some(ResourceType::Energy))))
         );
-
-        let providers = providers.into_iter()
-            .map(|(provider, store)| (provider, store.get_used_capacity(Some(ResourceType::Energy))));
-
-        self.providers.set_tasks(providers);
 
         let mut consumers = Vec::new();
-        consumers.extend(plan.center.spawn.resolve().map(|spawn| (ConsumerId::new(spawn.clone()), spawn.store())));
-        consumers.extend(
-            plan.center.extensions.iter()
-                .filter_map(|extension| extension.resolve())
-                .map(|extension| (ConsumerId::new(extension.clone()), extension.store()))
-        );
+        consumers.extend(plan.center.spawn.resolve_consumer());
+        consumers.extend(plan.center.extensions.resolve_consumers());
+        consumers.extend(plan.center.towers.resolve_consumers());
+        consumers.extend(plan.center.terminal.resolve_consumer());
     }
 }
 
@@ -121,7 +115,8 @@ impl ProviderId {
     }
 }
 
-impl<T: ProviderReqs + StructureRefReq> OptionalPlannedStructureRef<T> {
+trait ResolvableProviderRef { fn resolve_provider(&self) -> Option<(ProviderId, Store)>; }
+impl<R: ResolvableStructureRef> ResolvableProviderRef for R where R::Structure : ProviderReqs + StructureRefReq {
     fn resolve_provider(&self) -> Option<(ProviderId, Store)> {
         let structure = self.resolve()?;
         let store = structure.store();
@@ -129,9 +124,9 @@ impl<T: ProviderReqs + StructureRefReq> OptionalPlannedStructureRef<T> {
     }
 }
 
-impl<T: ProviderReqs + StructureRefReq> PlannedStructureRefs<T> {
-    fn resolve_providers(&self) -> Option<(ProviderId, Store)> {
-        self.0.iter().cloned().map(Into::into).filter_map(OptionalPlannedStructureRef::resolve_provider)
+impl<T : ProviderReqs + StructureRefReq> PlannedStructureRefs<T> {
+    fn resolve_providers(&self) -> Vec<(ProviderId, Store)> {
+        self.0.iter().filter_map(|r| r.resolve_provider()).collect()
     }
 }
 
@@ -157,10 +152,17 @@ impl ConsumerId {
     }
 }
 
-impl<T: ConsumerReqs + StructureRefReq> OptionalPlannedStructureRef<T> {
+trait ResolvableConsumerRef { fn resolve_consumer(&self) -> Option<(ConsumerId, Store)>; }
+impl<R: ResolvableStructureRef> ResolvableConsumerRef for R where R::Structure : ConsumerReqs + StructureRefReq {
     fn resolve_consumer(&self) -> Option<(ConsumerId, Store)> {
         let structure = self.resolve()?;
         let store = structure.store();
        Some((ConsumerId::new(structure), store))
+    }
+}
+
+impl<T : ConsumerReqs + StructureRefReq> PlannedStructureRefs<T> {
+    fn resolve_consumers(&self) -> Vec<(ConsumerId, Store)> {
+        self.0.iter().filter_map(|r| r.resolve_consumer()).collect()
     }
 }

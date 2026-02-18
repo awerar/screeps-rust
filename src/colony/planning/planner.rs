@@ -174,20 +174,26 @@ impl ColonyPlanner {
     fn compile_sources(&self) -> Result<SourcesPlan, String> {
         use PlannedStructure::*;
 
-        Ok(SourcesPlan(
-            self.room.find(find::SOURCES, None).into_iter()
-            .map(|source| source.id())
-            .map(|source| {
-                let plan = SourcePlan {
-                    spawn: self.get_structure_ref(SourceSpawn(source))?.into(),
-                    container: self.get_structure_ref(SourceContainer(source))?.into(),
-                    link: self.get_structure_ref(SourceLink(source))?.into(),
-                    extensions: self.get_structure_refs(SourceExtension(source)),
-                };
+        Ok(SourcesPlan{
+            source_plans: self.room.find(find::SOURCES, None).into_iter()
+                .map(|source| source.id())
+                .map(|source| {
+                    let plan = SourcePlan {
+                        spawn: self.get_structure_ref(SourceSpawn(source))?.into(),
+                        container: self.get_structure_ref(SourceContainer(source))?.into(),
+                        link: self.get_structure_ref(SourceLink(source))?.into(),
+                        extensions: self.get_structure_refs(SourceExtension(source)),
+                    };
 
-                Ok((source, plan))
-            }).collect::<Result<_, String>>()?
-        ))
+                    Ok((source, plan))
+                }).collect::<Result<_, String>>()?,
+            source_containers: PlannedStructureRefs(
+                self.pos2structure.iter()
+                    .filter(|(_, structure)| matches!(structure, PlannedStructure::SourceContainer(_)))
+                    .map(|(pos, _)| PlannedStructureRef::new(*pos, &self.room))
+                    .collect()
+            )
+        })
     }
 
     fn compile_mineral(&self) -> Result<MineralPlan, String> {

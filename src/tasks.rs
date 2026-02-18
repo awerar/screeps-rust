@@ -105,7 +105,7 @@ impl<T, const TIMEOUT: u32> MultiTasksQueue<T, TIMEOUT> where T : Hash + Eq + Cl
 
         assert_matches!(self.creeps.insert(creep, CreepData::new(task.clone(), contribution)), None);
 
-        if task_data.left() <= 0 {
+        if task_data.left() == 0 {
             self.task_queue.remove(i);
         }
         

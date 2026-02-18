@@ -1,61 +1,35 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use derive_deref::Deref;
-use screeps::{ConstructionSite, MaybeHasId, ObjectId, OwnedStructureProperties, Position, RawObjectId, Room, RoomXY, StructureContainer, StructureExtension, StructureLink, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureType, look};
+use screeps::{ConstructionSite, MaybeHasId, ObjectId, OwnedStructureProperties, Position, RawObjectId, Room, RoomXY, StructureContainer, StructureExtension, StructureLink, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, look};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
 pub trait StructureRefReq = JsCast + MaybeHasId + ConstructionType where StructureObject : TryInto<Self>;
-pub trait ResolvableRef<T> { fn resolve(&self) -> Option<T>; }
-pub trait ResolvableRefs<T> { fn resolve(&self) -> Vec<T>; }
+pub trait ResolvableStructureRef { 
+    type Structure;
 
-pub trait ResolvableStructureRef<T> { fn resolve_structure(&self) -> Option<T>; }
-impl<R: ResolvableRef<T>, T: StructureRefReq> ResolvableStructureRef<T> for R {
-    fn resolve_structure(&self) -> Option<T> {
-        self.resolve()
-    }
+    fn resolve(&self) -> Option<Self::Structure>; 
 }
-
 pub trait ResolvableSiteRef { fn resolve_site(&self) -> Option<ConstructionSite>; }
-impl<R: ResolvableRef<ConstructionSite>> ResolvableSiteRef for R {
-    fn resolve_site(&self) -> Option<ConstructionSite> {
-        self.resolve()
-    }
-}
-
-pub trait ResolvableStructureRefs<T> { fn resolve_structures(&self) -> Vec<T>; }
-impl<R: ResolvableRefs<T>, T: StructureRefReq> ResolvableStructureRefs<T> for R {
-    fn resolve_structures(&self) -> Vec<T> {
-        self.resolve()
-    }
-}
-
-pub trait ResolvableSiteRefs<T> { fn resolve_sites(&self) -> Vec<T>; }
-impl<R: ResolvableRefs<T>, T: StructureRefReq> ResolvableSiteRefs<T> for R {
-    fn resolve_sites(&self) -> Vec<T> {
-        self.resolve()
-    }
-}
 
 #[derive(Serialize, Deserialize, Default, Deref, Clone)]
 #[serde(bound = "")]
 pub struct PlannedStructureRefs<T>(pub Vec<PlannedStructureRef<T>>);
 
 impl<T: StructureRefReq> PlannedStructureRefs<T> {
-    pub fn are_completed(&self) -> bool {
+    #[expect(unused)]
+    pub fn all_completed(&self) -> bool {
         self.0.iter().all(PlannedStructureRef::is_complete)
     }
-}
 
-impl<T: StructureRefReq> ResolvableRefs<T> for PlannedStructureRefs<T> {
-    fn resolve(&self) -> Vec<T> {
+    pub fn resolve(&self) -> Vec<T> {
         self.0.iter().filter_map(PlannedStructureRef::resolve).collect()
     }
-}
 
-impl<T: StructureRefReq> ResolvableRefs<ConstructionSite> for PlannedStructureRefs<T> {
-    fn resolve(&self) -> Vec<ConstructionSite> {
-        self.0.iter().filter_map(PlannedStructureRef::resolve).collect()
+    #[expect(unused)]
+    pub fn resolve_sites(&self) -> Vec<ConstructionSite> {
+        self.0.iter().filter_map(PlannedStructureRef::resolve_site).collect()
     }
 }
 
@@ -64,20 +38,23 @@ impl<T: StructureRefReq> ResolvableRefs<ConstructionSite> for PlannedStructureRe
 pub struct OptionalPlannedStructureRef<T>(pub Option<PlannedStructureRef<T>>);
 
 impl<T: StructureRefReq> OptionalPlannedStructureRef<T> {
+    #[expect(unused)]
     pub fn is_complete(&self) -> bool {
         self.0.as_ref().is_some_and(PlannedStructureRef::is_complete)
     }
 }
 
-impl<T: StructureRefReq> ResolvableRef<T> for OptionalPlannedStructureRef<T> {
+impl<T: StructureRefReq> ResolvableStructureRef for OptionalPlannedStructureRef<T> {
+    type Structure = T;
+
     fn resolve(&self) -> Option<T> {
-        self.0.as_ref().and_then(|structure| structure.resolve())
+        self.0.as_ref().and_then(ResolvableStructureRef::resolve)
     }
 }
 
-impl<T: StructureRefReq> ResolvableRef<ConstructionSite> for OptionalPlannedStructureRef<T> {
-    fn resolve(&self) -> Option<ConstructionSite> {
-        self.0.as_ref().and_then(|structure| structure.resolve())
+impl<T: StructureRefReq> ResolvableSiteRef for OptionalPlannedStructureRef<T> {
+    fn resolve_site(&self) -> Option<ConstructionSite> {
+        self.0.as_ref().and_then(ResolvableSiteRef::resolve_site)
     }
 }
 
@@ -114,23 +91,26 @@ impl<T: StructureRefReq> PlannedStructureRef<T> {
     }
 
     pub fn is_being_built(&self) -> bool {
-        self.site.resolve().is_some()
+        self.site.resolve_site().is_some()
     }
 
+    #[expect(unused)]
     pub fn is_empty(&self) -> bool {
         !self.is_complete() && !self.is_being_built()
     }
 }
 
-impl<T : StructureRefReq> ResolvableRef<T> for PlannedStructureRef<T> {
+impl<T : StructureRefReq> ResolvableStructureRef for PlannedStructureRef<T> {
+    type Structure = T;
+
     fn resolve(&self) -> Option<T> {
         self.structure.resolve()
     }
 }
 
-impl<T : StructureRefReq> ResolvableRef<ConstructionSite> for PlannedStructureRef<T> {
-    fn resolve(&self) -> Option<ConstructionSite> {
-        self.site.resolve()
+impl<T : StructureRefReq> ResolvableSiteRef for PlannedStructureRef<T> {
+    fn resolve_site(&self) -> Option<ConstructionSite> {
+        self.site.resolve_site()
     }
 }
 
@@ -148,7 +128,9 @@ impl<T> PlannedStructureBuiltRef<T> {
     }
 }
 
-impl<T: StructureRefReq> ResolvableRef<T> for PlannedStructureBuiltRef<T> {
+impl<T: StructureRefReq> ResolvableStructureRef for PlannedStructureBuiltRef<T> {
+    type Structure = T;
+
     fn resolve(&self) -> Option<T> {
         let id = *self.id.borrow();
         if let Some(id) = id {
@@ -187,6 +169,7 @@ impl ConstructionType for StructureStorage { fn structure_type() -> StructureTyp
 impl ConstructionType for StructureExtension { fn structure_type() -> StructureType { StructureType::Extension } }
 impl ConstructionType for StructureLink { fn structure_type() -> StructureType { StructureType::Link } }
 impl ConstructionType for StructureTerminal { fn structure_type() -> StructureType { StructureType::Terminal } }
+impl ConstructionType for StructureTower { fn structure_type() -> StructureType { StructureType::Tower } }
 
 impl<T> PlannedStructureSiteRef<T> {
     pub fn new(pos: Position) -> Self {
@@ -194,8 +177,8 @@ impl<T> PlannedStructureSiteRef<T> {
     }
 }
 
-impl<T: ConstructionType> ResolvableRef<ConstructionSite> for PlannedStructureSiteRef<T> {
-    fn resolve(&self) -> Option<ConstructionSite> {
+impl<T: ConstructionType> ResolvableSiteRef for PlannedStructureSiteRef<T> {
+    fn resolve_site(&self) -> Option<ConstructionSite> {
         let id = *self.id.borrow();
         if let Some(id) = id {
             if let Some(site) = id.resolve() {

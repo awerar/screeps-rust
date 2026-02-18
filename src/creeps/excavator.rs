@@ -24,7 +24,7 @@ impl StateMachine<Creep> for ExcavatorCreep {
         let source = source.resolve().ok_or(())?;
 
         let plan = mem.creep_home(creep).ok_or(())?
-            .plan.sources.0
+            .plan.sources.source_plans
             .get(&source.id()).ok_or(())?;
 
         let work_count = creep.body().iter().filter(|bodypart| bodypart.part() == Part::Work).count() as u32;

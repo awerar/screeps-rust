@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use log::{info, warn};
 use tap::Tap;
 
-use crate::{colony::{planning::plan::ColonyPlan, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 mod steps;
