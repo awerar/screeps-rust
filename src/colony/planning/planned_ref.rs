@@ -38,7 +38,6 @@ impl<T: StructureRefReq> PlannedStructureRefs<T> {
 pub struct OptionalPlannedStructureRef<T>(pub Option<PlannedStructureRef<T>>);
 
 impl<T: StructureRefReq> OptionalPlannedStructureRef<T> {
-    #[expect(unused)]
     pub fn is_complete(&self) -> bool {
         self.0.as_ref().is_some_and(PlannedStructureRef::is_complete)
     }

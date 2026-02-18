@@ -68,7 +68,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
         let source_pos = source.pos().xy();
         let source_id = source.id();
 
-        let path = planner.find_path_between(source_pos, center, Level1(BuildArterialRoads));
+        let path = planner.find_path_between(source_pos, center, Some(Level1(BuildArterialRoads)));
 
         let harvest_pos = path.first().ok_or("Path to source had zero elements")?;
         let excavator_pos = RoomXY::new(

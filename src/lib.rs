@@ -59,6 +59,7 @@ pub fn game_loop() {
         game::cpu::bucket()
     );
 
+    update_truck_coordinators(&mut mem);
     do_creeps(&mut mem);
 
     mem.messages.spawn.flush();
@@ -75,4 +76,10 @@ pub fn game_loop() {
     mem.screeps_serialize();
 
     visuals::draw();
+}
+
+fn update_truck_coordinators(mem: &mut Memory) {
+    for (colony, colony_data) in &mem.colonies {
+        mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan);
+    }
 }

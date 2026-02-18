@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::LazyLock};
 
 use log::error;
 use screeps::{RoomName, game};
@@ -47,6 +47,8 @@ impl ColonyStep {
         ColonyStepIterator { step: ColonyStep::default() }
     }
 }
+
+pub static LAST_COLONY_STEP: LazyLock<ColonyStep> = LazyLock::new(|| ColonyStep::iter().last().unwrap());
 
 #[expect(clippy::unsafe_derive_deserialize)]
 #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]

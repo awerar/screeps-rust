@@ -47,7 +47,7 @@ pub struct MultiTasksQueue<R, const TIMEOUT: u32 = 5> {
 
 impl<R> Default for MultiTasksQueue<R> where R : Serialize + DeserializeOwned + Eq + Hash {
     fn default() -> Self {
-        Self { task_queue: Default::default(), tasks: Default::default(), creeps: Default::default() }
+        Self { task_queue: VecDeque::new(), tasks: HashMap::new(), creeps: HashMap::new() }
     }
 }
 
@@ -56,7 +56,7 @@ impl<T, const TIMEOUT: u32> MultiTasksQueue<T, TIMEOUT> where T : Hash + Eq + Cl
         let timed_out_creeps = self.creeps.iter()
             .filter(|(_, data)| data.last_heartbeat + TIMEOUT <= game::time())
             .map(|(creep, _)| creep)
-            .cloned()
+            .copied()
             .collect_vec();
 
         for creep in timed_out_creeps {
@@ -91,15 +91,14 @@ impl<T, const TIMEOUT: u32> MultiTasksQueue<T, TIMEOUT> where T : Hash + Eq + Cl
     pub fn assign_task_to(&mut self, creep: ObjectId<Creep>, contribution: u32, allow_under_contribution: bool) -> Option<T> {
         if self.creeps.contains_key(&creep) { self.finish(creep, false); }
 
-        let assignment = if allow_under_contribution  {
+        let (i, task) = if allow_under_contribution  {
             self.task_queue.front().map(|task| (0, task.clone()))
         } else { 
             self.task_queue.iter().enumerate()
                 .find(|(_, task)| self.tasks.get(*task).unwrap().left() >= contribution)
                 .map(|(i, task)| (i, task.clone()))
-        };
+        }?;
 
-        let Some((i, task)) = assignment else { return None };
         let task_data = self.tasks.get_mut(&task).unwrap();
         task_data.pending += contribution;
 
@@ -114,7 +113,7 @@ impl<T, const TIMEOUT: u32> MultiTasksQueue<T, TIMEOUT> where T : Hash + Eq + Cl
 
     pub fn set_tasks(&mut self, new_tasks: impl IntoIterator<Item = (T, u32)>) {
         let new_tasks = new_tasks.into_iter().filter(|(_, target)| *target > 0).collect_vec();
-        self.task_queue = VecDeque::from_iter(new_tasks.iter().map(|(task, _)| task.clone()));
+        self.task_queue = new_tasks.iter().map(|(task, _)| task.clone()).collect::<VecDeque<_>>();
 
         let new_task_set: HashSet<_> = new_tasks.iter()
             .map(|(task, _)| task.clone())
@@ -126,7 +125,7 @@ impl<T, const TIMEOUT: u32> MultiTasksQueue<T, TIMEOUT> where T : Hash + Eq + Cl
             self.tasks.remove(task);
             let removed_creeps = self.creeps.iter()
                 .filter(|(_, creep_data)| creep_data.current_task == *task)
-                .map(|(creep, _)| creep.clone())
+                .map(|(creep, _)| *creep)
                 .collect_vec();
 
             for creep in removed_creeps {

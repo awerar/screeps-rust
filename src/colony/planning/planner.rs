@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::{ColonyStep, LAST_COLONY_STEP}};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -144,11 +144,13 @@ impl ColonyPlanner {
             plan_steps.insert(step, plan_step);
         }
 
+        let center = self.compile_center()?;
+
         Ok(ColonyPlan { 
             steps: plan_steps,
-            center: self.compile_center()?,
-            sources: self.compile_sources()?,
-            mineral: self.compile_mineral()?,
+            sources: self.compile_sources(center.pos.xy())?,
+            mineral: self.compile_mineral(center.pos.xy())?,
+            center,
             controller: PlannedStructureBuiltRef::new(self.room.controller().ok_or("No controller")?.pos())
         })
     }
@@ -171,16 +173,19 @@ impl ColonyPlanner {
         })
     }
 
-    fn compile_sources(&self) -> Result<SourcesPlan, String> {
+    fn compile_sources(&self, center: RoomXY) -> Result<SourcesPlan, String> {
         use PlannedStructure::*;
 
         Ok(SourcesPlan{
             source_plans: self.room.find(find::SOURCES, None).into_iter()
                 .map(|source| source.id())
                 .map(|source| {
+                    let container = self.get_structure_ref(SourceContainer(source))?;
+
                     let plan = SourcePlan {
+                        distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
                         spawn: self.get_structure_ref(SourceSpawn(source))?.into(),
-                        container: self.get_structure_ref(SourceContainer(source))?.into(),
+                        container: container.into(),
                         link: self.get_structure_ref(SourceLink(source))?.into(),
                         extensions: self.get_structure_refs(SourceExtension(source)),
                     };
@@ -196,11 +201,14 @@ impl ColonyPlanner {
         })
     }
 
-    fn compile_mineral(&self) -> Result<MineralPlan, String> {
+    fn compile_mineral(&self, center: RoomXY) -> Result<MineralPlan, String> {
         use PlannedStructure::*;
 
-        Ok(MineralPlan { 
-            container: self.get_structure_ref(MineralContainer)?.into(),
+        let container = self.get_structure_ref(MineralContainer)?;
+
+        Ok(MineralPlan {
+            distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
+            container: container.into(),
             extractor: self.get_structure_ref(Extractor)?.into(), 
         })
     }
@@ -299,7 +307,9 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: ColonyStep) -> Vec<Step> {
+    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: Option<ColonyStep>) -> Vec<Step> {
+        let step = step.unwrap_or_else(|| *LAST_COLONY_STEP);
+
         let mut cost_matrix = self.cost_matrix.clone();
 
         let built_roads = self.roads.iter()
@@ -324,7 +334,7 @@ impl ColonyPlanner {
     }
 
     pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyStep) {
-        let path = self.find_path_between(point1, point2, step);
+        let path = self.find_path_between(point1, point2, Some(step));
 
         let mut pos = Position::new(point1.x, point1.y, self.room.name());
         for path_step in &path {

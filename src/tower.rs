@@ -1,5 +1,5 @@
 use log::error;
-use screeps::{StructureObject, StructureTower, StructureType, find, game, prelude::*};
+use screeps::{StructureObject, StructureTower, find, game, prelude::*};
 
 const FIX_THRESHOLD: f32 = 0.5;
 

@@ -52,7 +52,6 @@ impl ColonyBuffer {
         }
     }
 
-    #[expect(unused)]
     pub fn transferable(&self) -> &dyn Transferable {
         match self {
             ColonyBuffer::Container(container) => container,
@@ -60,7 +59,6 @@ impl ColonyBuffer {
         }
     }
 
-    #[expect(unused)]
     pub fn store(&self) -> Store {
         match self {
             ColonyBuffer::Container(container) => container.store(),
@@ -127,6 +125,7 @@ pub fn update_rooms(mem: &mut Memory) {
     let lost_rooms = prev_rooms.difference(&curr_rooms);
     for room in lost_rooms {
         mem.colonies.remove(room);
+        mem.truck_coordinators.remove(room);
         warn!("Lost room {room}");
     }
 

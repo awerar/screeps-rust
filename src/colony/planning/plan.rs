@@ -46,12 +46,16 @@ pub struct SourcePlan {
     pub container: OptionalPlannedStructureRef<StructureContainer>,
     pub link: OptionalPlannedStructureRef<StructureLink>,
     pub extensions: PlannedStructureRefs<StructureExtension>,
+
+    pub distance: u32
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MineralPlan {
     pub container: OptionalPlannedStructureRef<StructureContainer>,
-    pub extractor: OptionalPlannedStructureRef<StructureExtractor>
+    pub extractor: OptionalPlannedStructureRef<StructureExtractor>,
+
+    pub distance: u32
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
