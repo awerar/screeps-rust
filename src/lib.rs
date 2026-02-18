@@ -1,5 +1,7 @@
 #![feature(map_try_insert)]
 #![feature(variant_count)]
+#![feature(assert_matches)]
+#![feature(trait_alias)]
 
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
@@ -27,6 +29,7 @@ mod pathfinding;
 mod visuals;
 mod statemachine;
 mod commands;
+mod tasks;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

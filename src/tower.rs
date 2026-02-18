@@ -37,7 +37,6 @@ fn do_tower(tower: &StructureTower) -> Option<()> {
 
     let structures = room.find(find::STRUCTURES, None);
     let repairable = structures.iter()
-        .filter(|structure| structure.structure_type() == StructureType::Road)
         .filter_map(|structure| structure.as_repairable().map(|repairable| (repairable, structure)))
         .filter(|(repairable, _)| repairable.hits() < (repairable.hits_max() as f32 * FIX_THRESHOLD) as u32)
         .min_by_key(|(_, structure)| tower.pos().get_range_to(structure.pos()))

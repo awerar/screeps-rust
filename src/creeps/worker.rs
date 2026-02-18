@@ -169,7 +169,6 @@ fn is_empty(creep: &Creep) -> bool {
 fn try_repair(creep: &Creep) {
     let structures = creep.pos().find_in_range(find::STRUCTURES, 3);
     let repair_structures: Vec<_> = structures.iter()
-        .filter(|structure| matches!(structure.structure_type(), StructureType::Road))
         .filter_map(|structure| structure.as_repairable())
         .filter(|repairable| repairable.hits() <= ((repairable.hits_max() as f32) * REPAIR_THRESHOLD) as u32)
         .collect();

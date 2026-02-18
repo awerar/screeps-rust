@@ -6,7 +6,7 @@ use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::ColonyData, creeps::CreepData, messages::Messages, movement::Movement, remote_build::RemoteBuildRequests};
+use crate::{callbacks::Callbacks, colony::ColonyData, creeps::{CreepData, truck::TruckTaskCoordinator}, messages::Messages, movement::Movement, remote_build::RemoteBuildRequests};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -33,6 +33,7 @@ pub struct Memory {
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: HashSet<Position>,
     #[serde(default)] pub remote_build_requests: RemoteBuildRequests,
+    #[serde(default)] pub truck_coordinators: HashMap<RoomName, TruckTaskCoordinator>,
 
     #[serde(default)] pub messages: Messages
 }

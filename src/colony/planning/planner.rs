@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef}}, steps::ColonyStep};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -210,13 +210,13 @@ impl ColonyPlanner {
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
     }
 
-    pub fn get_structure_refs<T>(&self, structure: PlannedStructure) -> Vec<PlannedStructureRef<T>> {
-        let Some(positions) = self.structures2pos.get(&structure) else { return Vec::new() };
+    pub fn get_structure_refs<T>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
+        let Some(positions) = self.structures2pos.get(&structure) else { return PlannedStructureRefs(Vec::new()) };
 
-        positions.iter()
+        PlannedStructureRefs(positions.iter()
             .copied()
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
-            .collect()
+            .collect())
     }
 
     pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyStep) -> u32 {

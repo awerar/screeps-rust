@@ -5,23 +5,79 @@ use screeps::{ConstructionSite, MaybeHasId, ObjectId, OwnedStructureProperties, 
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
+pub trait StructureRefReq = JsCast + MaybeHasId + ConstructionType where StructureObject : TryInto<Self>;
+pub trait ResolvableRef<T> { fn resolve(&self) -> Option<T>; }
+pub trait ResolvableRefs<T> { fn resolve(&self) -> Vec<T>; }
+
+pub trait ResolvableStructureRef<T> { fn resolve_structure(&self) -> Option<T>; }
+impl<R: ResolvableRef<T>, T: StructureRefReq> ResolvableStructureRef<T> for R {
+    fn resolve_structure(&self) -> Option<T> {
+        self.resolve()
+    }
+}
+
+pub trait ResolvableSiteRef { fn resolve_site(&self) -> Option<ConstructionSite>; }
+impl<R: ResolvableRef<ConstructionSite>> ResolvableSiteRef for R {
+    fn resolve_site(&self) -> Option<ConstructionSite> {
+        self.resolve()
+    }
+}
+
+pub trait ResolvableStructureRefs<T> { fn resolve_structures(&self) -> Vec<T>; }
+impl<R: ResolvableRefs<T>, T: StructureRefReq> ResolvableStructureRefs<T> for R {
+    fn resolve_structures(&self) -> Vec<T> {
+        self.resolve()
+    }
+}
+
+pub trait ResolvableSiteRefs<T> { fn resolve_sites(&self) -> Vec<T>; }
+impl<R: ResolvableRefs<T>, T: StructureRefReq> ResolvableSiteRefs<T> for R {
+    fn resolve_sites(&self) -> Vec<T> {
+        self.resolve()
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Deref, Clone)]
+#[serde(bound = "")]
+pub struct PlannedStructureRefs<T>(pub Vec<PlannedStructureRef<T>>);
+
+impl<T: StructureRefReq> PlannedStructureRefs<T> {
+    pub fn are_completed(&self) -> bool {
+        self.0.iter().all(PlannedStructureRef::is_complete)
+    }
+}
+
+impl<T: StructureRefReq> ResolvableRefs<T> for PlannedStructureRefs<T> {
+    fn resolve(&self) -> Vec<T> {
+        self.0.iter().filter_map(PlannedStructureRef::resolve).collect()
+    }
+}
+
+impl<T: StructureRefReq> ResolvableRefs<ConstructionSite> for PlannedStructureRefs<T> {
+    fn resolve(&self) -> Vec<ConstructionSite> {
+        self.0.iter().filter_map(PlannedStructureRef::resolve).collect()
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Default, Deref)]
 #[serde(bound = "")]
 pub struct OptionalPlannedStructureRef<T>(pub Option<PlannedStructureRef<T>>);
 
-impl<T> OptionalPlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
-    pub fn resolve(&self) -> Option<T> {
-        self.0.as_ref().and_then(PlannedStructureRef::resolve)
-    }
-
-    pub fn resolve_site(&self) -> Option<ConstructionSite> {
-        self.0.as_ref().and_then(PlannedStructureRef::resolve_site)
-    }
-    
-    #[expect(unused)]
+impl<T: StructureRefReq> OptionalPlannedStructureRef<T> {
     pub fn is_complete(&self) -> bool {
         self.0.as_ref().is_some_and(PlannedStructureRef::is_complete)
+    }
+}
+
+impl<T: StructureRefReq> ResolvableRef<T> for OptionalPlannedStructureRef<T> {
+    fn resolve(&self) -> Option<T> {
+        self.0.as_ref().and_then(|structure| structure.resolve())
+    }
+}
+
+impl<T: StructureRefReq> ResolvableRef<ConstructionSite> for OptionalPlannedStructureRef<T> {
+    fn resolve(&self) -> Option<ConstructionSite> {
+        self.0.as_ref().and_then(|structure| structure.resolve())
     }
 }
 
@@ -52,7 +108,7 @@ impl<T> PlannedStructureRef<T> {
     }
 }
 
-impl<T> PlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
+impl<T: StructureRefReq> PlannedStructureRef<T> {
     pub fn is_complete(&self) -> bool {
         self.structure.resolve().is_some()
     }
@@ -61,16 +117,19 @@ impl<T> PlannedStructureRef<T> where T : JsCast + MaybeHasId + ConstructionType,
         self.site.resolve().is_some()
     }
 
-    #[expect(unused)]
     pub fn is_empty(&self) -> bool {
         !self.is_complete() && !self.is_being_built()
     }
+}
 
-    pub fn resolve(&self) -> Option<T> {
+impl<T : StructureRefReq> ResolvableRef<T> for PlannedStructureRef<T> {
+    fn resolve(&self) -> Option<T> {
         self.structure.resolve()
     }
+}
 
-    pub fn resolve_site(&self) -> Option<ConstructionSite> {
+impl<T : StructureRefReq> ResolvableRef<ConstructionSite> for PlannedStructureRef<T> {
+    fn resolve(&self) -> Option<ConstructionSite> {
         self.site.resolve()
     }
 }
@@ -89,8 +148,8 @@ impl<T> PlannedStructureBuiltRef<T> {
     }
 }
 
-impl<T> PlannedStructureBuiltRef<T> where T : JsCast + MaybeHasId + ConstructionType, StructureObject : TryInto<T> {
-    pub fn resolve(&self) -> Option<T> {
+impl<T: StructureRefReq> ResolvableRef<T> for PlannedStructureBuiltRef<T> {
+    fn resolve(&self) -> Option<T> {
         let id = *self.id.borrow();
         if let Some(id) = id {
             if let Some(structure) = ObjectId::<T>::from(id).resolve() {
@@ -121,10 +180,7 @@ pub struct PlannedStructureSiteRef<T> {
     phantom: PhantomData<T>
 }
 
-pub trait ConstructionType {
-    fn structure_type() -> StructureType;
-}
-
+pub trait ConstructionType { fn structure_type() -> StructureType; }
 impl ConstructionType for StructureContainer { fn structure_type() -> StructureType { StructureType::Container } }
 impl ConstructionType for StructureSpawn { fn structure_type() -> StructureType { StructureType::Spawn } }
 impl ConstructionType for StructureStorage { fn structure_type() -> StructureType { StructureType::Storage } }
@@ -138,14 +194,14 @@ impl<T> PlannedStructureSiteRef<T> {
     }
 }
 
-impl<T> PlannedStructureSiteRef<T> where T : ConstructionType {
-    pub fn resolve(&self) -> Option<ConstructionSite> {
+impl<T: ConstructionType> ResolvableRef<ConstructionSite> for PlannedStructureSiteRef<T> {
+    fn resolve(&self) -> Option<ConstructionSite> {
         let id = *self.id.borrow();
         if let Some(id) = id {
             if let Some(site) = id.resolve() {
                 return Some(site);
             }
-            
+
             self.id.replace(None);
         }
 
