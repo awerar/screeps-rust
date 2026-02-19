@@ -1,7 +1,9 @@
+use std::u32;
+
 use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Position, ResourceType, SharedCreepProperties, Store, Structure, StructureObject, Transferable, Withdrawable, action_error_codes::{TransferErrorCode, WithdrawErrorCode}};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, memory::Memory, statemachine::StateMachine, tasks::{MultiTasksQueue, ScheduledTask, TaskPriority}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, memory::Memory, statemachine::{StateMachine, Transition}, tasks::{MultiTasksQueue, ScheduledTask, TaskAmount, TaskPriority}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub enum TruckCreep {
@@ -18,7 +20,9 @@ pub enum TruckTask {
 }
 
 impl StateMachine<Creep> for TruckCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
+    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
+        use Transition::*;
+
         let buffer = mem.creep_home(creep).ok_or(())?.buffer().ok_or(())?;
         let coordinator = mem.truck_coordinators.entry(mem.creep(creep).unwrap().home).or_default();
 
@@ -32,30 +36,28 @@ impl StateMachine<Creep> for TruckCreep {
 
                 if creep_energy > 0 {
                     let consumer = coordinator.consumers.assign_task_to(creep, creep_energy, true);
-                    if let Some(consumer) = consumer { return Ok(Self::Performing(TruckTask::ProvidingTo(consumer))) }
+                    if let Some(consumer) = consumer { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))) }
 
-                    if buffer_free_capacity >= 0 { return Ok(Self::StoringAway) }
-
-                    Ok(Self::Idle)
+                    if buffer_free_capacity >= 0 { return Ok(Continue(Self::StoringAway)) }
                 } else {
                     let full_provider = coordinator.providers.assign_task_to(creep, creep_free_capacity, false);
-                    if let Some(provider) = full_provider { return Ok(Self::Performing(TruckTask::CollectingFrom(provider))) }
+                    if let Some(provider) = full_provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
 
                     if buffer_energy > 0 {
                         let consumer = coordinator.consumers.assign_task_to(creep, creep_free_capacity, true);
-                        if let Some(consumer) = consumer { return Ok(Self::FillingUpFor(consumer)) }
+                        if let Some(consumer) = consumer { return Ok(Continue(Self::FillingUpFor(consumer))) }
                     }
 
                     let fractional_provider = coordinator.providers.assign_task_to(creep, creep_free_capacity, true);
-                    if let Some(provider) = fractional_provider { return Ok(Self::Performing(TruckTask::CollectingFrom(provider))) }
-
-                    Ok(Self::Idle)
+                    if let Some(provider) = fractional_provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
                 }
+
+                Ok(Stay)
             },
             Self::Performing(task) => {
                 if !task.still_valid() {
                     coordinator.finish(creep, task, false);
-                    return Ok(Self::Idle)
+                    return Ok(Continue(Self::Idle))
                 }
 
                 coordinator.heartbeat(creep, task);
@@ -64,35 +66,35 @@ impl StateMachine<Creep> for TruckCreep {
                 if creep.pos().is_near_to(target) {
                     task.perform(creep)?;
                     coordinator.finish(creep, task, true);
-                    Ok(Self::Idle)
+                    Ok(Break(Self::Idle))
                 } else {
                     mem.movement.smart_move_creep_to(creep, target).ok();
-                    Ok(self.clone())
+                    Ok(Stay)
                 }
             },
             Self::FillingUpFor(consumer) => {
                 if buffer_energy == 0 {
                     coordinator.consumers.finish(creep.try_id().unwrap(), consumer, false);
-                    return Ok(Self::Idle)
+                    return Ok(Continue(Self::Idle))
                 }
 
                 coordinator.consumers.heartbeat(creep, consumer);
 
                 if creep.pos().is_near_to(buffer.pos()) {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
-                    Ok(Self::Performing(TruckTask::ProvidingTo(*consumer)))
+                    Ok(Break(Self::Performing(TruckTask::ProvidingTo(*consumer))))
                 } else {
                     mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(self.clone())
+                    Ok(Stay)
                 }
             },
             Self::StoringAway => {
                 if creep.pos().is_near_to(buffer.pos()) {
                     creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
-                    Ok(Self::Idle)
+                    Ok(Break(Self::Idle))
                 } else {
                     mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(self.clone())
+                    Ok(Stay)
                 }
             },
         }
@@ -138,15 +140,16 @@ impl TruckTaskCoordinator {
         self.providers.handle_timeouts();
 
         let mut providers = Vec::new();
-        providers.extend(plan.center.link.resolve_provider_task(2));
-        providers.extend(plan.sources.source_containers.resolve_provider_tasks(1));
+        providers.extend(plan.center.link.resolve_provider_task(3, None));
+        providers.extend(plan.sources.source_containers.resolve_provider_tasks(2));
+        providers.extend(plan.center.terminal.resolve_provider_task(1, Some(10_000)));
         self.providers.set_tasks(providers);
 
         let mut consumers = Vec::new();
-        consumers.extend(plan.center.spawn.resolve_consumer_task(4));
+        consumers.extend(plan.center.spawn.resolve_consumer_task(4, None));
         consumers.extend(plan.center.extensions.resolve_consumer_tasks(3));
         consumers.extend(plan.center.towers.resolve_consumer_tasks(2));
-        consumers.extend(plan.center.terminal.resolve_consumer_task(1));
+        consumers.extend(plan.center.terminal.resolve_consumer_task(1, Some(2_000)));
         self.consumers.set_tasks(consumers);
     }
 
@@ -197,13 +200,14 @@ impl ProviderId {
     }
 }
 
-trait ResolvableProviderTaskRef { fn resolve_provider_task(&self, priority: TaskPriority) -> Option<ScheduledTask<ProviderId>>; }
+trait ResolvableProviderTaskRef { fn resolve_provider_task(&self, priority: TaskPriority, min_leave: Option<TaskAmount>) -> Option<ScheduledTask<ProviderId>>; }
 impl<R: ResolvableStructureRef> ResolvableProviderTaskRef for R where R::Structure : ProviderReqs + StructureRefReq {
-    fn resolve_provider_task(&self, priority: TaskPriority) -> Option<ScheduledTask<ProviderId>> {
+    fn resolve_provider_task(&self, priority: TaskPriority, min_leave: Option<TaskAmount>) -> Option<ScheduledTask<ProviderId>> {
         let provider = self.resolve()?;
+
        Some(ScheduledTask {
             priority,
-            target: provider.store().get_used_capacity(Some(ResourceType::Energy)),
+            target: provider.store().get_used_capacity(Some(ResourceType::Energy)).saturating_sub(min_leave.unwrap_or(0)),
             pos: provider.pos(),
             task: ProviderId::new(provider),
         })
@@ -213,7 +217,7 @@ impl<R: ResolvableStructureRef> ResolvableProviderTaskRef for R where R::Structu
 impl<T : ProviderReqs + StructureRefReq> PlannedStructureRefs<T> {
     fn resolve_provider_tasks(&self, priority: TaskPriority) -> Vec<ScheduledTask<ProviderId>> {
         self.0.iter()
-            .filter_map(|provider| provider.resolve_provider_task(priority))
+            .filter_map(|provider| provider.resolve_provider_task(priority, None))
             .collect()
     }
 }
@@ -240,13 +244,16 @@ impl ConsumerId {
     }
 }
 
-trait ResolvableConsumerTaskRef { fn resolve_consumer_task(&self, priority: TaskPriority) -> Option<ScheduledTask<ConsumerId>>; }
+trait ResolvableConsumerTaskRef { fn resolve_consumer_task(&self, priority: TaskPriority, max_fill: Option<TaskAmount>) -> Option<ScheduledTask<ConsumerId>>; }
 impl<R: ResolvableStructureRef> ResolvableConsumerTaskRef for R where R::Structure : ConsumerReqs + StructureRefReq {
-    fn resolve_consumer_task(&self, priority: TaskPriority) -> Option<ScheduledTask<ConsumerId>> {
+    fn resolve_consumer_task(&self, priority: TaskPriority, max_fill: Option<TaskAmount>) -> Option<ScheduledTask<ConsumerId>> {
         let consumer = self.resolve()?;
+        let capacity = max_fill.unwrap_or(consumer.store().get_capacity(Some(ResourceType::Energy)));
+        let used = consumer.store().get_used_capacity(Some(ResourceType::Energy));
+
         Some(ScheduledTask {
             priority,
-            target: consumer.store().get_used_capacity(Some(ResourceType::Energy)),
+            target: capacity.saturating_sub(used),
             pos: consumer.pos(),
             task: ConsumerId::new(consumer),
         })
@@ -256,7 +263,7 @@ impl<R: ResolvableStructureRef> ResolvableConsumerTaskRef for R where R::Structu
 impl<T : ConsumerReqs + StructureRefReq> PlannedStructureRefs<T> {
     fn resolve_consumer_tasks(&self, priority: TaskPriority) -> Vec<ScheduledTask<ConsumerId>> {
         self.0.iter()
-            .filter_map(|consumer| consumer.resolve_consumer_task(priority))
+            .filter_map(|consumer| consumer.resolve_consumer_task(priority, None))
             .collect()
     }
 }

@@ -2,7 +2,7 @@ use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, statemachine::StateMachine};
+use crate::{memory::Memory, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
 pub enum FlagshipCreep {
@@ -13,26 +13,27 @@ pub enum FlagshipCreep {
 }
 
 impl StateMachine<Creep> for FlagshipCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
+    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
         use FlagshipCreep::*;
+        use Transition::*;
 
         match &self {
             Idle => {
                 if let Some(position) = mem.claim_requests.iter().next() {
-                    Ok(GoingTo(*position))
+                    Ok(Continue(GoingTo(*position)))
                 } else {
-                    Ok(self.clone())
+                    Ok(Stay)
                 }
             },
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name() {
                     if let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Claiming(*target, controller.id()))
+                        return Ok(Continue(Claiming(*target, controller.id())))
                     }
                 }
 
                 mem.movement.smart_move_creep_to(creep, *target).ok();
-                Ok(self.clone())
+                Ok(Stay)
             }
             Claiming(request, controller) => {
                 let controller = controller.resolve().ok_or(())?;
@@ -43,7 +44,7 @@ impl StateMachine<Creep> for FlagshipCreep {
                             info!("Sucessfully claimed controller!");
                             mem.claim_requests.remove(request);
 
-                            return Ok(Idle)
+                            return Ok(Continue(Idle))
                         },
                         Err(ClaimControllerErrorCode::InvalidTarget) => {
                             creep.attack_controller(&controller).ok();
@@ -52,14 +53,14 @@ impl StateMachine<Creep> for FlagshipCreep {
                             warn!("Unable to claim controller!");
                             mem.claim_requests.remove(request);
 
-                            return Ok(Idle)
+                            return Ok(Continue(Idle))
                         }
                     }
                 } else {
                     mem.movement.smart_move_creep_to(creep, &controller).ok();
                 }
 
-                Ok(self.clone())
+                Ok(Stay)
             },
         }
     }

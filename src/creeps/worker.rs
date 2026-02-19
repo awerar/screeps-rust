@@ -8,7 +8,7 @@ use screeps::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyData, memory::Memory, statemachine::StateMachine};
+use crate::{colony::ColonyData, memory::Memory, statemachine::{StateMachine, Transition}};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -181,8 +181,9 @@ fn try_repair(creep: &Creep) {
 }
 
 impl StateMachine<Creep> for WorkerCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
+    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
         use WorkerCreep::*;
+        use Transition::*;
     
         match &self {
             Idle => {
@@ -213,31 +214,37 @@ impl StateMachine<Creep> for WorkerCreep {
                     }
                 }
 
-                Ok(next_state)
+                if next_state != Idle {
+                    Ok(Continue(next_state))
+                } else {
+                    Ok(Stay)
+                }
             },
             Harvesting(source) => {
                 let source = source.resolve().ok_or(())?;
 
-                mem.movement.smart_move_creep_to(creep, &source).ok();
                 if creep.pos().is_near_to(source.pos()) {
                     use HarvestErrorCode::*;
                     if let Err(Tired) = creep.harvest(&source) {
-                        return Ok(Idle)
+                        return Ok(Continue(Idle))
                     }
+
+                    if is_full(creep) { return Ok(Continue(Idle)) }
+                } else {
+                    mem.movement.smart_move_creep_to(creep, &source).ok();
                 }
 
-                if is_full(creep) { Ok(Idle) }
-                else { Ok(self.clone()) }
+                Ok(Stay)
             },
             PickingUp(resource) => {
-                let Some(resource) = resource.resolve() else { return Ok(Idle) };
+                let Some(resource) = resource.resolve() else { return Ok(Continue(Idle)) };
 
                 if creep.pos().is_near_to(resource.pos()) {
                     creep.pickup(&resource).ok();
-                    Ok(Idle)
+                    Ok(Continue(Idle))
                 } else {
                     mem.movement.smart_move_creep_to(creep, &resource).ok();
-                    Ok(self.clone())
+                    Ok(Stay)
                 }
             }
             Distributing(target) => {
@@ -249,24 +256,24 @@ impl StateMachine<Creep> for WorkerCreep {
                     try_repair(creep);
                 }
 
-                if !target.still_valid() { return Ok(Idle) }
+                if !target.still_valid() { return Ok(Continue(Idle)) }
 
                 let target_pos = target.pos().ok_or(())?;
                 mem.movement.smart_move_creep_to(creep, target_pos).ok();
 
                 if creep.pos().get_range_to(target_pos) <= target.range()
                     && target.distribute(creep).is_none() {
-                        return Ok(Idle)
+                        return Ok(Continue(Idle))
                     }
 
                 if let DistributionTarget::ConstructionSite(site) = target {
                     if site.resolve().is_none() {
-                        return Ok(Idle)
+                        return Ok(Continue(Idle))
                     }
                 }
 
-                if is_empty(creep) { Ok(Idle) }
-                else { Ok(self.clone()) }
+                if is_empty(creep) { Ok(Continue(Idle)) }
+                else { Ok(Stay) }
             },
         }
     }

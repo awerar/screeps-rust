@@ -8,10 +8,10 @@
 #![allow(clippy::cast_sign_loss, clippy::cast_precision_loss )]
 
 use log::info;
-use screeps::game;
+use screeps::{StructureContainer, StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{creeps::do_creeps, memory::Memory, spawn::do_spawns, tower::do_towers};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -66,6 +66,7 @@ pub fn game_loop() {
     do_spawns(&mut mem);
 
     do_towers();
+    do_links(&mut mem);
 
     mem.movement.update_tick_end();
 
@@ -81,5 +82,23 @@ pub fn game_loop() {
 fn update_truck_coordinators(mem: &mut Memory) {
     for (colony, colony_data) in &mem.colonies {
         mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan);
+    }
+}
+
+fn do_links(mem: &mut Memory) {
+    for colony in mem.colonies.values() {
+        let central_link: Option<StructureLink> = colony.plan.center.link.resolve();
+        let Some(central_link) = central_link else { continue };
+
+        for source_plan in colony.plan.sources.source_plans.values() {
+            let source_link: Option<StructureLink> = source_plan.link.resolve();
+            let Some(source_link) = source_link else { continue };
+
+            if source_link.store().get_used_capacity(Some(screeps::ResourceType::Energy)) >= 400
+                && central_link.store().get_free_capacity(Some(screeps::ResourceType::Energy)) >= 400 {
+                    source_link.transfer_energy(&central_link, Some(400)).ok();
+                    break;
+                }
+        }
     }
 }

@@ -4,7 +4,7 @@ use log::error;
 use screeps::{RoomName, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, statemachine::StateMachine};
+use crate::{memory::Memory, statemachine::{StateMachine, Transition}};
 
 pub trait ColonyStepStateMachine where Self : Sized + Default + Eq + Debug + Clone + Ord {
     fn get_promotion(&self) -> Option<Self>;
@@ -12,12 +12,12 @@ pub trait ColonyStepStateMachine where Self : Sized + Default + Eq + Debug + Clo
 }
 
 impl<T> StateMachine<RoomName> for T where T : ColonyStepStateMachine {
-    fn update(&self, name: &RoomName, mem: &mut Memory) -> Result<Self, ()> {
+    fn update(&self, name: &RoomName, mem: &mut Memory) -> Result<Transition<Self>, ()> {
         Ok(match self.update_step(*name, mem)? {
-            ColonyStepTransition::None => self.clone(),
+            ColonyStepTransition::None => Transition::Stay,
             ColonyStepTransition::Promotion => 
-                self.get_promotion().ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self:?}"))?,
-            ColonyStepTransition::Demotion(demotion) => demotion,
+                self.get_promotion().map(Transition::Continue).ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self:?}"))?,
+            ColonyStepTransition::Demotion(demotion) => Transition::Break(demotion),
         })
     }
 }

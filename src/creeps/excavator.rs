@@ -1,7 +1,7 @@
 use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{CreepData, CreepRole, tugboat::TuggedCreep}, memory::Memory, statemachine::StateMachine};
+use crate::{creeps::{CreepData, CreepRole, tugboat::TuggedCreep}, memory::Memory, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum ExcavatorCreep {
@@ -17,8 +17,9 @@ impl Default for ExcavatorCreep {
 }
 
 impl StateMachine<Creep> for ExcavatorCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Self, ()> {
+    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
         use ExcavatorCreep::*;
+        use Transition::*;
 
         let Some(CreepData { role: CreepRole::Excavator(_, source), .. }) = mem.creep(creep) else { return Err(()) };
         let source = source.resolve().ok_or(())?;
@@ -34,15 +35,15 @@ impl StateMachine<Creep> for ExcavatorCreep {
                 let harvest_pos = plan.container.as_ref().ok_or(())?.pos;
                 tugged_state.move_tugged_to(creep, mem, harvest_pos, 0);
                 if tugged_state.is_finished() {
-                    Ok(Mining)
+                    Ok(Continue(Mining))
                 } else {
-                    Ok(Going(tugged_state))
+                    Ok(Break(Going(tugged_state)))
                 }
             },
             Mining => {
                 if creep.store().get_free_capacity(Some(ResourceType::Energy)) < (work_count * 2).try_into().unwrap() {
                     if let Some(site) = plan.get_construction_site() {
-                        Ok(Building(site.try_id().ok_or(())?))
+                        Ok(Continue(Building(site.try_id().ok_or(())?)))
                     } else {
                         let fillable = plan.get_fillable();
                         if let Some(fillable) = fillable {
@@ -52,20 +53,20 @@ impl StateMachine<Creep> for ExcavatorCreep {
                         }
                         
                         creep.harvest(&source).ok();
-                        Ok(Mining)
+                        Ok(Stay)
                     }
                 } else {
                     creep.harvest(&source).ok();
-                    Ok(Mining)
+                    Ok(Stay)
                 }
             },
             Building(site) => {
-                let Some(site) = site.resolve() else { return Ok(Mining) };
-                if creep.store().get(ResourceType::Energy).unwrap_or(0) < work_count * 5 { return Ok(Mining) }
+                let Some(site) = site.resolve() else { return Ok(Continue(Mining)) };
+                if creep.store().get(ResourceType::Energy).unwrap_or(0) < work_count * 5 { return Ok(Continue(Mining)) }
 
                 creep.build(&site).ok();
 
-                Ok(self.clone())
+                Ok(Stay)
             }
         }
     }

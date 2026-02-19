@@ -79,7 +79,8 @@ impl<T : Hash + Eq + Clone + Debug, const TIMEOUT: u32> MultiTasksQueue<T, TIMEO
 
     pub fn heartbeat(&mut self, creep: &Creep, task: &T) -> bool {
         let Some(task) = self.0.get_mut(task) else { return false };
-        task.creeps.get_mut(&creep.try_id().unwrap()).unwrap().last_heartbeat = game::time();
+        let Some(creep) = task.creeps.get_mut(&creep.try_id().unwrap()) else { return false };
+        creep.last_heartbeat = game::time();
         true
     }
 
