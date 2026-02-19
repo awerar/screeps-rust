@@ -285,21 +285,16 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
 
             let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
 
-            let body = if any_excavator_in_colony {
-                let excavator_carry = 2 - ((spawner.energy_capacity % 100) / 50) as usize;
+            let any_source_constructions = mem.colony(room.name()).unwrap()
+                .plan.sources.source_plans
+                .get(&source.id())
+                .is_some_and(|source_plan| source_plan.get_construction_site().is_some());
 
-                let any_source_constructions = mem.colony(room.name()).unwrap()
-                    .plan.sources.source_plans
-                    .get(&source.id())
-                    .is_some_and(|source_plan| source_plan.get_construction_site().is_some());
-
-                let target_excavator_works = if any_source_constructions { 7 } else { 5 };
-                let excavator_works = (spawner.energy_capacity as usize).saturating_sub(50 * excavator_carry).min(target_excavator_works);
-                
-                Body::from(Carry) * excavator_carry + Body::from(Work) * excavator_works
-            } else {
-                Body(vec![Work, Carry])
-            };
+            let energy = if any_excavator_in_colony { spawner.energy_capacity } else { spawner.energy_avaliable.max(300) };
+            let target_excavator_works = if any_source_constructions { 7 } else { 5 };
+            let excavator_works = (energy as usize).saturating_sub(50).min(target_excavator_works);
+            
+            let body = Body::from(Carry) + Body::from(Work) * excavator_works;
 
             let prototype = CreepPrototype { 
                 body, 
