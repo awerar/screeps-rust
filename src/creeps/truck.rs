@@ -1,21 +1,29 @@
 use itertools::Itertools;
-use screeps::{Creep, HasPosition, MaybeHasId, Position, ResourceType, SharedCreepProperties};
+use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::plan::ColonyPlan, creeps::truck::truck_stop::{Consumer, ProviderData, ConsumerTasks, Provider, ProviderTasks, ResolveConsumer, ResolveProvider, TruckStop}, memory::Memory, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{colony::planning::plan::ColonyPlan, creeps::truck::truck_stop::{Consumer, ConsumerTasks, GetResourceUsed, Provider, ProviderData, ProviderTasks, ResolveConsumer, ResolveProvider, TruckStop}, memory::Memory, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum TruckCreep {
     #[default] Idle,
     Performing(TruckTask),
     StoringAway,
-    FillingUpFor(TruckStop<Consumer>)
+    FillingUpFor(TruckStop<Structure, Consumer>)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum TruckTask {
-    CollectingFrom(TruckStop<Provider>),
-    ProvidingTo(TruckStop<Consumer>)
+    CollectingFrom(ProviderType),
+    ProvidingTo(TruckStop<Structure, Consumer>)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProviderType {
+    Ruin(TruckStop<Ruin, Provider>),
+    Resource(TruckStop<Resource, Provider>),
+    Tombstone(TruckStop<Tombstone, Provider>),
+    Structure(TruckStop<Structure, Provider>)
 }
 
 impl StateMachine<Creep> for TruckCreep {
@@ -100,7 +108,7 @@ impl TruckTask {
     fn pos(&self) -> Position {
         match self {
             TruckTask::CollectingFrom(provider) => provider.pos(),
-            TruckTask::ProvidingTo(consumer) => consumer.pos(),
+            TruckTask::ProvidingTo(consumer) => consumer.pos()
         }
     }
 
@@ -109,28 +117,28 @@ impl TruckTask {
             TruckTask::CollectingFrom(provider) => 
                 provider.withdraw(creep, ResourceType::Energy, None),
             TruckTask::ProvidingTo(consumer) => 
-                consumer.transfer(creep, ResourceType::Energy, None),
-        }
+                consumer.transfer(creep, ResourceType::Energy, None)
+        }   
     }
 
     fn still_valid(&self) -> bool {
         match self {
-            TruckTask::CollectingFrom(provider) => provider.resolve_store()
-                .is_some_and(|store| store.get_used_capacity(Some(ResourceType::Energy)) > 0),
-            TruckTask::ProvidingTo(consumer) => consumer.resolve_store()
-                .is_some_and(|store| store.get_free_capacity(Some(ResourceType::Energy)) > 0),
+            TruckTask::CollectingFrom(provider) => 
+                provider.get_resource_used(ResourceType::Energy).is_some_and(|amount| amount > 0),
+            TruckTask::ProvidingTo(consumer) =>
+                consumer.get_resource_free(ResourceType::Energy).is_some_and(|amount| amount > 0)
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckTaskCoordinator {
-    providers: TaskServer<TruckStop<Provider>, ProviderData>,
-    consumers: TaskServer<TruckStop<Consumer>, u32>
+    providers: TaskServer<ProviderType, ProviderData>,
+    consumers: TaskServer<TruckStop<Structure, Consumer>, u32>
 }
 
 impl TruckTaskCoordinator {
-    pub fn update(&mut self, plan: &ColonyPlan) {
+    pub fn update(&mut self, plan: &ColonyPlan, room: Room) {
         self.consumers.handle_timeouts();
         self.providers.handle_timeouts();
 
@@ -151,7 +159,7 @@ impl TruckTaskCoordinator {
     fn heartbeat(&mut self, creep: &Creep, task: &TruckTask) -> bool {
         match task {
             TruckTask::CollectingFrom(task) => self.providers.heartbeat_task(creep, task),
-            TruckTask::ProvidingTo(task) => self.consumers.heartbeat_task(creep, task),
+            TruckTask::ProvidingTo(task) => self.consumers.heartbeat_task(creep, task)
         }
     }
 
@@ -160,11 +168,11 @@ impl TruckTaskCoordinator {
             TruckTask::CollectingFrom(task) => 
                 self.providers.finish_task(creep.try_id().unwrap(), task, success),
             TruckTask::ProvidingTo(task) => 
-                self.consumers.finish_task(creep.try_id().unwrap(), task, success),
+                self.consumers.finish_task(creep.try_id().unwrap(), task, success)
         }
     }
 
-    fn assign_push_provider(&mut self, creep: &Creep) -> Option<TruckStop<Provider>> {
+    fn assign_push_provider(&mut self, creep: &Creep) -> Option<ProviderType> {
         let creep_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy)) as u32;
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
@@ -174,7 +182,7 @@ impl TruckTaskCoordinator {
         })
     }
 
-    fn assign_provider(&mut self, creep: &Creep) -> Option<TruckStop<Provider>> {
+    fn assign_provider(&mut self, creep: &Creep) -> Option<ProviderType> {
         let creep_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy)) as u32;
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
@@ -183,7 +191,7 @@ impl TruckTaskCoordinator {
         })
     }
 
-    fn assign_consumer(&mut self, creep: &Creep) -> Option<TruckStop<Consumer>> {
+    fn assign_consumer(&mut self, creep: &Creep) -> Option<TruckStop<Structure, Consumer>> {
         let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
         self.consumers.assign_task(creep, creep_energy, |tasks| {
             tasks.into_iter()
@@ -199,32 +207,13 @@ impl TruckTaskCoordinator {
 mod truck_stop {
     use std::{hash::Hash, marker::PhantomData};
 
-    use screeps::{Creep, HasId, HasPosition, HasStore, ObjectId, Position, ResourceType, SharedCreepProperties, Store, Structure, StructureObject, Withdrawable, action_error_codes::{TransferErrorCode, WithdrawErrorCode}};
+    use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable, action_error_codes::{TransferErrorCode, WithdrawErrorCode}};
     use serde::{Deserialize, Serialize};
+    use wasm_bindgen::JsCast;
 
-    use crate::{colony::planning::planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}, tasks::TaskAmount};
-    
+    use crate::{colony::planning::planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}, creeps::truck::ProviderType, tasks::TaskAmount};
+
     pub trait TruckStopType {}
-
-    #[derive(Serialize, Deserialize, Debug, Clone, Eq)]
-    pub struct TruckStop<T> {
-        id: ObjectId<Structure>,
-        pos: Position,
-        phantom: PhantomData<T>
-    }
-
-    impl<T> Hash for TruckStop<T> {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-            self.id.hash(state);
-
-        }
-    }
-
-    impl<T> PartialEq for TruckStop<T> {
-        fn eq(&self, other: &Self) -> bool {
-            self.id == other.id
-        }
-    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)] pub struct Consumer { }
     impl TruckStopType for Consumer {}
@@ -232,23 +221,76 @@ mod truck_stop {
     #[derive(Debug, Clone, PartialEq, Eq, Hash)] pub struct Provider { }
     impl TruckStopType for Provider {}
 
-    impl<T: TruckStopType> TruckStop<T> {
-        fn internal_new<S: Into<Structure>>(structure: S) -> Self {
-            let structure = structure.into();
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    #[serde(bound = "")]
+    pub struct TruckStop<I, T> {
+        id: ObjectId<I>,
+        pos: Position,
+        phantom: PhantomData<T>
+    }
 
-            Self {
-                id: structure.id(),
-                pos: structure.pos(),
-                phantom: PhantomData
-            }
+    impl<I, T> Hash for TruckStop<I, T> {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.id.hash(state);
+
         }
+    }
 
-        pub fn resolve_store(&self) -> Option<Store> {
+    impl<I, T> Eq for TruckStop<I, T> { }
+    impl<I, T> PartialEq for TruckStop<I, T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.id == other.id
+        }
+    }
+
+    impl<T : TruckStopType> TruckStop<Structure, T> {
+        fn from_structure<S: Into<Structure>>(structure: S) -> Self {
+            let structure = structure.into();
+            Self { id: structure.id(), pos: structure.pos(), phantom: PhantomData }
+        }
+    }
+
+    pub trait ResolveStore { fn resolve_store(&self) -> Option<Store>; }
+    impl<T: TruckStopType> ResolveStore for TruckStop<Structure, T> {
+        fn resolve_store(&self) -> Option<Store> {
             StructureObject::from(self.id.resolve()?).as_has_store().map(HasStore::store)
         }
     }
 
-    impl<T: TruckStopType> HasPosition for TruckStop<T> {
+    pub trait EntityWithStore: HasStore + JsCast + MaybeHasId {  }
+    impl EntityWithStore for Tombstone {}
+    impl EntityWithStore for Ruin {}
+    impl<T: TruckStopType, I : EntityWithStore> ResolveStore for TruckStop<I, T> {
+        fn resolve_store(&self) -> Option<Store> {
+            Some(self.id.resolve()?.store())
+        }
+    }
+
+    pub trait GetResourceUsed { fn get_resource_used(&self, ty: ResourceType) -> Option<u32>; }
+    impl<I> GetResourceUsed for TruckStop<I, Provider> where Self : ResolveStore {
+        fn get_resource_used(&self, ty: ResourceType) -> Option<u32> {
+            Some(self.resolve_store()?.get_used_capacity(Some(ty)))
+        }
+    }
+
+    impl GetResourceUsed for TruckStop<Resource, Provider> {
+        fn get_resource_used(&self, ty: ResourceType) -> Option<u32> {
+            let resource= self.id.resolve()?;
+            if resource.resource_type() == ty {
+                Some(resource.amount())
+            } else {
+                Some(0)
+            }
+        }
+    }
+
+    impl<I> TruckStop<I, Consumer> where Self : ResolveStore {
+        pub fn get_resource_free(&self, ty: ResourceType) -> Option<u32> {
+            Some(self.resolve_store()?.get_free_capacity(Some(ty)) as u32)
+        }
+    }
+
+    impl<T: TruckStopType, I> HasPosition for TruckStop<I, T> {
         #[doc = " Position of the object."]
         fn pos(&self) -> Position {
             self.pos
@@ -256,9 +298,9 @@ mod truck_stop {
     }
 
     pub trait ProviderReqs = Withdrawable + HasStore + Into<Structure>;
-    impl TruckStop<Provider> {
+    impl TruckStop<Structure, Provider> {
         pub fn new<S: ProviderReqs>(structure: S) -> Self {
-            Self::internal_new(structure)
+            Self::from_structure(structure)
         }
 
         pub fn withdraw(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), ()> {
@@ -270,9 +312,9 @@ mod truck_stop {
     }
 
     pub trait ConsumerReqs = Withdrawable + HasStore + Into<Structure>;
-    impl TruckStop<Consumer> {
+    impl TruckStop<Structure, Consumer> {
         pub fn new<S: ConsumerReqs>(structure: S) -> Self {
-            Self::internal_new(structure)
+            Self::from_structure(structure)
         }
 
         pub fn transfer(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), ()> {
@@ -283,29 +325,29 @@ mod truck_stop {
         }
     }
 
-    pub trait ResolveProvider { fn resolve_provider(&self) -> Option<TruckStop<Provider>>; }
+    pub trait ResolveProvider { fn resolve_provider(&self) -> Option<ProviderType>; }
     impl<R, S: ProviderReqs> ResolveProvider for R where R : ResolvableStructureRef<Structure = S> {
-        fn resolve_provider(&self) -> Option<TruckStop<Provider>> {
-            self.resolve().map(TruckStop::<Provider>::new)
+        fn resolve_provider(&self) -> Option<ProviderType> {
+            self.resolve().map(TruckStop::<Structure, Provider>::new).map(ProviderType::Structure)
         }
     }
 
-    pub trait ResolveConsumer { fn resolve_consumer(&self) -> Option<TruckStop<Consumer>>; }
+    pub trait ResolveConsumer { fn resolve_consumer(&self) -> Option<TruckStop<Structure, Consumer>>; }
     impl<R, S: ProviderReqs> ResolveConsumer for R where R : ResolvableStructureRef<Structure = S> {
-        fn resolve_consumer(&self) -> Option<TruckStop<Consumer>> {
-            self.resolve().map(TruckStop::<Consumer>::new)
+        fn resolve_consumer(&self) -> Option<TruckStop<Structure, Consumer>> {
+            self.resolve().map(TruckStop::<Structure, Consumer>::new)
         }
     }
 
     impl<S: ProviderReqs + StructureRefReq> PlannedStructureRefs<S> {
-        pub fn resolve_providers(&self) -> impl Iterator<Item = TruckStop<Provider>> {
-            self.resolve().into_iter().map(TruckStop::<Provider>::new)
+        pub fn resolve_providers(&self) -> impl Iterator<Item = ProviderType> {
+            self.resolve().into_iter().map(TruckStop::<Structure, Provider>::new).map(ProviderType::Structure)
         }
     }
 
     impl<S: ConsumerReqs + StructureRefReq> PlannedStructureRefs<S> {
-        pub fn resolve_consumers(&self) -> impl Iterator<Item = TruckStop<Consumer>> {
-            self.resolve().into_iter().map(TruckStop::<Consumer>::new)
+        pub fn resolve_consumers(&self) -> impl Iterator<Item = TruckStop<Structure, Consumer>> {
+            self.resolve().into_iter().map(TruckStop::<Structure, Consumer>::new)
         }
     }
 
@@ -316,14 +358,13 @@ mod truck_stop {
     }
 
     pub trait ProviderTasks { 
-        fn tasks(self, priority: u32, push_amount: Option<u32>, min_leave: Option<u32>) -> impl Iterator<Item = (TruckStop<Provider>, TaskAmount, ProviderData)>; 
+        fn tasks(self, priority: u32, push_amount: Option<u32>, min_leave: Option<u32>) -> impl Iterator<Item = (ProviderType, TaskAmount, ProviderData)>; 
     }
 
-    impl<I : IntoIterator<Item = TruckStop<Provider>>> ProviderTasks for I {
-        fn tasks(self, priority: u32, push_amount: Option<u32>, min_leave: Option<u32>) -> impl Iterator<Item = (TruckStop<Provider>, TaskAmount, ProviderData)> {
+    impl<I : IntoIterator<Item = ProviderType>> ProviderTasks for I {
+        fn tasks(self, priority: u32, push_amount: Option<u32>, min_leave: Option<u32>) -> impl Iterator<Item = (ProviderType, TaskAmount, ProviderData)> {
             self.into_iter().filter_map(move |provider| {
-                let store = provider.resolve_store()?;
-                let provide = store.get_used_capacity(Some(ResourceType::Energy)).saturating_sub(min_leave.unwrap_or(0));
+                let provide = provider.get_resource_used(ResourceType::Energy)?.saturating_sub(min_leave.unwrap_or(0));
 
                 Some((provider, provide, ProviderData { priority, push_amount }))
             })
@@ -331,11 +372,11 @@ mod truck_stop {
     }
 
     pub trait ConsumerTasks { 
-        fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (TruckStop<Consumer>, TaskAmount, u32)>; 
+        fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (TruckStop<Structure, Consumer>, TaskAmount, u32)>; 
     }
 
-    impl<I : IntoIterator<Item = TruckStop<Consumer>>> ConsumerTasks for I {
-        fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (TruckStop<Consumer>, TaskAmount, u32)> {
+    impl<I : IntoIterator<Item = TruckStop<Structure, Consumer>>> ConsumerTasks for I {
+        fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (TruckStop<Structure, Consumer>, TaskAmount, u32)> {
             self.into_iter().filter_map(move |consumer| {
                 let store = consumer.resolve_store()?;
                 let capacity = max_fill.unwrap_or(store.get_capacity(Some(ResourceType::Energy)));
