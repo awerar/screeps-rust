@@ -214,10 +214,10 @@ impl StateMachine<Creep> for WorkerCreep {
                     }
                 }
 
-                if next_state != Idle {
-                    Ok(Continue(next_state))
-                } else {
+                if next_state == Idle {
                     Ok(Stay)
+                } else {
+                    Ok(Continue(next_state))
                 }
             },
             Harvesting(source) => {

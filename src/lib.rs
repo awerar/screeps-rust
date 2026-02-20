@@ -8,7 +8,7 @@
 #![allow(clippy::cast_sign_loss, clippy::cast_precision_loss )]
 
 use log::info;
-use screeps::{StructureContainer, StructureLink, game};
+use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
 use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::do_spawns, tower::do_towers};

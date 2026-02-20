@@ -18,19 +18,14 @@ pub trait StateMachine<O> where Self : Sized {
     fn update(&self, underlying: &O, mem: &mut Memory) -> Result<Transition<Self>, ()>;
 }
 
-pub fn transition<S, O>(state: &S, underlying: &O, mem: &mut Memory) -> S where S : StateMachine<O> + Default + Eq + Debug + Clone, O : UnderlyingName {
+pub fn transition<S, O>(state: &S, underlying: &O, mem: &mut Memory) -> S where S : StateMachine<O> + Default + Debug + Clone, O : UnderlyingName {
     transition_counted(state, underlying, mem, 0)
 }
 
-fn transition_counted<S, O>(state: &S, underlying: &O, mem: &mut Memory, transition_count: usize) -> S where S : StateMachine<O> + Default + Eq + Debug + Clone, O : UnderlyingName {
+fn transition_counted<S, O>(state: &S, underlying: &O, mem: &mut Memory, transition_count: usize) -> S where S : StateMachine<O> + Default + Debug + Clone, O : UnderlyingName {
     let Ok(transition) = state.update(underlying, mem) else {
-        if *state == S::default() {
-            error!("{} failed on default state", underlying.name());
-            return S::default()
-        }
-
         error!("{} failed on state {state:?}. Falling back to default state", underlying.name());
-        return S::default() // TODO: This should probably execute the default state
+        return S::default()
     };
 
     match transition {
