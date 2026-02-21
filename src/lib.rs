@@ -81,7 +81,8 @@ pub fn game_loop() {
 
 fn update_truck_coordinators(mem: &mut Memory) {
     for (colony, colony_data) in &mem.colonies {
-        mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan);
+        let Some(room) = game::rooms().get(*colony) else { continue; };
+        mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan, &room);
     }
 }
 
