@@ -51,6 +51,7 @@ impl<R, D> Default for TaskServer<R, D> where R : Serialize + DeserializeOwned +
     }
 }
 
+// TODO: Gradual progress improvments
 impl<T : Hash + Eq + Clone, D, const TIMEOUT: u32> TaskServer<T, D, TIMEOUT> {
     pub fn handle_timeouts(&mut self) {
         let timed_out_creeps = self.0.iter()
@@ -97,9 +98,9 @@ impl<T : Hash + Eq + Clone, D, const TIMEOUT: u32> TaskServer<T, D, TIMEOUT> {
     }
 
     pub fn assign_task<F>(&mut self, creep: &Creep, contribution: TaskAmount, picker: F) -> Option<T>
-        where for<'a> F : FnOnce(Vec<(&'a T, TaskAmount, &D)>) -> Option<&'a T>
+        where for<'a> F : FnOnce(Vec<(&'a T, TaskAmount, &'a D)>) -> Option<(&'a T, TaskAmount, &'a D)>
     {
-        let task = { picker(self.get_avaliable_tasks().collect())?.clone() };
+        let task = { picker(self.get_avaliable_tasks().collect())?.0.clone() };
         self.start_task(creep, &task, contribution);
         Some(task)
     }

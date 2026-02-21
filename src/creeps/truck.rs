@@ -88,7 +88,7 @@ impl StateMachine<Creep> for TruckCreep {
                     return Ok(Continue(Self::Idle))
                 }
 
-                coordinator.heartbeat(creep, task);
+                if !coordinator.heartbeat(creep, task) { return Ok(Continue(Self::Idle)) }
 
                 if creep.pos().is_near_to(task.pos()) {
                     task.perform(creep)?;
@@ -105,7 +105,7 @@ impl StateMachine<Creep> for TruckCreep {
                     return Ok(Continue(Self::Idle))
                 }
 
-                coordinator.consumers.heartbeat_task(creep, consumer);
+                if !coordinator.consumers.heartbeat_task(creep, consumer) { return Ok(Continue(Self::Idle)) }
 
                 if creep.pos().is_near_to(buffer.pos()) {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
@@ -156,15 +156,19 @@ impl TruckTask {
 }
 
 #[derive(Serialize, Deserialize, Default)]
-pub struct TruckTaskCoordinator {
+pub struct TruckCoordinator {
     providers: TaskServer<ProviderTruckStop, ProviderTaskData>,
     consumers: TaskServer<ConsumerTruckStop, u32>
 }
 
-impl TruckTaskCoordinator {
+impl TruckCoordinator {
     pub fn update(&mut self, plan: &ColonyPlan, room: &Room, messages: Vec<TruckMessage>) {
         self.consumers.handle_timeouts();
         self.providers.handle_timeouts();
+
+        let messages = messages.into_iter()
+            .filter(|message| *message.room_name() == room.name())
+            .collect_vec();
 
         let mut providers = Vec::new();
         providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(7, Some(0), None));
@@ -207,7 +211,6 @@ impl TruckTaskCoordinator {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
                 .max_by_key(|(_, amount, data)| (data.priority, *amount))
-                .map(|(provider, _, _)| provider)
         })
     }
 
@@ -216,7 +219,6 @@ impl TruckTaskCoordinator {
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
                 .max_by_key(|(_, amount, data)| ((*amount).min(creep_capacity), data.priority))
-                .map(|(provider, _, _)| provider)
         })
     }
 
@@ -226,8 +228,7 @@ impl TruckTaskCoordinator {
             tasks.into_iter()
                 .max_set_by_key(|(_, _, priority)| *priority)
                 .into_iter()
-                .map(|(consumer, _, _)| consumer)
-                .min_by_key(|consumer| consumer.pos().get_range_to(creep.pos()))
+                .min_by_key(|(consumer, _, _)| consumer.pos().get_range_to(creep.pos()))
         })
     }
 }
@@ -313,7 +314,7 @@ impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStruct
 impl IntoConsumers for Vec<TruckMessage> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Consumer(id, pos) = message else { return None };
+            let TruckMessage::Consumer(id, pos, _) = message else { return None };
             Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(*id, *pos)))
         })
     }
@@ -335,7 +336,7 @@ impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStruct
 impl IntoProviders for Vec<TruckMessage> {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Provider(id, pos) = message else { return None };
+            let TruckMessage::Provider(id, pos, _) = message else { return None };
             Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(*id, *pos)))
         })
     }

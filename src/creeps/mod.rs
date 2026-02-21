@@ -11,7 +11,7 @@ mod worker;
 mod excavator;
 mod remote_builder;
 mod tugboat;
-mod fabricator;
+pub mod fabricator;
 pub mod truck;
 
 #[derive(Serialize, Deserialize, Clone)]

@@ -59,7 +59,7 @@ pub fn game_loop() {
         game::cpu::bucket()
     );
 
-    update_truck_coordinators(&mut mem);
+    update_coordinators(&mut mem);
     do_creeps(&mut mem);
 
     mem.messages.trucks.flush();
@@ -80,10 +80,11 @@ pub fn game_loop() {
     visuals::draw();
 }
 
-fn update_truck_coordinators(mem: &mut Memory) {
+fn update_coordinators(mem: &mut Memory) {
     for (colony, colony_data) in &mem.colonies {
         let Some(room) = game::rooms().get(*colony) else { continue; };
-        mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan, &room);
+        mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan, &room, mem.messages.trucks.read_all());
+        mem.fabricator_coordinators.entry(*colony).or_default().update(&room, colony_data.buffer());
     }
 }
 

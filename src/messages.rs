@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash, mem};
 
 use itertools::Itertools;
-use screeps::{Creep, ObjectId, Position, SharedCreepProperties};
+use screeps::{Creep, ObjectId, Position, RoomName, SharedCreepProperties};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
@@ -22,8 +22,17 @@ pub enum SpawnMessage {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum TruckMessage {
-    Provider(ObjectId<Creep>, Position),
-    Consumer(ObjectId<Creep>, Position),
+    Provider(ObjectId<Creep>, Position, RoomName),
+    Consumer(ObjectId<Creep>, Position, RoomName),
+}
+
+impl TruckMessage {
+    pub fn room_name(&self) -> &RoomName {
+        match self {
+            TruckMessage::Provider(_, _, room_name) | 
+            TruckMessage::Consumer(_, _, room_name) => room_name,
+        }
+    }
 }
 
 
