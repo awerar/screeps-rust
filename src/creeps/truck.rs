@@ -9,13 +9,13 @@ pub enum TruckCreep {
     #[default] Idle,
     Performing(TruckTask),
     StoringAway,
-    FillingUpFor(TruckStop<Consumer, Structure>)
+    FillingUpFor(ConsumerTruckStop)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum TruckTask {
     CollectingFrom(ProviderTruckStop),
-    ProvidingTo(TruckStop<Consumer, Structure>)
+    ProvidingTo(ConsumerTruckStop)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,22 +23,32 @@ pub enum ProviderTruckStop {
     Ruin(TruckStop<Provider, Ruin>),
     Resource(TruckStop<Provider, Resource>),
     Tombstone(TruckStop<Provider, Tombstone>),
-    Structure(TruckStop<Provider, Structure>)
+    Structure(TruckStop<Provider, Structure>),
+    Creep(TruckStop<Provider, Creep>)
 }
 
-pub type ConsumerTruckStop = TruckStop<Consumer, Structure>;
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConsumerTruckStop {
+    Structure(TruckStop<Consumer, Structure>),
+    Creep(TruckStop<Consumer, Creep>)
+}
 
 trait GetResourceAvaliable { fn get_resource_avaliable(&self, ty: ResourceType) -> Option<u32>; }
 trait Withdraw { fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()>; }
 trait Provide: GetResourceAvaliable + Withdraw + HasPosition {}
 impl Provide for ProviderTruckStop {}
 impl Provide for TruckStop<Provider, Structure> {}
+impl Provide for TruckStop<Provider, Creep> {}
 impl Provide for TruckStop<Provider, Ruin> {}
 impl Provide for TruckStop<Provider, Resource> {}
 impl Provide for TruckStop<Provider, Tombstone> {}
 
 trait GetResourceFree { fn get_resource_free(&self, ty: ResourceType) -> Option<u32>; }
 trait Transfer { fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()>; }
+trait Consume: GetResourceFree + GetResourceAvaliable + Transfer + HasPosition {}
+impl Consume for ConsumerTruckStop {}
+impl Consume for TruckStop<Consumer, Structure> {}
+impl Consume for TruckStop<Consumer, Creep> {}
 
 impl StateMachine<Creep> for TruckCreep {
     fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
@@ -227,6 +237,7 @@ impl ProviderTruckStop {
             ProviderTruckStop::Resource(truck_stop) => truck_stop,
             ProviderTruckStop::Tombstone(truck_stop) => truck_stop,
             ProviderTruckStop::Structure(truck_stop) => truck_stop,
+            ProviderTruckStop::Creep(truck_stop) => truck_stop
         }
     }
 }
@@ -250,16 +261,56 @@ impl HasPosition for ProviderTruckStop {
     }
 }
 
+impl ConsumerTruckStop {
+    fn get_consume(&self) -> &dyn Consume {
+        match self {
+            ConsumerTruckStop::Structure(truck_stop) => truck_stop,
+            ConsumerTruckStop::Creep(truck_stop) => truck_stop
+        }
+    }
+}
+
+impl GetResourceAvaliable for ConsumerTruckStop {
+    fn get_resource_avaliable(&self, ty: ResourceType) -> Option<u32> {
+        self.get_consume().get_resource_avaliable(ty)
+    }
+}
+
+impl GetResourceFree for ConsumerTruckStop {
+    fn get_resource_free(&self, ty: ResourceType) -> Option<u32> {
+        self.get_consume().get_resource_free(ty)
+    }
+}
+
+impl Transfer for ConsumerTruckStop {
+    fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
+        self.get_consume().creep_transfer(creep, ty)
+    }
+}
+
+impl HasPosition for ConsumerTruckStop {
+    #[doc = " Position of the object."]
+    fn pos(&self) -> Position {
+        self.get_consume().pos()
+    }
+}
+
 trait IntoConsumers { fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop>; }
 impl<R, S: ProviderStructureReqs> IntoConsumers for R where R : ResolvableStructureRef<Structure = S> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.resolve().map(ConsumerTruckStop::new)
+        self.resolve().map(TruckStop::<Consumer, Structure>::new).map(ConsumerTruckStop::Structure)
     }
 }
 
 impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStructureRefs<S> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.resolve().into_iter().map(ConsumerTruckStop::new)
+        self.resolve().into_iter().map(TruckStop::<Consumer, Structure>::new).map(ConsumerTruckStop::Structure)
+    }
+}
+
+impl IntoConsumers for Vec<Creep> {
+    fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
+        self.iter().map(TruckStop::<Consumer, Creep>::new).map(ConsumerTruckStop::Creep)
     }
 }
 
@@ -273,6 +324,12 @@ impl<R, S: ProviderStructureReqs> IntoProviders for R where R : ResolvableStruct
 impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStructureRefs<S> {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
         self.resolve().into_iter().map(TruckStop::<Provider, Structure>::new).map(ProviderTruckStop::Structure)
+    }
+}
+
+impl IntoProviders for Vec<Creep> {
+    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
+        self.iter().map(TruckStop::<Provider, Creep>::new).map(ProviderTruckStop::Creep)
     }
 }
 
@@ -315,11 +372,11 @@ impl<I : IntoIterator<Item = ProviderTruckStop>> CreateProviderTasks for I {
 }
 
 pub trait CreateConsumerTasks { 
-    fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (TruckStop<Consumer, Structure>, TaskAmount, u32)>; 
+    fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (ConsumerTruckStop, TaskAmount, u32)>; 
 }
 
 impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
-    fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (TruckStop<Consumer, Structure>, TaskAmount, u32)> {
+    fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (ConsumerTruckStop, TaskAmount, u32)> {
         self.into_iter().filter_map(move |consumer| {
             let used = consumer.get_resource_avaliable(ResourceType::Energy)?;
             let capacity_left = consumer.get_resource_free(ResourceType::Energy)?;
@@ -334,7 +391,7 @@ impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
 mod truck_stop {
     use std::{hash::Hash, marker::PhantomData};
 
-    use screeps::{Creep, HasId, HasPosition, HasStore, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
+    use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
     use serde::{Deserialize, Serialize};
     use wasm_bindgen::JsCast;
 
@@ -416,11 +473,27 @@ mod truck_stop {
         }
     }
 
+    impl<T : TruckStopType> TruckStop<T, Creep> {
+        pub fn new(creep: &Creep) -> Self {
+            Self {
+                id: creep.try_id().unwrap(),
+                pos: creep.pos(),
+                phantom: PhantomData
+            }
+        }
+    }
+
 
     trait ResolveStore { fn resolve_store(&self) -> Option<Store>; }
     impl<T: TruckStopType> ResolveStore for TruckStop<T, Structure> {
         fn resolve_store(&self) -> Option<Store> {
             StructureObject::from(self.id.resolve()?).as_has_store().map(HasStore::store)
+        }
+    }
+
+    impl<T: TruckStopType> ResolveStore for TruckStop<T, Creep> {
+        fn resolve_store(&self) -> Option<Store> {
+            self.id.resolve().map(|creep| creep.store())
         }
     }
 
@@ -466,10 +539,24 @@ mod truck_stop {
         }
     }
 
+    impl Transfer for TruckStop<Consumer, Creep> {
+        fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
+            let other_creep = self.id.resolve().ok_or(())?;
+            creep.transfer(&other_creep, ty, None).map_err(|_| ())
+        }
+    }
+
     impl Withdraw for TruckStop<Provider, Structure> {
         fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
             let structure = StructureObject::from(self.id.resolve().ok_or(())?);
             creep.withdraw(structure.as_withdrawable().ok_or(())?, ty, None).map_err(|_| ())
+        }
+    }
+
+    impl Withdraw for TruckStop<Provider, Creep> {
+        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
+            let other_creep = self.id.resolve().ok_or(())?;
+            other_creep.transfer(creep, ty, None).map_err(|_| ())
         }
     }
 

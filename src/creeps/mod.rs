@@ -4,13 +4,14 @@ use log::warn;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{truck::TruckCreep, excavator::ExcavatorCreep, flagship::FlagshipCreep, remote_builder::RemoteBuilderCreep, tugboat::TugboatCreep, worker::WorkerCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, remote_builder::RemoteBuilderCreep, truck::TruckCreep, tugboat::TugboatCreep, worker::WorkerCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
 
 mod flagship;
 mod worker;
 mod excavator;
 mod remote_builder;
 mod tugboat;
+mod fabricator;
 pub mod truck;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -38,6 +39,7 @@ impl CreepData {
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "RemoteBuilder" => CreepRole::RemoteBuilder(RemoteBuilderCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
+            "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())
                     .flat_map(|pos| pos.look_for(look::SOURCES))
@@ -61,8 +63,9 @@ pub enum CreepRole {
     Flagship(FlagshipCreep),
     RemoteBuilder(RemoteBuilderCreep),
     Tugboat(TugboatCreep, ObjectId<Creep>),
+    Truck(TruckCreep),
+    Fabricator(FabricatorCreep),
     Scrap(ObjectId<StructureSpawn>),
-    Truck(TruckCreep)
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
@@ -72,8 +75,9 @@ pub enum CreepType {
     Flagship,
     RemoteBuilder,
     Tugboat(ObjectId<Creep>),
+    Truck,
+    Fabricator,
     Scrap(ObjectId<StructureSpawn>),
-    Truck
 }
 
 impl CreepRole {
@@ -85,7 +89,8 @@ impl CreepRole {
             CreepRole::Excavator(_, source) => CreepType::Excavator(*source),
             CreepRole::Tugboat(_, tugged) => CreepType::Tugboat(*tugged),
             CreepRole::Scrap(source) => CreepType::Scrap(*source),
-            CreepRole::Truck(_) => CreepType::Truck
+            CreepRole::Truck(_) => CreepType::Truck,
+            CreepRole::Fabricator(_) => CreepType::Fabricator,
         }
     }
 }
@@ -99,7 +104,8 @@ impl CreepType {
             CreepType::Excavator(_) => "Excavator",
             CreepType::Tugboat(_) => "Tugboat",
             CreepType::Scrap(_) => "Scrap",
-            CreepType::Truck => "Truck"
+            CreepType::Truck => "Truck",
+            CreepType::Fabricator => "Fabricator",
         }
     }
 
@@ -111,7 +117,8 @@ impl CreepType {
             CreepType::Excavator(source) => CreepRole::Excavator(ExcavatorCreep::default(), *source),
             CreepType::Tugboat(tugged) => CreepRole::Tugboat(TugboatCreep::default(), *tugged),
             CreepType::Scrap(spawn) => CreepRole::Scrap(*spawn),
-            CreepType::Truck => CreepRole::Truck(TruckCreep::default())
+            CreepType::Truck => CreepRole::Truck(TruckCreep::default()),
+            CreepType::Fabricator => CreepRole::Fabricator(FabricatorCreep::default()),
         }
     }
 }
@@ -161,7 +168,8 @@ pub fn do_creeps(mem: &mut Memory) {
                 Excavator(state, source) => Excavator(transition(state, creep, mem), *source),
                 Tugboat(state, tugged) => Tugboat(transition(state, creep, mem), *tugged),
                 Scrap(spawn) => Scrap(do_recycle(creep, mem, spawn)),
-                Truck(state) => Truck(transition(state, creep, mem))
+                Truck(state) => Truck(transition(state, creep, mem)),
+                Fabricator(state) => Fabricator(transition(state, creep, mem))
             };
 
             mem.creeps.get_mut(&creep.name()).unwrap().role = new_role.clone();

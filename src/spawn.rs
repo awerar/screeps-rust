@@ -452,10 +452,10 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
 pub fn do_spawns(mem: &mut Memory) {
     let mut schedule = SpawnSchedule::new(mem);
 
-    schedule_trucks(mem, &mut schedule);
+    //schedule_trucks(mem, &mut schedule);
     schedule_tugboats(mem, &mut schedule);
-    schedule_excavators(mem, &mut schedule);
-    //schedule_workers(mem, &mut schedule);
+    //schedule_excavators(mem, &mut schedule);
+    schedule_workers(mem, &mut schedule);
     schedule_flagships(mem, &mut schedule);
     schedule_remote_builders(mem, &mut schedule);
 
