@@ -2,7 +2,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, memory::Memory, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, memory::Memory, messages::TruckMessage, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum TruckCreep {
@@ -162,12 +162,13 @@ pub struct TruckTaskCoordinator {
 }
 
 impl TruckTaskCoordinator {
-    pub fn update(&mut self, plan: &ColonyPlan, room: &Room) {
+    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, messages: Vec<TruckMessage>) {
         self.consumers.handle_timeouts();
         self.providers.handle_timeouts();
 
         let mut providers = Vec::new();
-        providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(6, Some(0), None));
+        providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(7, Some(0), None));
+        providers.extend(messages.providers().tasks(6, Some(0),  None));
         providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
         providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
         providers.extend(plan.center.link.providers().tasks(3, Some(800), None));
@@ -176,9 +177,10 @@ impl TruckTaskCoordinator {
         self.providers.set_tasks(providers);
 
         let mut consumers = Vec::new();
-        consumers.extend(plan.center.spawn.consumers().tasks(4, None));
-        consumers.extend(plan.center.extensions.consumers().tasks(3, None));
-        consumers.extend(plan.center.towers.consumers().tasks(2, None));
+        consumers.extend(plan.center.spawn.consumers().tasks(5, None));
+        consumers.extend(plan.center.extensions.consumers().tasks(4, None));
+        consumers.extend(plan.center.towers.consumers().tasks(3, None));
+        consumers.extend(messages.consumers().tasks(2, None));
         consumers.extend(plan.center.terminal.consumers().tasks(1, Some(2_000)));
         self.consumers.set_tasks(consumers);
     }
@@ -308,9 +310,12 @@ impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStruct
     }
 }
 
-impl IntoConsumers for Vec<Creep> {
+impl IntoConsumers for Vec<TruckMessage> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.iter().map(TruckStop::<Consumer, Creep>::new).map(ConsumerTruckStop::Creep)
+        self.iter().filter_map(|message| {
+            let TruckMessage::Consumer(id, pos) = message else { return None };
+            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(*id, *pos)))
+        })
     }
 }
 
@@ -327,9 +332,12 @@ impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStruct
     }
 }
 
-impl IntoProviders for Vec<Creep> {
+impl IntoProviders for Vec<TruckMessage> {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.iter().map(TruckStop::<Provider, Creep>::new).map(ProviderTruckStop::Creep)
+        self.iter().filter_map(|message| {
+            let TruckMessage::Provider(id, pos) = message else { return None };
+            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(*id, *pos)))
+        })
     }
 }
 
@@ -391,7 +399,7 @@ impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
 mod truck_stop {
     use std::{hash::Hash, marker::PhantomData};
 
-    use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
+    use screeps::{Creep, HasId, HasPosition, HasStore, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
     use serde::{Deserialize, Serialize};
     use wasm_bindgen::JsCast;
 
@@ -474,12 +482,8 @@ mod truck_stop {
     }
 
     impl<T : TruckStopType> TruckStop<T, Creep> {
-        pub fn new(creep: &Creep) -> Self {
-            Self {
-                id: creep.try_id().unwrap(),
-                pos: creep.pos(),
-                phantom: PhantomData
-            }
+        pub fn new(id: ObjectId<Creep>, pos: Position) -> Self {
+            Self { id, pos, phantom: PhantomData }
         }
     }
 

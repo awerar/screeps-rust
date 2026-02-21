@@ -62,6 +62,7 @@ pub fn game_loop() {
     update_truck_coordinators(&mut mem);
     do_creeps(&mut mem);
 
+    mem.messages.trucks.flush();
     mem.messages.spawn.flush();
     do_spawns(&mut mem);
 

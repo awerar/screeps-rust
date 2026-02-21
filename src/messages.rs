@@ -20,6 +20,12 @@ pub enum SpawnMessage {
     SpawnTugboatFor(ObjectId<Creep>)
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+pub enum TruckMessage {
+    Provider(ObjectId<Creep>, Position),
+    Consumer(ObjectId<Creep>, Position),
+}
+
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "T: Eq + Hash + Serialize + DeserializeOwned")]
@@ -60,6 +66,7 @@ impl<T> Mailbox<T> where T : Eq + Hash + Clone + Serialize + DeserializeOwned {
 #[derive(Serialize, Deserialize, Default)]
 pub struct Messages {
     pub spawn: Mailbox<SpawnMessage>,
+    pub trucks: Mailbox<TruckMessage>,
 
     creeps: HashMap<String, Mailbox<CreepMessage>>,
     creeps_quick: HashMap<String, Mailbox<QuickCreepMessage>>,
