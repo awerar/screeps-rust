@@ -8,7 +8,7 @@ use crate::{colony::ColonyBuffer, memory::Memory, messages::{CreepMessage, Truck
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum FabricatorCreep {
     #[default] Idle,
-    CollectingFor(FabricatorTaskType),
+    CollectingFor(FabricatorTask),
     Performing(FabricatorTask)
 }
 
@@ -43,7 +43,7 @@ const EMERGENCY_REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.5);
 const CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE: DowngradePercentage = DowngradePercentage(0.5);
 const STORAGE_UPGRADE_CONTROLLER_THRESHOLD: StorageFillPercentage = StorageFillPercentage(0.1);
 
-const MAX_TASK_TICKS: u32 = 250;
+const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
 impl StateMachine<Creep> for FabricatorCreep {
@@ -64,27 +64,27 @@ impl StateMachine<Creep> for FabricatorCreep {
                 Ok(Stay)
             },
             Self::CollectingFor(task) => {
-                if !coordinator.heartbeat_task(creep, task) {
+                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) {
                     coordinator.finish_task(creep, task, false);
-                    return Ok(Continue(Self::Idle))
+                    return Ok(Break(Self::Idle))
                 }
 
                 if mem.messages.creep(creep).read(CreepMessage::TruckTarget) 
-                    || creep.store().get_free_capacity(Some(ResourceType::Energy)) == 0 {
-                    return Ok(Continue(Self::Performing(FabricatorTask::new(task.clone()).ok_or(())?)))
-                }
+                    || creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
+                        return Ok(Continue(Self::Performing(task.clone())))
+                    }
 
                 mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home));
 
                 let buffer = mem.creep_home(creep).ok_or(())?.buffer();
                 let Some(buffer) = buffer else {
-                    return Ok(Continue(Self::Performing(FabricatorTask::new(task.clone()).ok_or(())?)))
+                    return Ok(Break(Self::CollectingFor(task.clone())))
                 };
 
                 if creep.pos().is_near_to(buffer.pos()) {
                     if buffer.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
-                        creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
-                        Ok(Continue(Self::Performing(FabricatorTask::new(task.clone()).ok_or(())?)))
+                        creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).map_err(|_| ())?;
+                        Ok(Break(Self::Performing(task.clone())))
                     } else { Ok(Stay) }
                 } else {
                     mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
@@ -92,9 +92,14 @@ impl StateMachine<Creep> for FabricatorCreep {
                 }
             },
             Self::Performing(task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(creep, &task.task_type) {
-                    coordinator.finish_task(creep, &task.task_type, false);
+                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) {
+                    coordinator.finish_task(creep, task, false);
                     return Ok(Continue(Self::Idle))
+                }
+
+                let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
+                if creep_energy == 0 && !mem.messages.creep(creep).read(CreepMessage::TruckTarget) {
+                    return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 
                 mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home));
@@ -103,11 +108,9 @@ impl StateMachine<Creep> for FabricatorCreep {
                     mem.movement.smart_move_creep_to(creep, task.pos).ok();
                 }
 
-                if creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0
-                    && creep.pos().get_range_to(task.pos) <= task.work_range() {
-                        task.creep_work(creep)?;
-                    }
-
+                if creep_energy > 0 && creep.pos().get_range_to(task.pos) <= task.work_range() {
+                    task.creep_work(creep)?;
+                }
 
                 Ok(Stay)
             }
@@ -273,27 +276,27 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTaskType) -> bool {
-        match task {
+    fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTask) -> bool {
+        match task.task_type {
             FabricatorTaskType::Building(build) => 
-                self.builds.heartbeat_task(creep, build),
+                self.builds.heartbeat_task(creep, &build),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.heartbeat_task(creep, repair),
+                self.repairs.heartbeat_task(creep, &repair),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.heartbeat_task(creep, upgrade),
+                self.upgrades.heartbeat_task(creep, &upgrade),
         }
     }
 
-    fn finish_task(&mut self, creep: &Creep, task: &FabricatorTaskType, success: bool) {
+    fn finish_task(&mut self, creep: &Creep, task: &FabricatorTask, success: bool) {
         let creep_id = creep.try_id().unwrap();
 
-        match task {
+        match task.task_type {
             FabricatorTaskType::Building(build) => 
-                self.builds.finish_task(creep_id, build, success),
+                self.builds.finish_task(creep_id, &build, success),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.finish_task(creep_id, repair, success),
+                self.repairs.finish_task(creep_id, &repair, success),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.finish_task(creep_id, upgrade, success),
+                self.upgrades.finish_task(creep_id, &upgrade, success),
         }
     }
 }

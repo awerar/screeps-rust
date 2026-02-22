@@ -189,7 +189,7 @@ impl TruckCoordinator {
         providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
         providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
         providers.extend(plan.center.link.providers().tasks(3, Some(0), None));
-        providers.extend(plan.sources.source_containers.providers().tasks(2, Some(1500), None));
+        providers.extend(plan.sources.source_containers.providers().tasks(2, Some(500), None));
         providers.extend(plan.center.terminal.providers().tasks(1, None, Some(10_000)));
         self.providers.set_tasks(providers);
 

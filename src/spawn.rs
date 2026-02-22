@@ -326,7 +326,7 @@ const TRUCK_FABRICATOR_CARRY: f32 = 5.0;
 const TRUCK_CARRY_MARGIN: f32 = 0.25;
 
 static TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Carry]) });
-static MAX_TRUCK_ENERGY: LazyLock<u32> = LazyLock::new(||  (TRUCK_TEMPLATE.clone() * 5).energy_required());
+static MAX_TRUCK_ENERGY: LazyLock<u32> = LazyLock::new(||  (TRUCK_TEMPLATE.clone() * 10).energy_required());
 fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 

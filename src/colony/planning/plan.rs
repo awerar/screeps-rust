@@ -201,7 +201,10 @@ impl ColonyPlanStep {
         }
 
         for (pos, ty) in &missing_structures {
-            Position::new(pos.x, pos.y, room.name()).create_construction_site(*ty, None).map_err(|e| format!("Unable to create structure {ty} at {pos}: {e}"))?;
+            let pos = Position::new(pos.x, pos.y, room.name());
+            if pos.look_for(look::CONSTRUCTION_SITES).ok().is_none_or(|sites| sites.is_empty()) {
+                pos.create_construction_site(*ty, None).map_err(|e| format!("Unable to create structure {ty} at {pos}: {e}"))?;
+            }
         }
 
         let has_finished_roads = self.new_roads.iter().all(|new_road| roads.get(new_road).copied().unwrap_or(false));

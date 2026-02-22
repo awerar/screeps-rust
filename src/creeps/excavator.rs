@@ -59,6 +59,7 @@ impl StateMachine<Creep> for ExcavatorCreep {
                 }
             },
             Building(site) => {
+                // TODO: Should still fill extensions
                 let Some(site) = site.resolve() else { return Ok(Continue(Mining)) };
                 if creep.store().get(ResourceType::Energy).unwrap_or(0) < work_count * 5 { return Ok(Continue(Mining)) }
 
