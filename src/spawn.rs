@@ -321,7 +321,7 @@ const TRUCK_SOURCE_CARRY_PER_DIST: f32 = 0.4;
 // C = PT => 50y = 200 => y = 4
 // Creep cost = 1.5y * 50 / 1500 = 0.2
 const TRUCK_CENTER_CARRY: f32 = 4.0;
-const TRUCK_FABRICATOR_CARRY: f32 = 5.0;
+const TRUCK_FABRICATOR_CARRY: f32 = 10.0; // TODO: Fix this properly
 
 const TRUCK_CARRY_MARGIN: f32 = 0.25;
 
@@ -353,39 +353,6 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
         }
     }
 }
-
-static WORKER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Work]) });
-fn schedule_workers(mem: &Memory, schedule: &mut SpawnSchedule) {
-    use Part::*;
-
-    for colony in mem.colonies.keys() {
-        let Some(room) = game::rooms().get(*colony) else { continue; };
-
-        let mut total_worker_works: usize = schedule.all_creeps()
-                .filter_home(*colony)
-                .filter_type(CreepType::Worker)
-                .part_count(Part::Work);
-
-        let target_worker_works = 5 * room.find(find::SOURCES, None).len() * 4;
-
-        for spawner in schedule.spawners().filter_room(*colony).filter_free().0 {
-            if total_worker_works >= target_worker_works { continue; }
-
-            let body = WORKER_TEMPLATE.scaled(spawner.energy_capacity, None);
-            let num_work = body.num(Work);
-            let prototype = CreepPrototype { 
-                body, 
-                ty: CreepType::Worker,
-                home: *colony
-            };
-
-            if spawner.schedule_or_block(prototype) {
-                total_worker_works += num_work;
-            }
-        }
-    }
-}
-
 
 static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
 fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
@@ -492,7 +459,6 @@ pub fn do_spawns(mem: &mut Memory) {
     schedule_tugboats(mem, &mut schedule);
     schedule_excavators(mem, &mut schedule);
     schedule_fabricators(mem, &mut schedule);
-    //schedule_workers(mem, &mut schedule);
     schedule_flagships(mem, &mut schedule);
     schedule_remote_builders(mem, &mut schedule);
 

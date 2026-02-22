@@ -4,10 +4,9 @@ use log::warn;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, remote_builder::RemoteBuilderCreep, truck::TruckCreep, tugboat::TugboatCreep, worker::WorkerCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, remote_builder::RemoteBuilderCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, statemachine::transition, utils::adjacent_positions};
 
 mod flagship;
-mod worker;
 mod excavator;
 mod remote_builder;
 mod tugboat;
@@ -35,7 +34,6 @@ impl CreepData {
             )?;
 
         let role = match creep.name().split_ascii_whitespace().next()? {
-            "Worker" => CreepRole::Worker(WorkerCreep::default()),
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "RemoteBuilder" => CreepRole::RemoteBuilder(RemoteBuilderCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
@@ -58,7 +56,6 @@ impl CreepData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CreepRole {
-    Worker(WorkerCreep),
     Excavator(ExcavatorCreep, ObjectId<Source>),
     Flagship(FlagshipCreep),
     RemoteBuilder(RemoteBuilderCreep),
@@ -70,7 +67,6 @@ pub enum CreepRole {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
 pub enum CreepType {
-    Worker,
     Excavator(ObjectId<Source>), 
     Flagship,
     RemoteBuilder,
@@ -83,7 +79,6 @@ pub enum CreepType {
 impl CreepRole {
     pub fn get_type(&self) -> CreepType {
         match self {
-            CreepRole::Worker(_) => CreepType::Worker,
             CreepRole::Flagship(_) => CreepType::Flagship,
             CreepRole::RemoteBuilder(_) => CreepType::RemoteBuilder,
             CreepRole::Excavator(_, source) => CreepType::Excavator(*source),
@@ -98,7 +93,6 @@ impl CreepRole {
 impl CreepType {
     pub fn prefix(&self) -> &str {
         match self {
-            CreepType::Worker => "Worker",
             CreepType::Flagship => "Flagship",
             CreepType::RemoteBuilder => "RemoteBuilder",
             CreepType::Excavator(_) => "Excavator",
@@ -111,7 +105,6 @@ impl CreepType {
 
     pub fn default_role(&self) -> CreepRole {
         match self {
-            CreepType::Worker => CreepRole::Worker(WorkerCreep::default()),
             CreepType::Flagship => CreepRole::Flagship(FlagshipCreep::default()),
             CreepType::RemoteBuilder => CreepRole::RemoteBuilder(RemoteBuilderCreep::default()),
             CreepType::Excavator(source) => CreepRole::Excavator(ExcavatorCreep::default(), *source),
@@ -162,7 +155,6 @@ pub fn do_creeps(mem: &mut Memory) {
             let role = mem.creep(creep).unwrap().role.clone();
 
             let new_role = match &role {
-                Worker(state) => Worker(transition(state, creep, mem)),
                 Flagship(state) => Flagship(transition(state, creep, mem)),
                 RemoteBuilder(state) => RemoteBuilder(transition(state, creep, mem)),
                 Excavator(state, source) => Excavator(transition(state, creep, mem), *source),
