@@ -47,7 +47,7 @@ impl CreepData {
 
                 CreepRole::Excavator(ExcavatorCreep::default(), source.id()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home.room_name).id())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, home.room_name).id())
         };
         
         Some(CreepData::new(home.room_name, role))
@@ -111,7 +111,7 @@ impl CreepType {
     }
 }
 
-fn do_recycle(creep: &Creep, home: &RoomName, movement: &mut Movement, spawn: &ObjectId<StructureSpawn>) -> ObjectId<StructureSpawn> {
+fn do_recycle(creep: &Creep, home: RoomName, movement: &mut Movement, spawn: &ObjectId<StructureSpawn>) -> ObjectId<StructureSpawn> {
     let Some(spawn) = spawn.resolve() else {
         warn!("Spawn for recycling did not resolve");
         return get_recycle_spawn(creep, home).id();
@@ -150,14 +150,29 @@ pub fn do_creeps(mem: &mut Memory) {
             let creep_data = mem.creeps.get_mut(&creep.name()).unwrap();
             let (home, _) = mem.colonies.get(&creep_data.home).unwrap();
 
-            let new_role = match &mut creep_data.role {
-                Flagship(state) => state.transition(creep, &(), &mut (mem.movement, mem.claim_requests)),
-                Excavator(state, source) => state.transition(creep, &(*source, *home), &mut mem.messages),
-                Tugboat(state, tugged) => state.transition(creep, &(*home, *tugged), &mut (mem.movement, mem.messages)),
-                Scrap(spawn) => *spawn = do_recycle(creep, &creep_data.home, &mut mem.movement, spawn),
-                Truck(state) => state.transition(creep, home, &mut (mem.movement, *mem.truck_coordinators.entry(creep_data.home).or_default(), mem.messages)),
-                Fabricator(state) => state.transition(creep, home, &mut (mem.movement, *mem.fabricator_coordinators.entry(creep_data.home).or_default(), mem.messages))
-            };
+            match &mut creep_data.role {
+                Flagship(state) => {
+                    let mut args  = (&mut mem.movement, &mut mem.claim_requests);
+                    state.transition(creep, &mut args);
+                },
+                Excavator(state, source) => {
+                    let mut args = (*source, home, &mut mem.messages);
+                    state.transition(creep, &mut args);
+                },
+                Tugboat(state, tugged) => {
+                    let mut args = (home, *tugged, &mut mem.movement, &mut mem.messages);
+                    state.transition(creep, &mut args);
+                },
+                Scrap(spawn) => *spawn = do_recycle(creep, creep_data.home, &mut mem.movement, spawn),
+                Truck(state) => {
+                    let mut args = (home, &mut mem.movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                    state.transition(creep, &mut args);
+                },
+                Fabricator(state) => {
+                    let mut args = (home, &mut mem.movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                    state.transition(creep, &mut args);
+                }
+            }
         }
 
         for creep in &updatable_creeps {
@@ -175,14 +190,14 @@ pub fn do_creeps(mem: &mut Memory) {
     }
 }
 
-fn get_recycle_spawn(creep: &Creep, home: &RoomName) -> StructureSpawn {
-    if creep.pos().room_name() == *home {
+fn get_recycle_spawn(creep: &Creep, home: RoomName) -> StructureSpawn {
+    if creep.pos().room_name() == home {
         if let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
             return spawn
         }
     }
 
-    if let Some(home) = game::rooms().get(*home) {
+    if let Some(home) = game::rooms().get(home) {
         if let Some(spawn) = home.find(find::MY_SPAWNS, None).into_iter().next() {
             return spawn
         }

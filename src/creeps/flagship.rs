@@ -1,12 +1,11 @@
-use std::fmt::Display;
-
+use enum_display::EnumDisplay;
 use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::{memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep {
     #[default]
     Idle,
@@ -14,20 +13,13 @@ pub enum FlagshipCreep {
     Claiming(Position, ObjectId<StructureController>)
 }
 
-impl Display for FlagshipCreep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-
-type Data = ();
-type Systems = (Movement, ClaimRequests);
-impl StateMachine<Creep, Data, Systems> for FlagshipCreep {
-    fn update(self, creep: &Creep, _: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
+type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
+impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
         use FlagshipCreep::*;
         use Transition::*;
 
-        let (movement, claim_requests) = systems;
+        let (movement, claim_requests) = args;
 
         match &self {
             Idle => {

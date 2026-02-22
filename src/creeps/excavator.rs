@@ -1,11 +1,10 @@
-use std::fmt::Display;
-
+use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
 use crate::{colony::ColonyData, creeps::tugboat::TuggedCreep, messages::Messages, statemachine::{StateMachine, Transition}};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
 pub enum ExcavatorCreep {
     Going(TuggedCreep),
     Mining,
@@ -18,21 +17,13 @@ impl Default for ExcavatorCreep {
     }
 }
 
-impl Display for ExcavatorCreep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-
-type Data = (ObjectId<Source>, ColonyData);
-type Systems = Messages;
-impl StateMachine<Creep, Data, Systems> for ExcavatorCreep {
-    fn update(self, creep: &Creep, data: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
+type Args<'a> = (ObjectId<Source>, &'a ColonyData, &'a mut Messages);
+impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
         use ExcavatorCreep::*;
         use Transition::*;
 
-        let (source, home) = data;
-        let messages = systems;
+        let (ref source, home, messages) = args;
 
         let source = source.resolve().ok_or(())?;
         let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(())?;

@@ -178,8 +178,8 @@ pub fn update_rooms(mem: &mut Memory) {
 
 
         let (colony_data, step) = mem.colonies.get_mut(&name).unwrap();
-        step.transition(&name, colony_data, &mut ());
+        step.transition(&name, &mut &*colony_data);
 
-        info!("{} is at step {:?}", name, step);
+        info!("{name} is at step {step:?}");
     }
 }

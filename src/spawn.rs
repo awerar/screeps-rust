@@ -21,7 +21,7 @@ impl Body {
             for (i, part )in self.0.iter().enumerate() {
                 cost += part.cost();
                 
-                if energy < cost && part_count >= min_parts  {
+                if part_count >= 50 || (energy < cost && part_count >= min_parts)  {
                     return Body(self.0.iter()
                         .zip(counts.into_iter())
                         .flat_map(|(part, count)| vec![*part; count].into_iter())

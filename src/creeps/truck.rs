@@ -1,23 +1,18 @@
-use std::{cmp::Reverse, fmt::Display};
+use std::cmp::Reverse;
 
+use enum_display::EnumDisplay;
 use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
 use crate::{colony::{ColonyData, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 pub enum TruckCreep {
     #[default] Idle,
     Performing(TruckTask),
     StoringAway,
     FillingUpFor(ConsumerTruckStop)
-}
-
-impl Display for TruckCreep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -58,14 +53,12 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Data = ColonyData;
-type Systems = (Movement, TruckCoordinator, Messages);
-impl StateMachine<Creep, Data, Systems> for TruckCreep {
-    fn update(self, creep: &Creep, data: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
+type Args<'a> = (&'a ColonyData, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages);
+impl StateMachine<Creep, Args<'_>> for TruckCreep {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
         use Transition::*;
 
-        let home = data;
-        let (movement, coordinator, messages) = systems;
+        let (home, movement, coordinator, messages) = args;
         
         let buffer = home.buffer().ok_or(())?;
         let buffer_energy = buffer.store().get_used_capacity(Some(ResourceType::Energy));

@@ -12,23 +12,23 @@ pub enum Transition<S> {
     Continue(S)
 }
 
-pub trait StateMachine<U, D, S> where Self : Default + Display {
-    fn update(self, underlying: &U, data: &D, systems: &mut S) -> Result<Transition<Self>, ()>;
+pub trait StateMachine<U, A> where Self : Default + Display {
+    fn update(self, underlying: &U, args: &mut A) -> Result<Transition<Self>, ()>;
 }
 
-pub trait StateMachineTransition<U, D, S> {
-    fn transition(&mut self, underlying: &U, data: &D, systems: &mut S);
+pub trait StateMachineTransition<U, A> {
+    fn transition(&mut self, underlying: &U, args: &mut A);
 }
 
 const MAX_TRANSITIONS: u32 = 10;
-impl<SM, U : UnderlyingName, D, S> StateMachineTransition<U, D, S> for SM where SM : StateMachine<U, D, S> {
-    fn transition(&mut self, underlying: &U, data: &D, systems: &mut S) {
+impl<SM, U : UnderlyingName, A> StateMachineTransition<U, A> for SM where SM : StateMachine<U, A> {
+    fn transition(&mut self, underlying: &U, args: &mut A) {
         let mut state_names = vec![self.to_string()];
 
-        for i in 0..MAX_TRANSITIONS {
+        for _ in 0..MAX_TRANSITIONS {
             let curr_state_name = self.to_string();
 
-            match mem::take(self).update(underlying, data, systems) {
+            match mem::take(self).update(underlying, args) {
                 Err(()) => {
                     error!("{} failed on state {curr_state_name}. Falling back to default state", underlying.name());
                     return;

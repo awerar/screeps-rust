@@ -1,23 +1,16 @@
-use std::fmt::Display;
-
 use derive_deref::Deref;
+use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
 use crate::{colony::{ColonyBuffer, ColonyData}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 pub enum FabricatorCreep {
     #[default] Idle,
     CollectingFor(FabricatorTask),
     Performing(FabricatorTask)
-}
-
-impl Display for FabricatorCreep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -54,14 +47,12 @@ const STORAGE_UPGRADE_CONTROLLER_THRESHOLD: StorageFillPercentage = StorageFillP
 const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
-type Data = ColonyData;
-type Systems = (Movement, FabricatorCoordinator, Messages);
-impl StateMachine<Creep, Data, Systems> for FabricatorCreep {
-    fn update(self, creep: &Creep, data: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
+type Args<'a> = (&'a ColonyData, &'a mut Movement, &'a mut FabricatorCoordinator, &'a mut Messages);
+impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
         use Transition::*;
 
-        let home = data;
-        let (movement, coordinator, messages) = systems;
+        let (home, movement, coordinator, messages) = args;
 
         match &self {
             Self::Idle => {

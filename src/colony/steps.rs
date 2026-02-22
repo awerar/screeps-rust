@@ -8,12 +8,12 @@ use crate::{colony::ColonyData, statemachine::{StateMachine, Transition}};
 
 pub trait ColonyStepStateMachine where Self : Sized {
     fn get_promotion(&self) -> Option<Self>;
-    fn update_step(&self, name: &RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()>;
+    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()>;
 }
 
-impl<T> StateMachine<RoomName, ColonyData, ()> for T where T : ColonyStepStateMachine + Display {
-    fn update(self, name: &RoomName, colony_data: &ColonyData, _: &mut ()) -> Result<Transition<Self>, ()> {
-        Ok(match self.update_step(name, colony_data)? {
+impl<T> StateMachine<RoomName, &ColonyData> for T where T : ColonyStepStateMachine + Display + Default {
+    fn update(self, name: &RoomName, colony_data: &mut &ColonyData) -> Result<Transition<Self>, ()> {
+        Ok(match self.update_step(*name, colony_data)? {
             ColonyStepTransition::None => Transition::Break(self),
             ColonyStepTransition::Promotion => 
                 self.get_promotion().map(Transition::Continue).ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self}"))?,
@@ -112,7 +112,7 @@ impl ColonyStepStateMachine for ColonyStep {
         }
     }
 
-    fn update_step(&self, name: &RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> {
+    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> {
         use ColonyStep::*;
         use ColonyStepTransition::*;
 
@@ -160,7 +160,7 @@ impl ColonyStepStateMachine for Level1Step {
         }
     }
     
-    fn update_step(&self, _: &RoomName, _: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> { Ok(ColonyStepTransition::Promotion) }
+    fn update_step(&self, _: RoomName, _: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> { Ok(ColonyStepTransition::Promotion) }
 }
 
 #[cfg(test)]
