@@ -1,15 +1,23 @@
+use std::fmt::Display;
+
 use derive_deref::Deref;
 use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::ColonyBuffer, memory::Memory, messages::{CreepMessage, TruckMessage}, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{colony::{ColonyBuffer, ColonyData}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum FabricatorCreep {
     #[default] Idle,
     CollectingFor(FabricatorTask),
     Performing(FabricatorTask)
+}
+
+impl Display for FabricatorCreep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,22 +54,24 @@ const STORAGE_UPGRADE_CONTROLLER_THRESHOLD: StorageFillPercentage = StorageFillP
 const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
-impl StateMachine<Creep> for FabricatorCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
+type Data = ColonyData;
+type Systems = (Movement, FabricatorCoordinator, Messages);
+impl StateMachine<Creep, Data, Systems> for FabricatorCreep {
+    fn update(self, creep: &Creep, data: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
         use Transition::*;
 
-        let home = mem.creep(creep).unwrap().home;
-        let coordinator = mem.fabricator_coordinators.entry(home).or_default();
+        let home = data;
+        let (movement, coordinator, messages) = systems;
 
-        match self {
+        match &self {
             Self::Idle => {
                 let task = coordinator.assign_task(creep);
                 if let Some(task) = task {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
-                mem.messages.trucks.send(TruckMessage::Provider(creep.try_id().unwrap(), home));
-                Ok(Stay)
+                messages.trucks.send(TruckMessage::Provider(creep.try_id().unwrap(), home.room_name));
+                Ok(Break(self))
             },
             Self::CollectingFor(task) => {
                 if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) {
@@ -69,15 +79,14 @@ impl StateMachine<Creep> for FabricatorCreep {
                     return Ok(Break(Self::Idle))
                 }
 
-                if mem.messages.creep(creep).read(CreepMessage::TruckTarget) 
+                if messages.creep(creep).read(CreepMessage::TruckTarget) 
                     || creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
                         return Ok(Continue(Self::Performing(task.clone())))
                     }
 
-                mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home));
+                messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home.room_name));
 
-                let buffer = mem.creep_home(creep).ok_or(())?.buffer();
-                let Some(buffer) = buffer else {
+                let Some(buffer) = home.buffer() else {
                     return Ok(Break(Self::CollectingFor(task.clone())))
                 };
 
@@ -85,10 +94,10 @@ impl StateMachine<Creep> for FabricatorCreep {
                     if buffer.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
                         creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).map_err(|_| ())?;
                         Ok(Break(Self::Performing(task.clone())))
-                    } else { Ok(Stay) }
+                    } else { Ok(Break(self)) }
                 } else {
-                    mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(Stay)
+                    movement.smart_move_creep_to(creep, buffer.pos()).ok();
+                    Ok(Break(self))
                 }
             },
             Self::Performing(task) => {
@@ -98,21 +107,21 @@ impl StateMachine<Creep> for FabricatorCreep {
                 }
 
                 let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
-                if creep_energy == 0 && !mem.messages.creep(creep).read(CreepMessage::TruckTarget) {
+                if creep_energy == 0 && !messages.creep(creep).read(CreepMessage::TruckTarget) {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 
-                mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home));
+                messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home.room_name));
 
                 if !creep.pos().is_near_to(task.pos) {
-                    mem.movement.smart_move_creep_to(creep, task.pos).ok();
+                    movement.smart_move_creep_to(creep, task.pos).ok();
                 }
 
                 if creep_energy > 0 && creep.pos().get_range_to(task.pos) <= task.work_range() {
                     task.creep_work(creep)?;
                 }
 
-                Ok(Stay)
+                Ok(Break(self))
             }
         }
     }

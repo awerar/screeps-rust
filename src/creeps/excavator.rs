@@ -1,7 +1,9 @@
-use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties};
+use std::fmt::Display;
+
+use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{CreepData, CreepRole, tugboat::TuggedCreep}, memory::Memory, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyData, creeps::tugboat::TuggedCreep, messages::Messages, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum ExcavatorCreep {
@@ -16,24 +18,31 @@ impl Default for ExcavatorCreep {
     }
 }
 
-impl StateMachine<Creep> for ExcavatorCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
+impl Display for ExcavatorCreep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+type Data = (ObjectId<Source>, ColonyData);
+type Systems = Messages;
+impl StateMachine<Creep, Data, Systems> for ExcavatorCreep {
+    fn update(self, creep: &Creep, data: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
         use ExcavatorCreep::*;
         use Transition::*;
 
-        let Some(CreepData { role: CreepRole::Excavator(_, source), .. }) = mem.creep(creep) else { return Err(()) };
-        let source = source.resolve().ok_or(())?;
+        let (source, home) = data;
+        let messages = systems;
 
-        let plan = mem.creep_home(creep).ok_or(())?
-            .plan.sources.source_plans
-            .get(&source.id()).ok_or(())?;
+        let source = source.resolve().ok_or(())?;
+        let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(())?;
 
         let work_count = creep.body().iter().filter(|bodypart| bodypart.part() == Part::Work).count() as u32;
 
-        match self.clone() {
+        match self {
             Going(mut tugged_state) => {
                 let harvest_pos = plan.container.as_ref().ok_or(())?.pos;
-                tugged_state.move_tugged_to(creep, mem, harvest_pos, 0);
+                tugged_state.move_tugged_to(creep, messages, harvest_pos, 0);
                 if tugged_state.is_finished() {
                     Ok(Continue(Mining))
                 } else {
@@ -51,11 +60,11 @@ impl StateMachine<Creep> for ExcavatorCreep {
                             creep.harvest(&source).ok();
                         }
 
-                        Ok(Stay)
+                        Ok(Break(self))
                     }
                 } else {
                     creep.harvest(&source).ok();
-                    Ok(Stay)
+                    Ok(Break(self))
                 }
             },
             Building(site) => {
@@ -65,7 +74,7 @@ impl StateMachine<Creep> for ExcavatorCreep {
 
                 creep.build(&site).ok();
 
-                Ok(Stay)
+                Ok(Break(self))
             }
         }
     }

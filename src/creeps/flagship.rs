@@ -1,8 +1,10 @@
+use std::fmt::Display;
+
 use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, statemachine::{StateMachine, Transition}};
+use crate::{memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone)]
 pub enum FlagshipCreep {
@@ -12,17 +14,27 @@ pub enum FlagshipCreep {
     Claiming(Position, ObjectId<StructureController>)
 }
 
-impl StateMachine<Creep> for FlagshipCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
+impl Display for FlagshipCreep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+type Data = ();
+type Systems = (Movement, ClaimRequests);
+impl StateMachine<Creep, Data, Systems> for FlagshipCreep {
+    fn update(self, creep: &Creep, _: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
         use FlagshipCreep::*;
         use Transition::*;
 
+        let (movement, claim_requests) = systems;
+
         match &self {
             Idle => {
-                if let Some(position) = mem.claim_requests.iter().next() {
+                if let Some(position) = claim_requests.iter().next() {
                     Ok(Continue(GoingTo(*position)))
                 } else {
-                    Ok(Stay)
+                    Ok(Break(self))
                 }
             },
             GoingTo(target) => {
@@ -32,8 +44,8 @@ impl StateMachine<Creep> for FlagshipCreep {
                     }
                 }
 
-                mem.movement.smart_move_creep_to(creep, *target).ok();
-                Ok(Stay)
+                movement.smart_move_creep_to(creep, *target).ok();
+                Ok(Break(self))
             }
             Claiming(request, controller) => {
                 let controller = controller.resolve().ok_or(())?;
@@ -42,7 +54,7 @@ impl StateMachine<Creep> for FlagshipCreep {
                     match creep.claim_controller(&controller) {
                         Ok(()) => {
                             info!("Sucessfully claimed controller!");
-                            mem.claim_requests.remove(request);
+                            claim_requests.remove(request);
 
                             return Ok(Continue(Idle))
                         },
@@ -51,16 +63,16 @@ impl StateMachine<Creep> for FlagshipCreep {
                         },
                         Err(_) => {
                             warn!("Unable to claim controller!");
-                            mem.claim_requests.remove(request);
+                            claim_requests.remove(request);
 
                             return Ok(Continue(Idle))
                         }
                     }
                 } else {
-                    mem.movement.smart_move_creep_to(creep, &controller).ok();
+                    movement.smart_move_creep_to(creep, &controller).ok();
                 }
 
-                Ok(Stay)
+                Ok(Break(self))
             },
         }
     }

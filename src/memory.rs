@@ -31,12 +31,14 @@ pub struct Memory {
     #[serde(default)] pub last_alive_creeps: HashSet<String>,
     #[serde(default)] pub callbacks: Callbacks,
     #[serde(default)] pub movement: Movement,
-    #[serde(default)] pub claim_requests: HashSet<Position>,
+    #[serde(default)] pub claim_requests: ClaimRequests,
     #[serde(default)] pub truck_coordinators: HashMap<RoomName, TruckCoordinator>,
     #[serde(default)] pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator>,
 
     #[serde(default)] pub messages: Messages
 }
+
+pub type ClaimRequests = HashSet<Position>;
 
 impl Memory {
     #[expect(clippy::used_underscore_binding)]

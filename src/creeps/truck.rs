@@ -1,10 +1,10 @@
-use std::cmp::Reverse;
+use std::{cmp::Reverse, fmt::Display};
 
 use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, memory::Memory, messages::{CreepMessage, TruckMessage}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
+use crate::{colony::{ColonyData, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum TruckCreep {
@@ -12,6 +12,12 @@ pub enum TruckCreep {
     Performing(TruckTask),
     StoringAway,
     FillingUpFor(ConsumerTruckStop)
+}
+
+impl Display for TruckCreep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -52,27 +58,30 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-impl StateMachine<Creep> for TruckCreep {
-    fn update(&self, creep: &Creep, mem: &mut Memory) -> Result<Transition<Self>, ()> {
+type Data = ColonyData;
+type Systems = (Movement, TruckCoordinator, Messages);
+impl StateMachine<Creep, Data, Systems> for TruckCreep {
+    fn update(self, creep: &Creep, data: &Data, systems: &mut Systems) -> Result<Transition<Self>, ()> {
         use Transition::*;
 
-        let buffer = mem.creep_home(creep).ok_or(())?.buffer().ok_or(())?;
-        let coordinator = mem.truck_coordinators.entry(mem.creep(creep).unwrap().home).or_default();
-
+        let home = data;
+        let (movement, coordinator, messages) = systems;
+        
+        let buffer = home.buffer().ok_or(())?;
         let buffer_energy = buffer.store().get_used_capacity(Some(ResourceType::Energy));
         let buffer_free_capacity = buffer.store().get_free_capacity(Some(ResourceType::Energy));
 
-        match self {
+        match &self {
             Self::FillingUpFor(ConsumerTruckStop::Creep(creep)) |
             Self::Performing(TruckTask::ProvidingTo(ConsumerTruckStop::Creep(creep))) => {
                 if let Some(creep) = creep.id().resolve() {
-                    mem.messages.creep(&creep).send(CreepMessage::TruckTarget);
+                    messages.creep(&creep).send(CreepMessage::TruckTarget);
                 }
             }
             _ => ()
         }
 
-        match self {
+        match &self {
             Self::Idle => {
                 if creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
                     let consumer = coordinator.assign_consumer(creep);
@@ -92,7 +101,7 @@ impl StateMachine<Creep> for TruckCreep {
                     if let Some(provider) = provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
                 }
 
-                Ok(Stay)
+                Ok(Break(self))
             },
             Self::Performing(task) => {
                 if !task.still_valid() {
@@ -108,8 +117,8 @@ impl StateMachine<Creep> for TruckCreep {
                     coordinator.finish(creep, task, true);
                     Ok(Break(Self::Idle))
                 } else {
-                    mem.movement.smart_move_creep_to(creep, target).ok();
-                    Ok(Stay)
+                    movement.smart_move_creep_to(creep, target).ok();
+                    Ok(Break(self))
                 }
             },
             Self::FillingUpFor(consumer) => {
@@ -124,8 +133,8 @@ impl StateMachine<Creep> for TruckCreep {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
                     Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
                 } else {
-                    mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(Stay)
+                    movement.smart_move_creep_to(creep, buffer.pos()).ok();
+                    Ok(Break(self))
                 }
             },
             Self::StoringAway => {
@@ -133,8 +142,8 @@ impl StateMachine<Creep> for TruckCreep {
                     creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
                     Ok(Break(Self::Idle))
                 } else {
-                    mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(Stay)
+                    movement.smart_move_creep_to(creep, buffer.pos()).ok();
+                    Ok(Break(self))
                 }
             },
         }

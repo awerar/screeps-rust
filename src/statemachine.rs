@@ -12,7 +12,7 @@ pub enum Transition<S> {
     Continue(S)
 }
 
-pub trait StateMachine<U, D, S> {
+pub trait StateMachine<U, D, S> where Self : Default + Display {
     fn update(self, underlying: &U, data: &D, systems: &mut S) -> Result<Transition<Self>, ()>;
 }
 
@@ -21,7 +21,7 @@ pub trait StateMachineTransition<U, D, S> {
 }
 
 const MAX_TRANSITIONS: u32 = 10;
-impl<SM, U : UnderlyingName, D, S> StateMachineTransition<U, D, S> for SM where SM : StateMachine<U, D, S> + Default + Display {
+impl<SM, U : UnderlyingName, D, S> StateMachineTransition<U, D, S> for SM where SM : StateMachine<U, D, S> {
     fn transition(&mut self, underlying: &U, data: &D, systems: &mut S) {
         let mut state_names = vec![self.to_string()];
 
