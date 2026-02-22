@@ -97,9 +97,9 @@ fn do_links(mem: &mut Memory) {
             let source_link: Option<StructureLink> = source_plan.link.resolve();
             let Some(source_link) = source_link else { continue };
 
-            if source_link.store().get_used_capacity(Some(screeps::ResourceType::Energy)) >= 400
-                && central_link.store().get_free_capacity(Some(screeps::ResourceType::Energy)) >= 400 {
-                    source_link.transfer_energy(&central_link, Some(400)).ok();
+            if source_link.store().get_used_capacity(Some(screeps::ResourceType::Energy)) > 400
+                && central_link.store().get_free_capacity(Some(screeps::ResourceType::Energy)) > 0 {
+                    source_link.transfer_energy(&central_link, None).ok();
                     break;
                 }
         }

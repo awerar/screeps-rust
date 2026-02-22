@@ -1,7 +1,7 @@
 use log::error;
 use screeps::{StructureObject, StructureTower, find, game, prelude::*};
 
-const FIX_THRESHOLD: f32 = 0.5;
+const FIX_THRESHOLD: f32 = 0.35;
 
 pub fn do_towers() {
     for structure in game::structures().values() {

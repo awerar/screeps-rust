@@ -22,15 +22,15 @@ pub enum SpawnMessage {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum TruckMessage {
-    Provider(ObjectId<Creep>, Position, RoomName),
-    Consumer(ObjectId<Creep>, Position, RoomName),
+    Provider(ObjectId<Creep>, RoomName),
+    Consumer(ObjectId<Creep>, RoomName),
 }
 
 impl TruckMessage {
     pub fn room_name(&self) -> &RoomName {
         match self {
-            TruckMessage::Provider(_, _, room_name) | 
-            TruckMessage::Consumer(_, _, room_name) => room_name,
+            TruckMessage::Provider(_, room_name) | 
+            TruckMessage::Consumer(_, room_name) => room_name,
         }
     }
 }

@@ -2,7 +2,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, memory::Memory, messages::TruckMessage, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, memory::Memory, messages::TruckMessage, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum TruckCreep {
@@ -35,7 +35,7 @@ pub enum ConsumerTruckStop {
 
 trait GetResourceAvaliable { fn get_resource_avaliable(&self, ty: ResourceType) -> Option<u32>; }
 trait Withdraw { fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()>; }
-trait Provide: GetResourceAvaliable + Withdraw + HasPosition {}
+trait Provide: GetResourceAvaliable + Withdraw + TruckStopPos {}
 impl Provide for ProviderTruckStop {}
 impl Provide for TruckStop<Provider, Structure> {}
 impl Provide for TruckStop<Provider, Creep> {}
@@ -45,7 +45,7 @@ impl Provide for TruckStop<Provider, Tombstone> {}
 
 trait GetResourceFree { fn get_resource_free(&self, ty: ResourceType) -> Option<u32>; }
 trait Transfer { fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()>; }
-trait Consume: GetResourceFree + GetResourceAvaliable + Transfer + HasPosition {}
+trait Consume: GetResourceFree + GetResourceAvaliable + Transfer + TruckStopPos {}
 impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
@@ -90,12 +90,13 @@ impl StateMachine<Creep> for TruckCreep {
 
                 if !coordinator.heartbeat(creep, task) { return Ok(Continue(Self::Idle)) }
 
-                if creep.pos().is_near_to(task.pos()) {
+                let target = task.pos().ok_or(())?;
+                if creep.pos().is_near_to(target) {
                     task.perform(creep)?;
                     coordinator.finish(creep, task, true);
                     Ok(Break(Self::Idle))
                 } else {
-                    mem.movement.smart_move_creep_to(creep, task.pos()).ok();
+                    mem.movement.smart_move_creep_to(creep, target).ok();
                     Ok(Stay)
                 }
             },
@@ -129,7 +130,7 @@ impl StateMachine<Creep> for TruckCreep {
 }
 
 impl TruckTask {
-    fn pos(&self) -> Position {
+    fn pos(&self) -> Option<Position> {
         match self {
             TruckTask::CollectingFrom(provider) => provider.pos(),
             TruckTask::ProvidingTo(consumer) => consumer.pos()
@@ -175,7 +176,7 @@ impl TruckCoordinator {
         providers.extend(messages.providers().tasks(6, Some(0),  None));
         providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
         providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
-        providers.extend(plan.center.link.providers().tasks(3, Some(800), None));
+        providers.extend(plan.center.link.providers().tasks(3, Some(0), None));
         providers.extend(plan.sources.source_containers.providers().tasks(2, Some(1500), None));
         providers.extend(plan.center.terminal.providers().tasks(1, None, Some(10_000)));
         self.providers.set_tasks(providers);
@@ -210,7 +211,7 @@ impl TruckCoordinator {
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
-                .max_by_key(|(_, amount, data)| (data.priority, *amount))
+                .max_by_key(|(_, _, data)| data.priority)
         })
     }
 
@@ -228,7 +229,7 @@ impl TruckCoordinator {
             tasks.into_iter()
                 .max_set_by_key(|(_, _, priority)| *priority)
                 .into_iter()
-                .min_by_key(|(consumer, _, _)| consumer.pos().get_range_to(creep.pos()))
+                .min_by_key(|(consumer, _, _)| consumer.pos().map_or(u32::MAX, |pos| pos.get_range_to(creep.pos())))
         })
     }
 }
@@ -257,9 +258,8 @@ impl Withdraw for ProviderTruckStop {
     }
 }
 
-impl HasPosition for ProviderTruckStop {
-    #[doc = " Position of the object."]
-    fn pos(&self) -> Position {
+impl TruckStopPos for ProviderTruckStop {
+    fn pos(&self) -> Option<Position> {
         self.get_provide().pos()
     }
 }
@@ -291,9 +291,8 @@ impl Transfer for ConsumerTruckStop {
     }
 }
 
-impl HasPosition for ConsumerTruckStop {
-    #[doc = " Position of the object."]
-    fn pos(&self) -> Position {
+impl TruckStopPos for ConsumerTruckStop {
+    fn pos(&self) -> Option<Position> {
         self.get_consume().pos()
     }
 }
@@ -314,8 +313,8 @@ impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStruct
 impl IntoConsumers for Vec<TruckMessage> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Consumer(id, pos, _) = message else { return None };
-            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(*id, *pos)))
+            let TruckMessage::Consumer(id, _) = message else { return None };
+            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(*id)))
         })
     }
 }
@@ -336,8 +335,8 @@ impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStruct
 impl IntoProviders for Vec<TruckMessage> {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Provider(id, pos, _) = message else { return None };
-            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(*id, *pos)))
+            let TruckMessage::Provider(id, _) = message else { return None };
+            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(*id)))
         })
     }
 }
@@ -400,7 +399,8 @@ impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
 mod truck_stop {
     use std::{hash::Hash, marker::PhantomData};
 
-    use screeps::{Creep, HasId, HasPosition, HasStore, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
+    use log::warn;
+    use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
     use serde::{Deserialize, Serialize};
     use wasm_bindgen::JsCast;
 
@@ -427,7 +427,6 @@ mod truck_stop {
     #[serde(bound = "")]
     pub struct TruckStop<T, I> {
         id: ObjectId<I>,
-        pos: Position,
         phantom: PhantomData<T>
     }
 
@@ -445,17 +444,17 @@ mod truck_stop {
         }
     }
 
-    impl<T: TruckStopType, I> HasPosition for TruckStop<T, I> {
-        #[doc = " Position of the object."]
-        fn pos(&self) -> Position {
-            self.pos
+    pub trait TruckStopPos { fn pos(&self) -> Option<Position>; }
+    impl<T: TruckStopType, I: HasPosition + JsCast + MaybeHasId> TruckStopPos for TruckStop<T, I> {
+        fn pos(&self) -> Option<Position> {
+            self.id.resolve().map(|entity| entity.pos())
         }
     }
 
     impl<T : TruckStopType> TruckStop<T, Structure> {
         fn from_structure<S: Into<Structure>>(structure: S) -> Self {
             let structure = structure.into();
-            Self { id: structure.id(), pos: structure.pos(), phantom: PhantomData }
+            Self { id: structure.id(), phantom: PhantomData }
         }
     }
 
@@ -476,15 +475,14 @@ mod truck_stop {
         pub fn new(entity: &I) -> Self {
             Self { 
                 id: entity.id(), 
-                pos: entity.pos(), 
                 phantom: PhantomData 
             }
         }
     }
 
     impl<T : TruckStopType> TruckStop<T, Creep> {
-        pub fn new(id: ObjectId<Creep>, pos: Position) -> Self {
-            Self { id, pos, phantom: PhantomData }
+        pub fn new(id: ObjectId<Creep>) -> Self {
+            Self { id, phantom: PhantomData }
         }
     }
 
@@ -546,8 +544,8 @@ mod truck_stop {
 
     impl Transfer for TruckStop<Consumer, Creep> {
         fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            let other_creep = self.id.resolve().ok_or(())?;
-            creep.transfer(&other_creep, ty, None).map_err(|_| ())
+            let other_creep = self.id.resolve().ok_or(()).inspect_err(|()| warn!("Unable to resolve other creep"))?;
+            creep.transfer(&other_creep, ty, None).inspect_err(|e| warn!("Unable to transfer to creep: {e}")).map_err(|_| ())
         }
     }
 

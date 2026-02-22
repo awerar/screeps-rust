@@ -122,6 +122,7 @@ impl<T : Hash + Eq + Clone, D, const TIMEOUT: u32> TaskServer<T, D, TIMEOUT> {
             match self.0.entry(task) {
                 hash_map::Entry::Occupied(mut entry) => {
                     entry.get_mut().target = target;
+                    entry.get_mut().data = data;
                 },
                 hash_map::Entry::Vacant(entry) => { 
                     entry.insert(TaskData::new(target, data)); 

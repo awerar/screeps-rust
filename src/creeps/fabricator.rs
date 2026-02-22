@@ -59,7 +59,7 @@ impl StateMachine<Creep> for FabricatorCreep {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
-                mem.messages.trucks.send(TruckMessage::Provider(creep.try_id().unwrap(), creep.pos(), home));
+                mem.messages.trucks.send(TruckMessage::Provider(creep.try_id().unwrap(), home));
                 Ok(Stay)
             },
             Self::Performing(task) => {
@@ -68,7 +68,7 @@ impl StateMachine<Creep> for FabricatorCreep {
                     return Ok(Continue(Self::Idle))
                 }
 
-                mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), creep.pos(), home));
+                mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home));
 
                 if !creep.pos().is_near_to(task.pos) {
                     mem.movement.smart_move_creep_to(creep, task.pos).ok();
