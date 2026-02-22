@@ -370,31 +370,6 @@ fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
     });
 }
 
-static REMOTE_BUILDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Move, Carry, Move, Work]) });
-fn schedule_remote_builders(mem: &mut Memory, schedule: &mut SpawnSchedule) {
-    let target_works = mem.remote_build_requests.get_total_work_ticks().div_ceil(750) as usize;
-    let mut curr_works = schedule.all_creeps().filter_type(CreepType::RemoteBuilder).part_count(Part::Work);
-
-    let spawners = schedule.spawners()
-        .filter_free()
-        .0.sorted_by_key(|spawner| Reverse(spawner.energy_capacity));
-
-    for spawner in spawners {
-        if curr_works >= target_works { break; }
-
-        let body = REMOTE_BUILDER_TEMPLATE.scaled(spawner.energy_capacity, None);
-        let num_work = body.num(Part::Work);
-
-        if spawner.schedule(CreepPrototype { 
-            body, 
-            ty: CreepType::RemoteBuilder, 
-            home: spawner.room
-        }) {
-            curr_works += num_work;
-        }
-    }
-}
-
 fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     for msg in mem.messages.spawn.read_all() {
         #[expect(irrefutable_let_patterns)]
@@ -460,7 +435,6 @@ pub fn do_spawns(mem: &mut Memory) {
     schedule_excavators(mem, &mut schedule);
     schedule_fabricators(mem, &mut schedule);
     schedule_flagships(mem, &mut schedule);
-    schedule_remote_builders(mem, &mut schedule);
 
     schedule.execute(mem);
 }

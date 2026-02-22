@@ -21,7 +21,6 @@ mod movement;
 mod spawn;
 mod creeps;
 mod callbacks;
-mod remote_build;
 mod utils;
 mod messages;
 mod colony;

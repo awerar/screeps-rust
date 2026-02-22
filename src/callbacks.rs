@@ -8,15 +8,13 @@ use crate::{memory::Memory, colony::update_rooms};
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Clone)]
 enum PeriodicCallback {
     MemoryCleanup,
-    RoomUpdate,
-    RemoteBuildUpdate
+    RoomUpdate
 }
 
 static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::new(|| {
     HashMap::from([
         ( PeriodicCallback::MemoryCleanup, 100 ),
         ( PeriodicCallback::RoomUpdate, 10 ),
-        ( PeriodicCallback::RemoteBuildUpdate, 5 )
     ])
 });
 
@@ -25,7 +23,6 @@ impl PeriodicCallback {
         match self {
             PeriodicCallback::MemoryCleanup => mem.periodic_cleanup(),
             PeriodicCallback::RoomUpdate => update_rooms(mem),
-            PeriodicCallback::RemoteBuildUpdate => mem.remote_build_requests.update_requests(),
         }
     }
 }
