@@ -138,9 +138,8 @@ impl ColonyStepStateMachine for ColonyStep {
 #[expect(clippy::enum_variant_names)]
 pub enum Level1Step {
     #[default]
-    BuildContainerStorage,
     BuildSpawn,
-    BuildSourceContainers,
+    BuildBufferAndSourceContainers,
     BuildArterialRoads
 }
 
@@ -149,9 +148,8 @@ impl ColonyStepStateMachine for Level1Step {
         use Level1Step::*;
 
         match self {
-            BuildContainerStorage => Some(BuildSpawn),
-            BuildSpawn => Some(BuildSourceContainers),
-            BuildSourceContainers => Some(BuildArterialRoads),
+            BuildSpawn => Some(BuildBufferAndSourceContainers),
+            BuildBufferAndSourceContainers => Some(BuildArterialRoads),
             BuildArterialRoads => None,
         }
     }

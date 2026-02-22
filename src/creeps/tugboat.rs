@@ -21,7 +21,6 @@ impl StateMachine<Creep> for TuggedCreep {
         match self {
             Requesting => {
                 for msg in mem.messages.creep(tugged).read_all() {
-                    #[expect(irrefutable_let_patterns)]
                     let CreepMessage::AssignedTugBoat(tugboat) = msg else { continue; };
 
                     return Ok(Continue(WaitingFor { tugboat }))

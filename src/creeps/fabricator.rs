@@ -1,13 +1,14 @@
 use derive_deref::Deref;
-use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, Position, ResourceType, Room, Structure, StructureController, StructureObject, controller_downgrade, find, game};
+use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::ColonyBuffer, memory::Memory, messages::TruckMessage, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{colony::ColonyBuffer, memory::Memory, messages::{CreepMessage, TruckMessage}, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum FabricatorCreep {
     #[default] Idle,
+    CollectingFor(FabricatorTaskType),
     Performing(FabricatorTask)
 }
 
@@ -62,9 +63,37 @@ impl StateMachine<Creep> for FabricatorCreep {
                 mem.messages.trucks.send(TruckMessage::Provider(creep.try_id().unwrap(), home));
                 Ok(Stay)
             },
-            Self::Performing(task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) {
+            Self::CollectingFor(task) => {
+                if !coordinator.heartbeat_task(creep, task) {
                     coordinator.finish_task(creep, task, false);
+                    return Ok(Continue(Self::Idle))
+                }
+
+                if mem.messages.creep(creep).read(CreepMessage::TruckTarget) 
+                    || creep.store().get_free_capacity(Some(ResourceType::Energy)) == 0 {
+                    return Ok(Continue(Self::Performing(FabricatorTask::new(task.clone()).ok_or(())?)))
+                }
+
+                mem.messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home));
+
+                let buffer = mem.creep_home(creep).ok_or(())?.buffer();
+                let Some(buffer) = buffer else {
+                    return Ok(Continue(Self::Performing(FabricatorTask::new(task.clone()).ok_or(())?)))
+                };
+
+                if creep.pos().is_near_to(buffer.pos()) {
+                    if buffer.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
+                        creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
+                        Ok(Continue(Self::Performing(FabricatorTask::new(task.clone()).ok_or(())?)))
+                    } else { Ok(Stay) }
+                } else {
+                    mem.movement.smart_move_creep_to(creep, buffer.pos()).ok();
+                    Ok(Stay)
+                }
+            },
+            Self::Performing(task) => {
+                if task.has_timed_out() || !coordinator.heartbeat_task(creep, &task.task_type) {
+                    coordinator.finish_task(creep, &task.task_type, false);
                     return Ok(Continue(Self::Idle))
                 }
 
@@ -244,27 +273,27 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTask) -> bool {
-        match task.task_type {
+    fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTaskType) -> bool {
+        match task {
             FabricatorTaskType::Building(build) => 
-                self.builds.heartbeat_task(creep, &build),
+                self.builds.heartbeat_task(creep, build),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.heartbeat_task(creep, &repair),
+                self.repairs.heartbeat_task(creep, repair),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.heartbeat_task(creep, &upgrade),
+                self.upgrades.heartbeat_task(creep, upgrade),
         }
     }
 
-    fn finish_task(&mut self, creep: &Creep, task: &FabricatorTask, success: bool) {
+    fn finish_task(&mut self, creep: &Creep, task: &FabricatorTaskType, success: bool) {
         let creep_id = creep.try_id().unwrap();
 
-        match task.task_type {
+        match task {
             FabricatorTaskType::Building(build) => 
-                self.builds.finish_task(creep_id, &build, success),
+                self.builds.finish_task(creep_id, build, success),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.finish_task(creep_id, &repair, success),
+                self.repairs.finish_task(creep_id, repair, success),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.finish_task(creep_id, &upgrade, success),
+                self.upgrades.finish_task(creep_id, upgrade, success),
         }
     }
 }

@@ -1,8 +1,10 @@
+use std::cmp::Reverse;
+
 use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, memory::Memory, messages::TruckMessage, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, memory::Memory, messages::{CreepMessage, TruckMessage}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum TruckCreep {
@@ -59,6 +61,16 @@ impl StateMachine<Creep> for TruckCreep {
 
         let buffer_energy = buffer.store().get_used_capacity(Some(ResourceType::Energy));
         let buffer_free_capacity = buffer.store().get_free_capacity(Some(ResourceType::Energy));
+
+        match self {
+            Self::FillingUpFor(ConsumerTruckStop::Creep(creep)) |
+            Self::Performing(TruckTask::ProvidingTo(ConsumerTruckStop::Creep(creep))) => {
+                if let Some(creep) = creep.id().resolve() {
+                    mem.messages.creep(&creep).send(CreepMessage::TruckTarget);
+                }
+            }
+            _ => ()
+        }
 
         match self {
             Self::Idle => {
@@ -211,7 +223,7 @@ impl TruckCoordinator {
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
-                .max_by_key(|(_, _, data)| data.priority)
+                .max_by_key(|(provider, _, data)| (data.priority, Reverse(provider.get_range_to(creep.pos()))))
         })
     }
 
@@ -219,7 +231,7 @@ impl TruckCoordinator {
         let creep_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy)) as u32;
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
-                .max_by_key(|(_, amount, data)| ((*amount).min(creep_capacity), data.priority))
+                .max_by_key(|(provider, amount, data)| ((*amount).min(creep_capacity), data.priority, Reverse(provider.get_range_to(creep.pos()))))
         })
     }
 
@@ -227,10 +239,15 @@ impl TruckCoordinator {
         let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
         self.consumers.assign_task(creep, creep_energy, |tasks| {
             tasks.into_iter()
-                .max_set_by_key(|(_, _, priority)| *priority)
-                .into_iter()
-                .min_by_key(|(consumer, _, _)| consumer.pos().map_or(u32::MAX, |pos| pos.get_range_to(creep.pos())))
+                .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.get_range_to(creep.pos()))))
         })
+    }
+}
+
+trait GetDistToTruckStop { fn get_range_to(&self, pos: Position) -> u32; }
+impl<T : TruckStopPos> GetDistToTruckStop for T {
+    fn get_range_to(&self, other_pos: Position) -> u32 {
+        self.pos().map_or(u32::MAX, |pos| pos.get_range_to(other_pos))
     }
 }
 
@@ -441,6 +458,12 @@ mod truck_stop {
     impl<T, I> PartialEq for TruckStop<T, I> {
         fn eq(&self, other: &Self) -> bool {
             self.id == other.id
+        }
+    }
+
+    impl<T, I> TruckStop<T, I> {
+        pub fn id(&self) -> ObjectId<I> {
+            self.id
         }
     }
 

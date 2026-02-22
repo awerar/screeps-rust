@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage {
-    AssignedTugBoat(String)
+    AssignedTugBoat(String),
+    TruckTarget
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]

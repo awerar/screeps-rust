@@ -20,7 +20,7 @@ impl ColonyPlan {
 
         let mut planner = ColonyPlanner::new(room.clone());
         let center = find_center(room);
-        planner.plan_structure(center + Direction::Right, Level1(BuildContainerStorage), PlannedStructure::ContainerStorage)?;
+        planner.plan_structure(center + Direction::Right, Level1(BuildBufferAndSourceContainers), PlannedStructure::ContainerStorage)?;
 
         let mut center_planner = CenterPlanner::new(&planner, center);
 
@@ -77,7 +77,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
         );
 
         planner.plan_road(excavator_pos, Level1(BuildArterialRoads));
-        planner.plan_structure(excavator_pos, Level1(BuildSourceContainers), PlannedStructure::SourceContainer(source_id))?;
+        planner.plan_structure(excavator_pos, Level1(BuildBufferAndSourceContainers), PlannedStructure::SourceContainer(source_id))?;
 
         let slots = excavator_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))

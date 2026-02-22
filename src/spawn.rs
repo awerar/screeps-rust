@@ -2,7 +2,7 @@ use std::{cmp::Reverse, iter, ops::{Add, Mul}, sync::LazyLock};
 
 use itertools::Itertools;
 use log::{debug, info, warn};
-use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
+use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
 
 use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
 
@@ -321,6 +321,7 @@ const TRUCK_SOURCE_CARRY_PER_DIST: f32 = 0.4;
 // C = PT => 50y = 200 => y = 4
 // Creep cost = 1.5y * 50 / 1500 = 0.2
 const TRUCK_CENTER_CARRY: f32 = 4.0;
+const TRUCK_FABRICATOR_CARRY: f32 = 5.0;
 
 const TRUCK_CARRY_MARGIN: f32 = 0.25;
 
@@ -335,7 +336,7 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
             .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
             .sum::<f32>();
 
-        let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY)).ceil() as usize;
+        let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
         debug!("Target truck carry in {colony}: {target_carry}");
         let mut current_carry = schedule.all_creeps().filter_home(*colony).filter_type(CreepType::Truck).part_count(Carry);
 
@@ -451,31 +452,36 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     }
 }
 
-const TARGET_FABRICATOR_WORK_COUNT: usize = 20;
+const TARGET_IDLE_FABRICATOR_WORK_COUNT: usize = 20;
+const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
+const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
 fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
-    for colony in mem.colonies.keys() {
+    for (colony, colony_data) in &mem.colonies {
         let mut curr_work_count = schedule.all_creeps().filter_home(*colony).filter_type(CreepType::Fabricator).part_count(Part::Work);
+        
+        let buffer_energy = colony_data.buffer().map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));
+        let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
-    let spawners = schedule.spawners()
-        .filter_room(*colony)
-        .filter_free()
-        .0.sorted_by_key(|spawner| Reverse(spawner.energy_capacity));
+        let spawners = schedule.spawners()
+            .filter_room(*colony)
+            .filter_free()
+            .0.sorted_by_key(|spawner| Reverse(spawner.energy_capacity));
 
-    for spawner in spawners {
-        if curr_work_count >= TARGET_FABRICATOR_WORK_COUNT { break; }
+        for spawner in spawners {
+            if curr_work_count >= work_target { break; }
 
-        let body = FABRICATOR_TEMPLATE.scaled(spawner.energy_capacity, None);
-        let body_work_count = body.num(Part::Work);
+            let body = FABRICATOR_TEMPLATE.scaled(spawner.energy_capacity, None);
+            let body_work_count = body.num(Part::Work);
 
-        if spawner.schedule(CreepPrototype { 
-            body, 
-            ty: CreepType::Fabricator, 
-            home: spawner.room
-        }) {
-            curr_work_count += body_work_count;
+            if spawner.schedule(CreepPrototype { 
+                body, 
+                ty: CreepType::Fabricator, 
+                home: spawner.room
+            }) {
+                curr_work_count += body_work_count;
+            }
         }
-    }
     }
 }
 
