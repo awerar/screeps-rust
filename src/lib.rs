@@ -80,7 +80,7 @@ pub fn game_loop() {
 }
 
 fn update_coordinators(mem: &mut Memory) {
-    for (colony, colony_data) in &mem.colonies {
+    for (colony, (colony_data, _)) in &mem.colonies {
         let Some(room) = game::rooms().get(*colony) else { continue; };
         mem.truck_coordinators.entry(*colony).or_default().update(&colony_data.plan, &room, mem.messages.trucks.read_all());
         mem.fabricator_coordinators.entry(*colony).or_default().update(&room, colony_data.buffer());
@@ -88,7 +88,7 @@ fn update_coordinators(mem: &mut Memory) {
 }
 
 fn do_links(mem: &mut Memory) {
-    for colony in mem.colonies.values() {
+    for (colony, _) in mem.colonies.values() {
         let central_link: Option<StructureLink> = colony.plan.center.link.resolve();
         let Some(central_link) = central_link else { continue };
 

@@ -1,23 +1,23 @@
-use std::{fmt::Debug, sync::LazyLock};
+use std::{fmt::{Debug, Display}, sync::LazyLock};
 
 use log::error;
-use screeps::{RoomName, game};
+use screeps::RoomName;
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyData, statemachine::{StateMachine, Transition}};
 
-pub trait ColonyStepStateMachine where Self : Sized + Default + Eq + Debug + Clone + Ord {
+pub trait ColonyStepStateMachine where Self : Sized {
     fn get_promotion(&self) -> Option<Self>;
-    fn update_step(&self, name: RoomName, mem: &mut Memory) -> Result<ColonyStepTransition<Self>, ()>;
+    fn update_step(&self, name: &RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()>;
 }
 
-impl<T> StateMachine<RoomName> for T where T : ColonyStepStateMachine {
-    fn update(&self, name: &RoomName, mem: &mut Memory) -> Result<Transition<Self>, ()> {
-        Ok(match self.update_step(*name, mem)? {
-            ColonyStepTransition::None => Transition::Stay,
+impl<T> StateMachine<RoomName, ColonyData, ()> for T where T : ColonyStepStateMachine + Display {
+    fn update(self, name: &RoomName, colony_data: &ColonyData, _: &mut ()) -> Result<Transition<Self>, ()> {
+        Ok(match self.update_step(name, colony_data)? {
+            ColonyStepTransition::None => Transition::Break(self),
             ColonyStepTransition::Promotion => 
-                self.get_promotion().map(Transition::Continue).ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self:?}"))?,
-            ColonyStepTransition::Demotion(demotion) => Transition::Break(demotion),
+                self.get_promotion().map(Transition::Continue).ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self}"))?,
+            ColonyStepTransition::Demotion(demotion) => Transition::Continue(demotion),
         })
     }
 }
@@ -32,7 +32,7 @@ pub struct ColonyStepIterator<S> where S : ColonyStepStateMachine {
     step: S
 }
 
-impl<S> Iterator for ColonyStepIterator<S> where S : ColonyStepStateMachine {
+impl<S> Iterator for ColonyStepIterator<S> where S : ColonyStepStateMachine + Clone {
     type Item = S;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -64,6 +64,12 @@ pub enum ColonyStep {
     Level6 = 6,
     Level7 = 7,
     Level8 = 8
+}
+
+impl Display for ColonyStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 impl ColonyStep {
@@ -106,22 +112,22 @@ impl ColonyStepStateMachine for ColonyStep {
         }
     }
 
-    fn update_step(&self, name: RoomName, mem: &mut Memory) -> Result<ColonyStepTransition<Self>, ()> {
+    fn update_step(&self, name: &RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> {
         use ColonyStep::*;
         use ColonyStepTransition::*;
 
-        let controller_level = mem.colony(name).unwrap().level();
+        let controller_level = colony_data.level();
         if self.controller_level() > controller_level { return Ok(Demotion(Self::first_at_level(controller_level))) }
 
         let controller_is_upgraded = controller_level > self.controller_level();
-        let built_step = if let Some(plan_step) = mem.colony(name).unwrap().plan.steps.get(self) {
-            plan_step.build(&game::rooms().get(name).ok_or(())?).map_err(|e| { error!("Unable to build {self:?}: {e}"); })?
+        let built_step = if let Some(plan_step) = colony_data.plan.steps.get(self) {
+            plan_step.build(&colony_data.room().ok_or(())?).map_err(|e| { error!("Unable to build {self:?}: {e}"); })?
         } else { true };
 
         let can_level_promote = controller_is_upgraded && built_step;
 
         Ok(match self {
-            Level1(substep) => match substep.update_step(name, mem)? {
+            Level1(substep) => match substep.update_step(name, colony_data)? {
                 Demotion(demotion) => Demotion(Level1(demotion)),
                 Promotion if built_step => Promotion,
                 None if substep.get_promotion().is_none() && can_level_promote => Promotion,
@@ -154,7 +160,7 @@ impl ColonyStepStateMachine for Level1Step {
         }
     }
     
-    fn update_step(&self, _: RoomName, _: &mut Memory) -> Result<ColonyStepTransition<Self>, ()> { Ok(ColonyStepTransition::Promotion) }
+    fn update_step(&self, _: &RoomName, _: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> { Ok(ColonyStepTransition::Promotion) }
 }
 
 #[cfg(test)]
@@ -167,7 +173,7 @@ mod tests {
         unsafe { *std::ptr::from_ref::<T>(step).cast::<u8>() }
     }
 
-    fn test_promotion<T>() where T : ColonyStepStateMachine {
+    fn test_promotion<T>() where T : ColonyStepStateMachine + Default + Ord {
         let mut step = T::default();
         assert_eq!(discriminant(&step), 0);
 

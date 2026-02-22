@@ -7,16 +7,15 @@ use serde::{Deserialize, Serialize};
 use log::{info, warn};
 use tap::Tap;
 
-use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::StateMachineTransition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
-mod steps;
+pub mod steps;
 
 #[derive(Serialize, Deserialize)]
 pub struct ColonyData {
     pub room_name: RoomName,
-    pub plan: ColonyPlan,
-    pub step: ColonyStep
+    pub plan: ColonyPlan
 }
 
 impl ColonyData {
@@ -160,31 +159,27 @@ pub fn update_rooms(mem: &mut Memory) {
 
             let plan = plan.tap_mut(|plan| plan.adapt_build_times_to(&room));
 
-            e.insert(ColonyData { 
-                room_name: room.name(), 
-                plan, 
-                step: ColonyStep::default()
-            });
+            e.insert((ColonyData { room_name: room.name(), plan}, ColonyStep::default()));
         }
 
         if pop_command(Command::ResetColonyStep { room: name.to_string() }) {
-            mem.colonies.get_mut(&name).unwrap().step = ColonyStep::default();
+            mem.colonies.get_mut(&name).unwrap().1 = ColonyStep::default();
         }
 
         if pop_command(Command::VisualizePlan { room: name.to_string(), animate: false }) {
-            let plan_clone = mem.colonies.get(&name).unwrap().plan.clone();
+            let plan_clone = mem.colonies.get(&name).unwrap().0.plan.clone();
             draw_in_room_replaced(name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
         }
 
         if pop_command(Command::VisualizePlan { room: name.to_string(), animate: true }) {
-            let plan_clone = mem.colonies.get(&name).unwrap().plan.clone();
+            let plan_clone = mem.colonies.get(&name).unwrap().0.plan.clone();
             plan_clone.draw_progression(name);
         }
 
 
-        let step = mem.colonies[&name].step;
-        mem.colonies.get_mut(&name).unwrap().step = transition(&step, &name, mem);
+        let (colony_data, step) = mem.colonies.get_mut(&name).unwrap();
+        step.transition(&name, colony_data, &mut ());
 
-        info!("{} is at step {:?}", name, mem.colonies.get(&name).unwrap().step);
+        info!("{} is at step {:?}", name, step);
     }
 }

@@ -285,7 +285,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
 
             let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
 
-            let any_source_constructions = mem.colony(room.name()).unwrap()
+            let any_source_constructions = mem.colonies.get(&room.name()).unwrap().0
                 .plan.sources.source_plans
                 .get(&source.id())
                 .is_some_and(|source_plan| source_plan.get_construction_site().is_some());
@@ -330,7 +330,7 @@ static MAX_TRUCK_ENERGY: LazyLock<u32> = LazyLock::new(||  (TRUCK_TEMPLATE.clone
 fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
-    for (colony, colony_data) in &mem.colonies {
+    for (colony, (colony_data, _)) in &mem.colonies {
         let total_carry_for_sources = colony_data.plan.sources.source_plans.values()
             .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
             .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
@@ -375,7 +375,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
         #[expect(irrefutable_let_patterns)]
         let SpawnMessage::SpawnTugboatFor(tugged_id) = msg else { continue; };
         let Some(tugged) = tugged_id.resolve() else { continue; };
-        let Some(home) = mem.creep(&tugged).map(|data| data.home) else { continue; };
+        let Some(home) = mem.creeps.get(&tugged.name()).map(|data| data.home) else { continue; };
 
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
 
@@ -399,7 +399,7 @@ const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
 const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
 fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
-    for (colony, colony_data) in &mem.colonies {
+    for (colony, (colony_data, _)) in &mem.colonies {
         let mut curr_work_count = schedule.all_creeps().filter_home(*colony).filter_type(CreepType::Fabricator).part_count(Part::Work);
         
         let buffer_energy = colony_data.buffer().map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));

@@ -2,11 +2,11 @@ use std::{collections::{HashMap, HashSet, VecDeque}};
 
 use js_sys::{JsString, Reflect};
 use log::{warn, info};
-use screeps::{Creep, Position, RoomName, SharedCreepProperties, game};
+use screeps::{Position, RoomName, game};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::ColonyData, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, colony::{ColonyData, steps::ColonyStep}, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -26,7 +26,7 @@ pub struct Memory {
 
     #[serde(rename = "internal_creeps")]
     #[serde(default)] pub creeps: HashMap<String, CreepData>,
-    #[serde(default)] pub colonies: HashMap<RoomName, ColonyData>,
+    #[serde(default)] pub colonies: HashMap<RoomName, (ColonyData, ColonyStep)>,
 
     #[serde(default)] pub last_alive_creeps: HashSet<String>,
     #[serde(default)] pub callbacks: Callbacks,
@@ -39,18 +39,6 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn creep_home(&self, creep: &Creep) -> Option<&ColonyData> {
-        self.creep(creep).and_then(|data| self.colony(data.home))
-    }
-
-    pub fn creep(&self, creep: &Creep) -> Option<&CreepData> {
-        self.creeps.get(&creep.name())
-    }
-
-    pub fn colony(&self, name: RoomName) -> Option<&ColonyData> {
-        self.colonies.get(&name)
-    }
-
     #[expect(clippy::used_underscore_binding)]
     pub fn screeps_deserialize() -> Self {
         let mem = screeps::raw_memory::get();
