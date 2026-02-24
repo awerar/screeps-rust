@@ -1,5 +1,6 @@
 use std::{cell::RefCell, collections::HashSet, iter};
 
+use anyhow::anyhow;
 use clap::Parser;
 use log::info;
 use screeps::{RoomName, StructureProperties, find, game};
@@ -17,10 +18,10 @@ pub fn command(command: &str) {
     do_command(command).inspect_err(|err| info!("{err}")).ok();
 }
 
-fn do_command(command: &str) -> Result<(), String> {
-    let command = shlex::split(command).ok_or("Unable to lex command")?;
+fn do_command(command: &str) -> anyhow::Result<()> {
+    let command = shlex::split(command).ok_or(anyhow!("Unable to lex command"))?;
     let tokens = iter::once("command".to_string()).chain(command);
-    let command = Command::try_parse_from(tokens).map_err(|e| e.to_string())?;
+    let command = Command::try_parse_from(tokens)?;
 
     match command {
         Command::ClearVisuals => visuals::clear_visuals(),

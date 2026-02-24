@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use itertools::Itertools;
 use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
+use anyhow::anyhow;
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::{ColonyStep, LAST_COLONY_STEP}};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::{ColonyStep, LAST_COLONY_STEP}};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -125,7 +126,7 @@ impl ColonyPlanner {
         }
     }
 
-    pub fn compile(self) -> Result<ColonyPlan, String> {
+    pub fn compile(self) -> anyhow::Result<ColonyPlan> {
         let mut plan_steps = HashMap::new();
 
         for step in ColonyStep::iter() {
@@ -151,11 +152,11 @@ impl ColonyPlanner {
             sources: self.compile_sources(center.pos.xy())?,
             mineral: self.compile_mineral(center.pos.xy())?,
             center,
-            controller: PlannedStructureBuiltRef::new(self.room.controller().ok_or("No controller")?.pos())
+            controller: PlannedStructureBuiltRef::new(self.room.controller().ok_or(anyhow!("No controller"))?.pos())
         })
     }
 
-    fn compile_center(&self) -> Result<CenterPlan, String> {
+    fn compile_center(&self) -> anyhow::Result<CenterPlan> {
         use PlannedStructure::*;
 
         let storage_ref = self.get_structure_ref(Storage)?;
@@ -173,7 +174,7 @@ impl ColonyPlanner {
         })
     }
 
-    fn compile_sources(&self, center: RoomXY) -> Result<SourcesPlan, String> {
+    fn compile_sources(&self, center: RoomXY) -> anyhow::Result<SourcesPlan> {
         use PlannedStructure::*;
 
         Ok(SourcesPlan{
@@ -184,14 +185,14 @@ impl ColonyPlanner {
 
                     let plan = SourcePlan {
                         distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
-                        spawn: self.get_structure_ref(SourceSpawn(source))?.into(),
+                        spawn: /*self.get_structure_ref(SourceSpawn(source))?.into() /* TODO: FIX*/*/ OptionalPlannedStructureRef(None),
                         container: container.into(),
                         link: self.get_structure_ref(SourceLink(source))?.into(),
                         extensions: self.get_structure_refs(SourceExtension(source)),
                     };
 
                     Ok((source, plan))
-                }).collect::<Result<_, String>>()?,
+                }).collect::<anyhow::Result<_>>()?,
             source_containers: PlannedStructureRefs(
                 self.pos2structure.iter()
                     .filter(|(_, structure)| matches!(structure, PlannedStructure::SourceContainer(_)))
@@ -201,7 +202,7 @@ impl ColonyPlanner {
         })
     }
 
-    fn compile_mineral(&self, center: RoomXY) -> Result<MineralPlan, String> {
+    fn compile_mineral(&self, center: RoomXY) -> anyhow::Result<MineralPlan> {
         use PlannedStructure::*;
 
         let container = self.get_structure_ref(MineralContainer)?;
@@ -213,12 +214,12 @@ impl ColonyPlanner {
         })
     }
 
-    pub fn get_structure_ref<T>(&self, structure: PlannedStructure) -> Result<PlannedStructureRef<T>, String> {
+    pub fn get_structure_ref<T>(&self, structure: PlannedStructure) -> anyhow::Result<PlannedStructureRef<T>> {
         self.structures2pos.get(&structure)
-            .ok_or(format!("No {structure:?} was found"))
+            .ok_or(anyhow!("No {structure:?} was found"))
             .and_then(|positions| {
-                if positions.is_empty() { Err(format!("No {structure:?} was found")) }
-                else if positions.len() > 1 { Err(format!("Unable to determine unique {structure:?}")) }
+                if positions.is_empty() { Err(anyhow!("No {structure:?} was found")) }
+                else if positions.len() > 1 { Err(anyhow!("Unable to determine unique {structure:?}")) }
                 else { Ok(*positions.iter().next().unwrap()) } 
             })
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
@@ -269,7 +270,7 @@ impl ColonyPlanner {
         }
     }
 
-    pub fn plan_structure_earliest(&mut self, xy: RoomXY, structure: PlannedStructure) -> Result<ColonyStep, String> {
+    pub fn plan_structure_earliest(&mut self, xy: RoomXY, structure: PlannedStructure) -> anyhow::Result<ColonyStep> {
         let build_steps = &*self.structure_type_steps.entry(structure.structure_type()).or_default();
         let built_by = ColonyStep::iter()
             .map(|step| (step, build_steps.get(&step).copied().unwrap_or(0)))
@@ -284,15 +285,15 @@ impl ColonyPlanner {
             .into_iter()
             .rev()
             .take_while(|step| built_by[step] < structure.structure_type().controller_structures(u32::from(step.controller_level())))
-            .last().ok_or(format!("Unable to build any more {structure:?}"))?;
+            .last().ok_or(anyhow!("Unable to build any more {structure:?}"))?;
 
         self.plan_structure(xy, step, structure).map(|()| step)
     }
 
-    pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
-        if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(format!("Can't plan {structure:?} due to wall")) }
-        if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(format!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
-        if self.pos2structure.get(&xy).is_some_and(|other| structure != *other) { return Err(format!("Can't plan {structure:?} due to overlap")) }
+    pub fn plan_structure(&mut self, xy: RoomXY, step: ColonyStep, structure: PlannedStructure) -> anyhow::Result<()> {
+        if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(anyhow!("Can't plan {structure:?} due to wall")) }
+        if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(anyhow!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
+        if self.pos2structure.get(&xy).is_some_and(|other| structure != *other) { return Err(anyhow!("Can't plan {structure:?} due to overlap")) }
         if self.structures.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
 
         self.structures2pos.entry(structure).or_default().insert(xy);
@@ -360,7 +361,7 @@ impl CenterPlanner {
         }
     }
 
-    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> Result<RoomXY, String> {        
+    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {        
         for (_, pos) in self.flood_fill.by_ref() {
             if planner.pos2structure.contains_key(&pos) { continue; }
 
@@ -378,10 +379,10 @@ impl CenterPlanner {
             return Ok(pos); 
         }
 
-        Err("No more positions in center".to_string())
+        Err(anyhow!("No more positions in center"))
     }
 
-    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedStructure) -> Result<(), String> {
+    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedStructure) -> anyhow::Result<()> {
         let pos = self.next_structure_pos(planner, step)?;
         planner.plan_structure(pos, step, structure)
     }

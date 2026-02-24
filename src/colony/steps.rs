@@ -1,6 +1,6 @@
 use std::{fmt::{Debug, Display}, sync::LazyLock};
 
-use log::error;
+use anyhow::anyhow;
 use screeps::RoomName;
 use serde::{Deserialize, Serialize};
 
@@ -8,15 +8,15 @@ use crate::{colony::ColonyData, statemachine::{StateMachine, Transition}};
 
 pub trait ColonyStepStateMachine where Self : Sized {
     fn get_promotion(&self) -> Option<Self>;
-    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()>;
+    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> anyhow::Result<ColonyStepTransition<Self>>;
 }
 
 impl<T> StateMachine<RoomName, &ColonyData> for T where T : ColonyStepStateMachine + Display + Default {
-    fn update(self, name: &RoomName, colony_data: &mut &ColonyData) -> Result<Transition<Self>, ()> {
+    fn update(self, name: &RoomName, colony_data: &mut &ColonyData) -> anyhow::Result<Transition<Self>> {
         Ok(match self.update_step(*name, colony_data)? {
             ColonyStepTransition::None => Transition::Break(self),
             ColonyStepTransition::Promotion => 
-                self.get_promotion().map(Transition::Continue).ok_or(()).inspect_err(|()| error!("Promotion discreprancy for {self}"))?,
+                self.get_promotion().map(Transition::Continue).ok_or(anyhow!("Promotion discreprancy for {self}"))?,
             ColonyStepTransition::Demotion(demotion) => Transition::Continue(demotion),
         })
     }
@@ -112,7 +112,7 @@ impl ColonyStepStateMachine for ColonyStep {
         }
     }
 
-    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> {
+    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> anyhow::Result<ColonyStepTransition<Self>> {
         use ColonyStep::*;
         use ColonyStepTransition::*;
 
@@ -121,7 +121,7 @@ impl ColonyStepStateMachine for ColonyStep {
 
         let controller_is_upgraded = controller_level > self.controller_level();
         let built_step = if let Some(plan_step) = colony_data.plan.steps.get(self) {
-            plan_step.build(&colony_data.room().ok_or(())?).map_err(|e| { error!("Unable to build {self:?}: {e}"); })?
+            plan_step.build(&colony_data.room().ok_or(anyhow!("Unable to resolve colony room"))?)?
         } else { true };
 
         let can_level_promote = controller_is_upgraded && built_step;
@@ -160,7 +160,7 @@ impl ColonyStepStateMachine for Level1Step {
         }
     }
     
-    fn update_step(&self, _: RoomName, _: &ColonyData) -> Result<ColonyStepTransition<Self>, ()> { Ok(ColonyStepTransition::Promotion) }
+    fn update_step(&self, _: RoomName, _: &ColonyData) -> anyhow::Result<ColonyStepTransition<Self>> { Ok(ColonyStepTransition::Promotion) }
 }
 
 #[cfg(test)]

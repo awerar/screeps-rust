@@ -1,5 +1,6 @@
 use std::cmp::Reverse;
 
+use anyhow::anyhow;
 use enum_display::EnumDisplay;
 use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
@@ -37,7 +38,7 @@ pub enum ConsumerTruckStop {
 }
 
 trait GetResourceAvaliable { fn get_resource_avaliable(&self, ty: ResourceType) -> Option<u32>; }
-trait Withdraw { fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()>; }
+trait Withdraw { fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()>; }
 trait Provide: GetResourceAvaliable + Withdraw + TruckStopPos {}
 impl Provide for ProviderTruckStop {}
 impl Provide for TruckStop<Provider, Structure> {}
@@ -47,7 +48,7 @@ impl Provide for TruckStop<Provider, Resource> {}
 impl Provide for TruckStop<Provider, Tombstone> {}
 
 trait GetResourceFree { fn get_resource_free(&self, ty: ResourceType) -> Option<u32>; }
-trait Transfer { fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()>; }
+trait Transfer { fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()>; }
 trait Consume: GetResourceFree + GetResourceAvaliable + Transfer + TruckStopPos {}
 impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
@@ -55,12 +56,12 @@ impl Consume for TruckStop<Consumer, Creep> {}
 
 type Args<'a> = (&'a ColonyData, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for TruckCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         let (home, movement, coordinator, messages) = args;
         
-        let buffer = home.buffer().ok_or(())?;
+        let buffer = home.buffer().ok_or(anyhow!("Unable to get buffer"))?;
         let buffer_energy = buffer.store().get_used_capacity(Some(ResourceType::Energy));
         let buffer_free_capacity = buffer.store().get_free_capacity(Some(ResourceType::Energy));
 
@@ -104,7 +105,7 @@ impl StateMachine<Creep, Args<'_>> for TruckCreep {
 
                 if !coordinator.heartbeat(creep, task) { return Ok(Continue(Self::Idle)) }
 
-                let target = task.pos().ok_or(())?;
+                let target = task.pos().ok_or(anyhow!("Unable to get task pos"))?;
                 if creep.pos().is_near_to(target) {
                     task.perform(creep)?;
                     coordinator.finish(creep, task, true);
@@ -151,7 +152,7 @@ impl TruckTask {
         }
     }
 
-    fn perform(&self, creep: &Creep) -> Result<(), ()> {
+    fn perform(&self, creep: &Creep) -> anyhow::Result<()> {
         match self {
             TruckTask::CollectingFrom(provider) => 
                 provider.creep_withdraw(creep, ResourceType::Energy),
@@ -272,7 +273,7 @@ impl GetResourceAvaliable for ProviderTruckStop {
 }
 
 impl Withdraw for ProviderTruckStop {
-    fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
+    fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
         self.get_provide().creep_withdraw(creep, ty)
     }
 }
@@ -305,7 +306,7 @@ impl GetResourceFree for ConsumerTruckStop {
 }
 
 impl Transfer for ConsumerTruckStop {
-    fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
+    fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
         self.get_consume().creep_transfer(creep, ty)
     }
 }
@@ -418,7 +419,7 @@ impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
 mod truck_stop {
     use std::{hash::Hash, marker::PhantomData};
 
-    use log::warn;
+    use anyhow::anyhow;
     use screeps::{Creep, HasId, HasPosition, HasStore, MaybeHasId, ObjectId, Position, Resource, ResourceType, Ruin, SharedCreepProperties, Store, Structure, StructureObject, Tombstone, Withdrawable};
     use serde::{Deserialize, Serialize};
     use wasm_bindgen::JsCast;
@@ -561,44 +562,44 @@ mod truck_stop {
     }
 
     impl Transfer for TruckStop<Consumer, Structure> {
-        fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            let structure = StructureObject::from(self.id.resolve().ok_or(())?);
-            creep.transfer(structure.as_transferable().ok_or(())?, ty, None).map_err(|_| ())
+        fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
+            let structure = StructureObject::from(self.id.resolve().ok_or(anyhow!("Unable to resolve id"))?);
+            Ok(creep.transfer(structure.as_transferable().ok_or(anyhow!("Entity is not transferable"))?, ty, None)?)
         }
     }
 
     impl Transfer for TruckStop<Consumer, Creep> {
-        fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            let other_creep = self.id.resolve().ok_or(()).inspect_err(|()| warn!("Unable to resolve other creep"))?;
-            creep.transfer(&other_creep, ty, None).inspect_err(|e| warn!("Unable to transfer to creep: {e}")).map_err(|_| ())
+        fn creep_transfer(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
+            let other_creep = self.id.resolve().ok_or(anyhow!("Unable to resolve id"))?;
+            Ok(creep.transfer(&other_creep, ty, None)?)
         }
     }
 
     impl Withdraw for TruckStop<Provider, Structure> {
-        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            let structure = StructureObject::from(self.id.resolve().ok_or(())?);
-            creep.withdraw(structure.as_withdrawable().ok_or(())?, ty, None).map_err(|_| ())
+        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
+            let structure = StructureObject::from(self.id.resolve().ok_or(anyhow!("Unable to resolve id"))?);
+            Ok(creep.withdraw(structure.as_withdrawable().ok_or(anyhow!("Entity is not withdrawable"))?, ty, None)?)
         }
     }
 
     impl Withdraw for TruckStop<Provider, Creep> {
-        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            let other_creep = self.id.resolve().ok_or(())?;
-            other_creep.transfer(creep, ty, None).map_err(|_| ())
+        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
+            let other_creep = self.id.resolve().ok_or(anyhow!("Unable to resolve id"))?;
+            Ok(other_creep.transfer(creep, ty, None)?)
         }
     }
 
     impl<I : NormalOtherEntity> Withdraw for TruckStop<Provider, I> {
-        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            creep.withdraw(&self.id.resolve().ok_or(())?, ty, None).map_err(|_| ())
+        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
+            Ok(creep.withdraw(&self.id.resolve().ok_or(anyhow!("Unable to resolve id"))?, ty, None)?)
         }
     }
 
     impl Withdraw for TruckStop<Provider, Resource> {
-        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> Result<(), ()> {
-            let resource = self.id.resolve().ok_or(())?;
-            if resource.resource_type() != ty { return Err(()) }
-            creep.pickup(&resource).map_err(|_| ())
+        fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
+            let resource = self.id.resolve().ok_or(anyhow!("Unable to resolve id"))?;
+            if resource.resource_type() != ty { return Err(anyhow!("Resource has wrong type. Expected {ty}, found {}", resource.resource_type())) }
+            Ok(creep.pickup(&resource)?)
         }
     }
 }

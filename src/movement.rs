@@ -32,7 +32,7 @@ enum MoveState {
 }
 
 impl Movement {
-    pub fn smart_move_creep_to<T>(&mut self, creep: &Creep, target: T) -> Result<(), CreepMoveToErrorCode>
+    pub fn smart_move_creep_to<T>(&mut self, creep: &Creep, target: T) -> anyhow::Result<(), CreepMoveToErrorCode>
         where T: HasPosition
     {
         let creep_data = self.creeps_data.entry(creep.name()).or_default();

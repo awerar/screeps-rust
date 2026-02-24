@@ -216,7 +216,7 @@ impl SpawnSchedule {
                 spawning.cancel().ok();
             }
 
-            let name = format!("{} {}", proto.ty.prefix(), get_new_creep_name());
+            let name = get_new_creep_name(proto.ty.prefix());
             info!("Spawning new creep: {name}");
 
             if let Err(err) = spawn.spawn_creep(&proto.body.0, &name) {

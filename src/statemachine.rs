@@ -13,7 +13,7 @@ pub enum Transition<S> {
 }
 
 pub trait StateMachine<U, A> where Self : Default + Display {
-    fn update(self, underlying: &U, args: &mut A) -> Result<Transition<Self>, ()>;
+    fn update(self, underlying: &U, args: &mut A) -> anyhow::Result<Transition<Self>>;
 }
 
 pub trait StateMachineTransition<U, A> {
@@ -29,8 +29,8 @@ impl<SM, U : UnderlyingName, A> StateMachineTransition<U, A> for SM where SM : S
             let curr_state_name = self.to_string();
 
             match mem::take(self).update(underlying, args) {
-                Err(()) => {
-                    error!("{} failed on state {curr_state_name}. Falling back to default state", underlying.name());
+                Err(e) => {
+                    error!("{} failed on state {curr_state_name}. Falling back to default state: {e}", underlying.name());
                     return;
                 },
                 Ok(Transition::Break(new_state)) => {

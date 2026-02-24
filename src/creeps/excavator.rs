@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
@@ -19,20 +20,20 @@ impl Default for ExcavatorCreep {
 
 type Args<'a> = (ObjectId<Source>, &'a ColonyData, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
 
         let (ref source, home, messages) = args;
 
-        let source = source.resolve().ok_or(())?;
-        let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(())?;
+        let source = source.resolve().ok_or(anyhow!("Unable to resolve source"))?;
+        let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 
         let work_count = creep.body().iter().filter(|bodypart| bodypart.part() == Part::Work).count() as u32;
 
         match self {
             Going(mut tugged_state) => {
-                let harvest_pos = plan.container.as_ref().ok_or(())?.pos;
+                let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
                 tugged_state.move_tugged_to(creep, messages, harvest_pos, 0);
                 if tugged_state.is_finished() {
                     Ok(Continue(Mining))
@@ -43,7 +44,7 @@ impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
             Mining => {
                 if creep.store().get_free_capacity(Some(ResourceType::Energy)) < (work_count * 2).try_into().unwrap() {
                     if let Some(site) = plan.get_construction_site() {
-                        Ok(Continue(Building(site.try_id().ok_or(())?)))
+                        Ok(Continue(Building(site.try_id().ok_or(anyhow!("Unable to get site id"))?)))
                     } else {
                         let fillable = plan.get_fillable();
                         if let Some(fillable) = fillable {

@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use derive_deref::Deref;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
@@ -49,7 +50,7 @@ const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
 type Args<'a> = (&'a ColonyData, &'a mut Movement, &'a mut FabricatorCoordinator, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         let (home, movement, coordinator, messages) = args;
@@ -83,7 +84,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
 
                 if creep.pos().is_near_to(buffer.pos()) {
                     if buffer.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
-                        creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).map_err(|_| ())?;
+                        creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None)?;
                         Ok(Break(Self::Performing(task.clone())))
                     } else { Ok(Break(self)) }
                 } else {
@@ -138,17 +139,17 @@ impl FabricatorTask {
         }
     }
 
-    fn creep_work(&self, creep: &Creep) -> Result<(), ()> {
+    fn creep_work(&self, creep: &Creep) -> anyhow::Result<()> {
         match self.task_type {
             FabricatorTaskType::Building(site) => 
-                creep.build(&site.resolve().ok_or(())?).map_err(|_| ()),
+                Ok(creep.build(&site.resolve().ok_or(anyhow!("Unable to resolve site"))?)?),
             FabricatorTaskType::Repairing(structure) => {
-                let structure_object = StructureObject::from(structure.resolve().ok_or(())?);
-                let repairable = structure_object.as_repairable().ok_or(())?;
-                creep.repair(repairable).map_err(|_| ())
+                let structure_object = StructureObject::from(structure.resolve().ok_or(anyhow!("Unable to resolve structure"))?);
+                let repairable = structure_object.as_repairable().ok_or(anyhow!("Structure is not repairable"))?;
+                Ok(creep.repair(repairable)?)
             },
             FabricatorTaskType::UpgradingController(controller) => 
-                creep.upgrade_controller(&controller.resolve().ok_or(())?).map_err(|_| ()),
+                Ok(creep.upgrade_controller(&controller.resolve().ok_or(anyhow!("Unable to resolve controller"))?)?),
         }
     }
 }

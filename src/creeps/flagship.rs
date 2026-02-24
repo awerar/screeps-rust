@@ -1,4 +1,5 @@
 use enum_display::EnumDisplay;
+use anyhow::anyhow;
 use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ pub enum FlagshipCreep {
 
 type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
 impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> Result<Transition<Self>, ()> {
+    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
 
@@ -40,7 +41,7 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
                 Ok(Break(self))
             }
             Claiming(request, controller) => {
-                let controller = controller.resolve().ok_or(())?;
+                let controller = controller.resolve().ok_or(anyhow!("Unable to resolve controller"))?;
 
                 if creep.pos().is_near_to(controller.pos()) {
                     match creep.claim_controller(&controller) {

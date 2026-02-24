@@ -33,6 +33,7 @@ clap = { version = "4.5.58", features = ["derive"] }
 tap = "1.0.1"
 derive-alias = "0.1.1"
 enum-display = "0.2.1"
+anyhow = "1.0.102"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

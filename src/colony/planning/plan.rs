@@ -5,6 +5,7 @@ use itertools::Itertools;
 use screeps::{ConstructionSite, HasPosition, ObjectId, OwnedStructureProperties, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
+use anyhow::anyhow;
 
 use crate::colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs, ResolvableSiteRef, ResolvableStructureRef}, steps::ColonyStep};
 
@@ -165,13 +166,13 @@ impl ColonyPlan {
 }
 
 impl ColonyPlanStep {
-    pub fn build(&self, room: &Room) -> Result<bool, String> {
+    pub fn build(&self, room: &Room) -> anyhow::Result<bool> {
         let roads = get_all_roads_in(room);
         let roads_set: HashSet<_> = roads.keys().copied().collect();
         let missing_roads = self.new_roads.difference(&roads_set).copied().collect_vec();
 
         for road in &missing_roads {
-            Position::new(road.x, road.y, room.name()).create_construction_site(StructureType::Road, None).map_err(|e| format!("Unable to create road at {road}: {e}"))?;
+            Position::new(road.x, road.y, room.name()).create_construction_site(StructureType::Road, None)?;
         }
 
         let all_structures = get_all_structures_in(room);
@@ -197,13 +198,13 @@ impl ColonyPlanStep {
                 warn!("For {:?} at {pos}", missing_structures[pos]);
             }
 
-            return Err("Structure overlap".into())
+            return Err(anyhow!("Structure overlap"))
         }
 
         for (pos, ty) in &missing_structures {
             let pos = Position::new(pos.x, pos.y, room.name());
             if pos.look_for(look::CONSTRUCTION_SITES).ok().is_none_or(|sites| sites.is_empty()) {
-                pos.create_construction_site(*ty, None).map_err(|e| format!("Unable to create structure {ty} at {pos}: {e}"))?;
+                pos.create_construction_site(*ty, None).map_err(|e| anyhow!("Unable to create structure {ty} at {pos}: {e}"))?;
             }
         }
 

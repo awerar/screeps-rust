@@ -1,6 +1,5 @@
 #![feature(map_try_insert)]
 #![feature(variant_count)]
-#![feature(assert_matches)]
 #![feature(trait_alias)]
 
 #![allow(clippy::enum_glob_use)]

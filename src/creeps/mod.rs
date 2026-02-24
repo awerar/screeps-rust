@@ -148,7 +148,7 @@ pub fn do_creeps(mem: &mut Memory) {
     while !update_creeps.is_empty() {
         for creep in &update_creeps {
             let creep_data = mem.creeps.get_mut(&creep.name()).unwrap();
-            let (home, _) = mem.colonies.get(&creep_data.home).unwrap();
+            let Some((home, _)) = mem.colonies.get(&creep_data.home) else { continue; };
 
             match &mut creep_data.role {
                 Flagship(state) => {

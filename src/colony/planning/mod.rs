@@ -4,6 +4,7 @@ use log::debug;
 use itertools::Itertools;
 use screeps::{Direction, HasId, HasPosition, Position, Room, RoomCoordinate, RoomXY, Terrain, find};
 use unionfind::HashUnionFindByRank;
+use anyhow::anyhow;
 
 use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::{ColonyStep, Level1Step}}, pathfinding};
 
@@ -14,7 +15,7 @@ mod floodfill;
 pub mod planned_ref;
 
 impl ColonyPlan {
-    pub fn create_for(room: &Room) -> Result<Self, String> {
+    pub fn create_for(room: &Room) -> anyhow::Result<Self> {
         use ColonyStep::*;
         use Level1Step::*;
 
@@ -49,7 +50,7 @@ impl ColonyPlan {
 
             let container_pos = deposit.pos().xy().neighbors().into_iter()
                 .find(|neigh| planner.roads.contains_key(neigh))
-                .ok_or("Unable to find road around deposit")?;
+                .ok_or(anyhow!("Unable to find road around deposit"))?;
             planner.plan_structure(container_pos, Level6, PlannedStructure::MineralContainer)?;
         }
 
@@ -59,7 +60,7 @@ impl ColonyPlan {
     }
 }
 
-fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomXY>, String> {
+fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<Vec<RoomXY>> {
     use ColonyStep::*;
     use Level1Step::*;
 
@@ -70,7 +71,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
 
         let path = planner.find_path_between(source_pos, center, Some(Level1(BuildArterialRoads)));
 
-        let harvest_pos = path.first().ok_or("Path to source had zero elements")?;
+        let harvest_pos = path.first().ok_or(anyhow!("Path to source had zero elements"))?;
         let excavator_pos = RoomXY::new(
             RoomCoordinate::new(harvest_pos.x as u8).unwrap(), 
             RoomCoordinate::new(harvest_pos.y as u8).unwrap()
@@ -84,7 +85,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
             .collect_vec()
             .into_iter();
 
-        let main_road_pos = path.get(1).ok_or("Path to source had one element")?;
+        let main_road_pos = path.get(1).ok_or(anyhow!("Path to source had one element"))?;
         let main_road_pos = RoomXY::new(
             RoomCoordinate::new(main_road_pos.x as u8).unwrap(), 
             RoomCoordinate::new(main_road_pos.y as u8).unwrap()
@@ -94,7 +95,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
         //planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?; //TODO: Fix
 
         let mut slots = slots.filter(|slot| *slot != main_road_pos);
-        let link_slot = slots.next().ok_or("No slots for link around source")?;
+        let link_slot = slots.next().ok_or(anyhow!("No slots for link around source"))?;
         planner.plan_structure_earliest(link_slot, PlannedStructure::SourceLink(source_id))?;
 
         for slot in slots {
@@ -107,7 +108,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> Result<Vec<RoomX
     Ok(connection_points)
 }
 
-fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> Result<(), String> {
+fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> anyhow::Result<()> {
     for controller_level in 1_u8..=8 {
         if controller_level == 8 {
             center_planner.plan_structure(planner, ColonyStep::Level8, PlannedStructure::Observer)?;
@@ -145,7 +146,7 @@ fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: 
     Ok(())
 }
 
-fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<(), String> {
+fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<()> {
     let mut network = HashUnionFindByRank::new(vec![center]).unwrap();
 
     for step in ColonyStep::iter() {
@@ -157,10 +158,10 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
             .collect();
 
         for new_road in &new_roads {
-            network.add(*new_road).map_err(|e| e.to_string())?;
+            network.add(*new_road)?;
             for neigh in new_road.neighbors() {
                 if network.find_shorten(&neigh).is_some() {
-                    network.union_by_rank(new_road, &neigh).map_err(|e| e.to_string())?;
+                    network.union_by_rank(new_road, &neigh)?;
                 }
             }
         }
@@ -168,7 +169,7 @@ fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> Result<()
         for new_road in &new_roads {
             if network.find_shorten(new_road) != network.find_shorten(&center) {
                 planner.plan_road_between(center, *new_road, step);
-                network.union_by_rank(new_road, &center).map_err(|e| e.to_string())?;
+                network.union_by_rank(new_road, &center)?;
             }
         }
 
