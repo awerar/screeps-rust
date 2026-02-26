@@ -109,7 +109,7 @@ impl CreepType {
     }
 }
 
-fn do_recycle(creep: &Creep, home: RoomName, movement: &mut Movement, spawn: &ObjectId<StructureSpawn>) -> ObjectId<StructureSpawn> {
+fn do_recycle(creep: &Creep, home: RoomName, movement: &mut Movement<Resolved>, spawn: &ObjectId<StructureSpawn>) -> ObjectId<StructureSpawn> {
     let Some(spawn) = spawn.resolve() else {
         warn!("Spawn for recycling did not resolve");
         return get_recycle_spawn(creep, home).id();

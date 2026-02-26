@@ -87,7 +87,7 @@ pub enum TugboatCreep {
     Recycling(ObjectId<StructureSpawn>)
 }
 
-type Args<'a> = (ColonyView<'a>, ObjectId<Creep>, &'a mut Movement, &'a mut Messages<Resolved>);
+type Args<'a> = (ColonyView<'a>, ObjectId<Creep>, &'a mut Movement<Resolved>, &'a mut Messages<Resolved>);
 impl StateMachine<Creep, Args<'_>> for TugboatCreep {
     fn update(self, tugboat: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use TugboatCreep::*;

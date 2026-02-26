@@ -4,7 +4,7 @@ use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
+use crate::{id::Resolved, memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep {
@@ -14,7 +14,7 @@ pub enum FlagshipCreep {
     Claiming(Position, ObjectId<StructureController>)
 }
 
-type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
+type Args<'a> = (&'a mut Movement<Resolved>, &'a mut ClaimRequests);
 impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;

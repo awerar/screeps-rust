@@ -48,7 +48,7 @@ const STORAGE_UPGRADE_CONTROLLER_THRESHOLD: StorageFillPercentage = StorageFillP
 const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
-type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut FabricatorCoordinator, &'a mut Messages<Resolved>);
+type Args<'a> = (ColonyView<'a>, &'a mut Movement<Resolved>, &'a mut FabricatorCoordinator, &'a mut Messages<Resolved>);
 impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;

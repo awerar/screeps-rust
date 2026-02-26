@@ -30,7 +30,7 @@ pub struct Memory<M: IDMode> {
 
     pub incoming_creeps: Vec<(String, CreepData)>,
     pub callbacks: Callbacks,
-    pub movement: Movement,
+    pub movement: Movement<M>,
     pub claim_requests: ClaimRequests,
     pub truck_coordinators: HashMap<RoomName, TruckCoordinator>,
     pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator>,
@@ -38,7 +38,7 @@ pub struct Memory<M: IDMode> {
     pub messages: Messages<M>,
 }
 
-impl<M : IDMode> Default for Memory<M> {
+impl Default for Memory<Unresolved> {
     fn default() -> Self {
         Self { 
             _internal_creeps: Default::default(), 
@@ -91,7 +91,7 @@ impl IDResolvable for Memory<Unresolved> {
             colonies: self.colonies, 
             incoming_creeps: self.incoming_creeps, 
             callbacks: self.callbacks, 
-            movement: self.movement, 
+            movement: self.movement.id_resolve(), 
             claim_requests: self.claim_requests, 
             truck_coordinators: self.truck_coordinators, 
             fabricator_coordinators: self.fabricator_coordinators, 
