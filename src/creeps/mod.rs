@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, id::Resolved, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, id::{Resolved, ResolvedId}, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -128,17 +128,16 @@ pub fn do_creeps(mem: &mut Memory<Resolved>) {
     use CreepRole::*;
 
     let updatable_creeps: Vec<_> = game::creeps().values()
+        .map(Into::<ResolvedId<Creep>>::into)
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
-            let creep_id = creep.try_id().unwrap();
-
-            if !mem.creeps.contains_key(&creep_id) {
+            if !mem.creeps.contains_key(&creep) {
                 let Some(config) = CreepData::try_recover_from(creep, mem) else {
                     warn!("Unable to recover creep data for {}", creep.name());
                     return false;
                 };
 
-                mem.creeps.insert(creep_id, config);
+                mem.creeps.insert(creep.clone(), config);
             }
 
             true
@@ -147,7 +146,7 @@ pub fn do_creeps(mem: &mut Memory<Resolved>) {
     let mut update_creeps = updatable_creeps.clone();
     while !update_creeps.is_empty() {
         for creep in &update_creeps {
-            let creep_data = mem.creeps.get_mut(&creep.try_id().unwrap()).unwrap();
+            let creep_data = mem.creeps.get_mut(creep).unwrap();
             let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
             match &mut creep_data.role {

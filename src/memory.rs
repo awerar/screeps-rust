@@ -2,11 +2,11 @@ use std::{collections::{HashMap, HashSet, VecDeque}, marker::PhantomData};
 
 use js_sys::{JsString, Reflect};
 use log::warn;
-use screeps::{Creep, MaybeHasId, ObjectId, Position, RoomName, game};
+use screeps::{Creep, Position, RoomName};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, id::{IDMode, Resolved, Unresolved}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, id::{IDMode, Resolved, ResolvedId, Unresolved}, messages::Messages, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -25,7 +25,7 @@ pub struct Memory<M: IDMode> {
     pub tick_times: VecDeque<f64>,
 
     #[serde(rename = "internal_creeps")]
-    pub creeps: HashMap<ObjectId<Creep>, CreepData>,
+    pub creeps: HashMap<M::Wrap<Creep>, CreepData>,
     pub colonies: Colonies,
 
     pub incoming_creeps: Vec<(String, CreepData)>,
@@ -84,7 +84,9 @@ impl Memory<Unresolved> {
             _alliance_my_data: self._alliance_my_data, 
             _alliance_allies_data: self._alliance_allies_data, 
             tick_times: self.tick_times, 
-            creeps: self.creeps, 
+            creeps: self.creeps.into_iter()
+                .filter_map(|(creep_id, creep_data)| ResolvedId::resolve(creep_id).map(|creep| (creep, creep_data)))
+                .collect(), 
             colonies: self.colonies, 
             incoming_creeps: self.incoming_creeps, 
             callbacks: self.callbacks, 
@@ -106,36 +108,8 @@ impl Memory<Resolved> {
         let new_internal_creeps: Option<serde_json::Value> = new_internal_creeps.map(|x| serde_wasm_bindgen::from_value(x).unwrap());
         self._internal_creeps = new_internal_creeps;
 
-        self.periodic_cleanup();
-
         let mem = serde_json::to_string(&self).unwrap();
         screeps::raw_memory::set(&JsString::from(mem));
-    }
-
-    pub fn cleanup_creep(&mut self, creep: ObjectId<Creep>) {
-        self.creeps.remove(&creep);
-        //TODO //self.movement.creeps_data.remove(name);
-        //TODO //self.messages.remove(name);
-    }
-
-    #[expect(clippy::used_underscore_binding)]
-    pub fn periodic_cleanup(&mut self) {
-        let alive_creeps: HashSet<_> = game::creeps().values().map(|creep| creep.try_id().unwrap()).collect();
-        let dead_creeps: HashSet<_> = self.creeps.keys().cloned().collect::<HashSet<_>>().difference(&alive_creeps).cloned().collect();
-
-        for dead_creep in dead_creeps {
-            self.cleanup_creep(dead_creep);
-        }
-
-        if let Some(internal_creeps) = &mut self._internal_creeps {
-            if let Some(internal_creeps) = internal_creeps.as_object_mut() {
-                let alive_creeps: HashSet<_> = internal_creeps.keys().cloned().collect();
-                let dead_creeps: HashSet<_> = alive_creeps.difference(&alive_creeps).cloned().collect();
-                for dead_creep in &dead_creeps {
-                    internal_creeps.remove(dead_creep);
-                }
-            }
-        }
     }
 
     pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {

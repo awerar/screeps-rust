@@ -1,36 +1,49 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash, ops::Deref};
+use std::{collections::HashMap, hash::Hash, ops::Deref};
 
 use screeps::{Creep, MaybeHasId, ObjectId};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::{DeserializeOwned, Error}};
 use wasm_bindgen::JsCast;
 
 use crate::creeps::CreepData;
 
 pub trait IDMode where {
-    type Wrap<T>: Eq + Hash;
+    type Wrap<T: JsCast + MaybeHasId>: Eq + Hash + Serialize + DeserializeOwned;
 }
 
 pub struct Unresolved;
 impl IDMode for Unresolved {
-    type Wrap<T> = ObjectId<T>;
+    type Wrap<T: JsCast + MaybeHasId> = ObjectId<T>;
 }
 
 pub struct Resolved;
 impl IDMode for Resolved {
-    type Wrap<T> = ResolvedId<T>;
+    type Wrap<T: JsCast + MaybeHasId> = ResolvedId<T>;
 }
 
+#[derive(Clone)]
 pub struct ResolvedId<T> {
     inner: T,
     id: ObjectId<T>
 }
 
 impl<T: JsCast + MaybeHasId> ResolvedId<T> {
-    fn resolve(id: ObjectId<T>) -> Option<Self> {
+    pub fn resolve(id: ObjectId<T>) -> Option<Self> {
         Some(Self {
             inner: id.resolve()?,
             id
         })
+    }
+}
+
+impl<T: MaybeHasId> From<T> for ResolvedId<T> {
+    fn from(value: T) -> Self {
+        ResolvedId { id: value.try_id().unwrap(), inner: value }
+    }
+}
+
+impl<T: MaybeHasId + Clone> From<&T> for ResolvedId<T> {
+    fn from(value: &T) -> Self {
+        value.clone().into()
     }
 }
 
@@ -60,6 +73,16 @@ impl<T: MaybeHasId> Serialize for ResolvedId<T> {
     where
         S: serde::Serializer {
         self.id.serialize(serializer)
+    }
+}
+
+impl<'de, T: MaybeHasId + JsCast> Deserialize<'de> for ResolvedId<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        let id = ObjectId::<T>::deserialize(deserializer)?;
+        let id = ResolvedId::resolve(id).ok_or_else(|| D::Error::custom("failed to resolve ObjectId"))?;
+        Ok(id)
     }
 }
 

@@ -1,19 +1,17 @@
 use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
 
-use screeps::{Creep, ObjectId, game};
+use screeps::game;
 use serde::{Deserialize, Serialize};
 
 use crate::{colony::update_colonies, id::Resolved, memory::Memory};
 
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Clone)]
 enum PeriodicCallback {
-    MemoryCleanup,
     RoomUpdate
 }
 
 static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::new(|| {
     HashMap::from([
-        ( PeriodicCallback::MemoryCleanup, 100 ),
         ( PeriodicCallback::RoomUpdate, 10 ),
     ])
 });
@@ -21,7 +19,6 @@ static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::
 impl PeriodicCallback {
     pub fn execute(&self, mem: &mut Memory<Resolved>) {
         match self {
-            PeriodicCallback::MemoryCleanup => mem.periodic_cleanup(),
             PeriodicCallback::RoomUpdate => update_colonies(mem),
         }
     }
@@ -29,13 +26,13 @@ impl PeriodicCallback {
 
 #[derive(PartialEq, Eq, Deserialize, Serialize)]
 pub enum Callback {
-    CreepCleanup(ObjectId<Creep>)
+    
 }
 
 impl Callback {
     pub fn execute(self, mem: &mut Memory<Resolved>) {
         match self {
-            Callback::CreepCleanup(creep) => mem.cleanup_creep(creep),
+            
         }
     }
 }
