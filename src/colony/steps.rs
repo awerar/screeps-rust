@@ -1,195 +1,98 @@
-use std::{fmt::{Debug, Display}, sync::LazyLock};
+use std::{fmt::Debug, mem};
 
-use anyhow::anyhow;
-use screeps::RoomName;
+use anyhow::Ok;
+use enum_display::EnumDisplay;
+use screeps::Room;
 use serde::{Deserialize, Serialize};
+use strum::{EnumIter, FromRepr, IntoEnumIterator};
 
 use crate::{colony::ColonyData, statemachine::{StateMachine, Transition}};
 
-pub trait ColonyStepStateMachine where Self : Sized {
-    fn get_promotion(&self) -> Option<Self>;
-    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> anyhow::Result<ColonyStepTransition<Self>>;
-}
+impl StateMachine<Room, &ColonyData> for ColonyStep {
+    fn update(self, room: &Room, colony_data: &mut &ColonyData) -> anyhow::Result<Transition<Self>> {
+        use Transition::*;
 
-impl<T> StateMachine<RoomName, &ColonyData> for T where T : ColonyStepStateMachine + Display + Default {
-    fn update(self, name: &RoomName, colony_data: &mut &ColonyData) -> anyhow::Result<Transition<Self>> {
-        Ok(match self.update_step(*name, colony_data)? {
-            ColonyStepTransition::None => Transition::Break(self),
-            ColonyStepTransition::Promotion => 
-                self.get_promotion().map(Transition::Continue).ok_or(anyhow!("Promotion discreprancy for {self}"))?,
-            ColonyStepTransition::Demotion(demotion) => Transition::Continue(demotion),
-        })
+        let controller_level = colony_data.level();
+        if self.controller_level() > controller_level { return Ok(Continue(Self::first_at_level(controller_level))) }
+
+        let controller_is_upgraded = controller_level > self.controller_level();
+        let built_step = colony_data.plan.steps.get(&self).map_or(Ok(true), |step| step.build(room))?;
+
+        let Some(promotion) = self.promotion() else { return Ok(Break(self)) };
+        let promotion_is_upgrade = promotion.controller_level() > self.controller_level();
+        if built_step && (!promotion_is_upgrade || controller_is_upgraded) {
+            Ok(Continue(promotion))
+        } else {
+            Ok(Break(self))
+        }
     }
 }
 
-pub enum ColonyStepTransition<T> {
-    None,
-    Promotion,
-    Demotion(T)
-}
-
-pub struct ColonyStepIterator<S> where S : ColonyStepStateMachine {
-    step: S
-}
-
-impl<S> Iterator for ColonyStepIterator<S> where S : ColonyStepStateMachine + Clone {
-    type Item = S;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let promotion = self.step.get_promotion()?;
-        self.step = promotion.clone();
-        Some(promotion)
-    }
-}
-
-impl ColonyStep {
-    pub fn iter() -> ColonyStepIterator<Self> {
-        ColonyStepIterator { step: ColonyStep::default() }
-    }
-}
-
-pub static LAST_COLONY_STEP: LazyLock<ColonyStep> = LazyLock::new(|| ColonyStep::iter().last().unwrap());
-
-#[expect(clippy::unsafe_derive_deserialize)]
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy, EnumIter, EnumDisplay, FromRepr)]
 #[repr(u8)]
 pub enum ColonyStep {
-    #[default] 
-    Unclaimed = 0,
-    Level1(Level1Step) = 1,
-    Level2 = 2,
-    Level3 = 3,
-    Level4 = 4,
-    Level5 = 5,
-    Level6 = 6,
-    Level7 = 7,
-    Level8 = 8
-}
-
-impl Display for ColonyStep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
+    #[default]
+    BuildSpawn,
+    BuildBufferAndSourceContainers,
+    BuildArterialRoads,
+    UpgradeToLevel2,
+    BuildLvl2,
+    UpgradeToLevel3,
+    BuildLvl3,
+    UpgradeToLevel4,
+    BuildLvl4,
+    UpgradeToLevel5,
+    BuildLvl5,
+    UpgradeToLevel6,
+    BuildLvl6,
+    UpgradeToLevel7,
+    BuildLvl7,
+    UpgradeToLevel8,
+    BuildLvl8,
+    EndlesslyUpgrade
 }
 
 impl ColonyStep {
     pub fn controller_level(&self) -> u8 {
-        unsafe { *std::ptr::from_ref::<Self>(self).cast::<u8>() }
-    }
-
-    pub fn first_at_level(controller_level: u8) -> Self {
-        use ColonyStep::*;
-
-        match controller_level {
-            0 => Unclaimed,
-            1 => Level1(Level1Step::default()),
-            2 => Level2,
-            3 => Level3,
-            4 => Level4,
-            5 => Level5,
-            6 => Level6,
-            7 => Level7,
-            8 => Level8,
-            _ => panic!("{controller_level} is not a valid controller level")
-        }
-    }
-}
-
-impl ColonyStepStateMachine for ColonyStep {
-    fn get_promotion(&self) -> Option<Self> {
-        use ColonyStep::*;
-
         match self {
-            Unclaimed => Some(Level1(Level1Step::default())),
-            Level1(substep) => substep.get_promotion().map(Level1).or(Some(Level2)),
-            Level2 => Some(Level3),
-            Level3 => Some(Level4),
-            Level4 => Some(Level5),
-            Level5 => Some(Level6),
-            Level6 => Some(Level7),
-            Level7 => Some(Level8),
-            Level8 => None
+            Self::BuildSpawn
+            | Self::BuildBufferAndSourceContainers
+            | Self::BuildArterialRoads
+            | Self::UpgradeToLevel2 => 1,
+            Self::BuildLvl2
+            | Self::UpgradeToLevel3 => 2,
+            Self::BuildLvl3
+            | Self::UpgradeToLevel4 => 3,
+            Self::BuildLvl4
+            | Self::UpgradeToLevel5 => 4,
+            Self::BuildLvl5
+            | Self::UpgradeToLevel6 => 5,
+            Self::BuildLvl6
+            | Self::UpgradeToLevel7 => 6,
+            Self::BuildLvl7
+            | Self::UpgradeToLevel8 => 7,
+            Self::BuildLvl8
+            | Self::EndlesslyUpgrade => 8
         }
     }
 
-    fn update_step(&self, name: RoomName, colony_data: &ColonyData) -> anyhow::Result<ColonyStepTransition<Self>> {
-        use ColonyStep::*;
-        use ColonyStepTransition::*;
+    pub fn first_at_level(level: u8) -> Self {
+        assert!(level <= 8);
 
-        let controller_level = colony_data.level();
-        if self.controller_level() > controller_level { return Ok(Demotion(Self::first_at_level(controller_level))) }
-
-        let controller_is_upgraded = controller_level > self.controller_level();
-        let built_step = if let Some(plan_step) = colony_data.plan.steps.get(self) {
-            plan_step.build(&colony_data.room().ok_or(anyhow!("Unable to resolve colony room"))?)?
-        } else { true };
-
-        let can_level_promote = controller_is_upgraded && built_step;
-
-        Ok(match self {
-            Level1(substep) => match substep.update_step(name, colony_data)? {
-                Demotion(demotion) => Demotion(Level1(demotion)),
-                Promotion if built_step => Promotion,
-                None if substep.get_promotion().is_none() && can_level_promote => Promotion,
-                _ => None,
-            },
-            Unclaimed | Level2 | Level3 | Level4 | Level5 | Level6 | Level7 | Level8 if can_level_promote => Promotion,
-            _ => None,
-        })
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default, Clone, Debug, Hash, Copy)]
-#[repr(u8)]
-#[expect(clippy::enum_variant_names)]
-pub enum Level1Step {
-    #[default]
-    BuildSpawn,
-    BuildBufferAndSourceContainers,
-    BuildArterialRoads
-}
-
-impl ColonyStepStateMachine for Level1Step {
-    fn get_promotion(&self) -> Option<Self> {
-        use Level1Step::*;
-
-        match self {
-            BuildSpawn => Some(BuildBufferAndSourceContainers),
-            BuildBufferAndSourceContainers => Some(BuildArterialRoads),
-            BuildArterialRoads => None,
-        }
-    }
-    
-    fn update_step(&self, _: RoomName, _: &ColonyData) -> anyhow::Result<ColonyStepTransition<Self>> { Ok(ColonyStepTransition::Promotion) }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::mem;
-
-    use super::*;
-
-    fn discriminant<T>(step: &T) -> u8 where T : ColonyStepStateMachine {
-        unsafe { *std::ptr::from_ref::<T>(step).cast::<u8>() }
-    }
-
-    fn test_promotion<T>() where T : ColonyStepStateMachine + Default + Ord {
-        let mut step = T::default();
-        assert_eq!(discriminant(&step), 0);
-
-        while let Some(promotion) = step.get_promotion() {
-            assert!(discriminant(&promotion) >= discriminant(&step) && discriminant(&promotion) <= discriminant(&step) + 1);
-            assert!(promotion > step);
-
-            step = promotion;
+        for step in Self::iter() {
+            if step.controller_level() >= level {
+                return step;
+            }
         }
 
-        assert!(discriminant(&step) == (mem::variant_count::<T>() - 1) as u8);
+        panic!();
     }
 
-    #[test]
-    fn test_promotions() {
-        test_promotion::<ColonyStep>();
-        test_promotion::<Level1Step>();
+    pub fn promotion(&self) -> Option<Self> {
+        Self::from_repr(*self as u8 + 1)
+    }
+
+    pub const fn last() -> Self {
+        Self::from_repr(mem::variant_count::<Self>() as u8 - 1).unwrap()
     }
 }

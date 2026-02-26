@@ -34,6 +34,7 @@ tap = "1.0.1"
 derive-alias = "0.1.1"
 enum-display = "0.2.1"
 anyhow = "1.0.102"
+strum = { version = "0.28", features = ["derive"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

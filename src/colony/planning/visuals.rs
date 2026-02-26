@@ -2,8 +2,9 @@ use std::collections::HashSet;
 
 use itertools::Itertools;
 use screeps::{CircleStyle, LineStyle, RoomName, RoomVisual, RoomXY, StructureType, TextAlign, TextStyle};
+use strum::IntoEnumIterator;
 
-use crate::{colony::{planning::plan::{ColonyPlan, ColonyPlanDiff}, steps::{ColonyStep, ColonyStepStateMachine}}, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::plan::{ColonyPlan, ColonyPlanDiff}, steps::ColonyStep}, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub fn draw_roads(visuals: &RoomVisual, roads: &HashSet<RoomXY>) {
     let connections: HashSet<_> = roads.iter()
@@ -50,7 +51,7 @@ impl ColonyPlan {
         let mut step = ColonyStep::default();
         draw_in_room_replaced(room, RoomDrawerType::Plan, move |visuals| {
             plan.draw_until(visuals, Some(step));
-            step = step.get_promotion().unwrap_or_default();
+            step = step.promotion().unwrap_or_default();
         });
     }
 }

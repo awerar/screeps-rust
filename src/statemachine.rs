@@ -1,11 +1,11 @@
 use std::{fmt::Display, mem};
 use itertools::Itertools;
 use log::{error, warn};
-use screeps::{Creep, RoomName, SharedCreepProperties};
+use screeps::{Creep, Room, SharedCreepProperties};
 
 pub trait UnderlyingName { fn name(&self) -> String; }
 impl UnderlyingName for Creep { fn name(&self) -> String { SharedCreepProperties::name(self) } }
-impl UnderlyingName for RoomName { fn name(&self) -> String { self.to_string() } }
+impl UnderlyingName for Room { fn name(&self) -> String { self.name().to_string() } }
 
 pub enum Transition<S> {
     Break(S),

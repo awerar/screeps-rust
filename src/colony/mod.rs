@@ -1,6 +1,5 @@
 use std::collections::{HashSet, hash_map};
 
-use itertools::Itertools;
 use js_sys::JsString;
 use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
 use serde::{Deserialize, Serialize};
@@ -94,14 +93,15 @@ pub fn update_rooms(mem: &mut Memory) {
         true
     });
 
-    let owned_rooms = game::rooms().entries()
+    let prev_colonies: HashSet<_> = mem.colonies.keys().copied().collect();
+    let curr_colonies: HashSet<_> = game::rooms().entries()
         .filter(|(_, room)| {
             if let Some(controller) = room.controller() { controller.my() }
             else { false }
-        }).map(|(name, _)| name).collect_vec();
+        }).map(|(name, _)| name).collect();
 
-    if owned_rooms.len() == 1 {
-        let room = owned_rooms.first().unwrap();
+    if curr_colonies.len() == 1 {
+        let room = curr_colonies.iter().next().unwrap();
         let room = game::rooms().get(*room).unwrap();
         let controller = room.controller().unwrap();
 
@@ -115,26 +115,18 @@ pub fn update_rooms(mem: &mut Memory) {
             }
     }
 
-    let claim_rooms = find_claim_flags().into_iter()
-        .map(|flag| flag.pos().room_name());
-
-    let curr_rooms: HashSet<_> = owned_rooms.into_iter().chain(claim_rooms).collect();
-    let prev_rooms: HashSet<_> = mem.colonies.keys().copied().collect();
-
-    let lost_rooms = prev_rooms.difference(&curr_rooms);
-    for room in lost_rooms {
+    let lost_colonies = prev_colonies.difference(&curr_colonies);
+    for room in lost_colonies {
         mem.colonies.remove(room);
         mem.truck_coordinators.remove(room);
-        warn!("Lost room {room}");
+        mem.fabricator_coordinators.remove(room);
+        warn!("Lost colony {room}");
     }
 
-    for name in curr_rooms {
-        if let hash_map::Entry::Vacant(e) = mem.colonies.entry(name) {
-            let Some(room) = game::rooms().get(name) else {
-                warn!("Unable to plan for {name} due to lack of vision");
-                continue;
-            };
+    for name in curr_colonies {
+        let room = game::rooms().get(name).unwrap();
 
+        if let hash_map::Entry::Vacant(e) = mem.colonies.entry(name) {
             let plan = ColonyPlan::create_for(&room);
             let Ok(plan) = plan else {
                 let Err(err) = plan else { unreachable!() };
@@ -178,7 +170,7 @@ pub fn update_rooms(mem: &mut Memory) {
 
 
         let (colony_data, step) = mem.colonies.get_mut(&name).unwrap();
-        step.transition(&name, &mut &*colony_data);
+        step.transition(&room, &mut &*colony_data);
 
         info!("{name} is at step {step:?}");
     }

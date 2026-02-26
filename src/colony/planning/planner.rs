@@ -4,8 +4,9 @@ use itertools::Itertools;
 use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 use anyhow::anyhow;
+use strum::IntoEnumIterator;
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::{ColonyStep, LAST_COLONY_STEP}};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -309,7 +310,7 @@ impl ColonyPlanner {
     }
 
     pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: Option<ColonyStep>) -> Vec<Step> {
-        let step = step.unwrap_or_else(|| *LAST_COLONY_STEP);
+        let step = step.unwrap_or(ColonyStep::last());
 
         let mut cost_matrix = self.cost_matrix.clone();
 

@@ -3,10 +3,11 @@ use std::{cmp::Reverse, collections::HashSet};
 use log::debug;
 use itertools::Itertools;
 use screeps::{Direction, HasId, HasPosition, Position, Room, RoomCoordinate, RoomXY, Terrain, find};
+use strum::IntoEnumIterator;
 use unionfind::HashUnionFindByRank;
 use anyhow::anyhow;
 
-use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::{ColonyStep, Level1Step}}, pathfinding};
+use crate::{colony::{planning::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, plan::ColonyPlan, planner::{CenterPlanner, ColonyPlanner, PlannedStructure}}, steps::ColonyStep}, pathfinding};
 
 mod planner;
 mod visuals;
@@ -17,19 +18,18 @@ pub mod planned_ref;
 impl ColonyPlan {
     pub fn create_for(room: &Room) -> anyhow::Result<Self> {
         use ColonyStep::*;
-        use Level1Step::*;
 
         let mut planner = ColonyPlanner::new(room.clone());
         let center = find_center(room);
-        planner.plan_structure(center + Direction::Right, Level1(BuildBufferAndSourceContainers), PlannedStructure::ContainerStorage)?;
+        planner.plan_structure(center + Direction::Right, BuildBufferAndSourceContainers, PlannedStructure::ContainerStorage)?;
 
         let mut center_planner = CenterPlanner::new(&planner, center);
 
-        center_planner.plan_structure(&mut planner, Level4, PlannedStructure::Storage)?;
-        center_planner.plan_structure(&mut planner, Level1(BuildSpawn), PlannedStructure::MainSpawn)?;
-        center_planner.plan_structure(&mut planner, Level5, PlannedStructure::CentralLink)?;
-        center_planner.plan_structure(&mut planner, Level6, PlannedStructure::Terminal)?;
-        center_planner.plan_structure(&mut planner, Level3, PlannedStructure::Tower)?;
+        center_planner.plan_structure(&mut planner, BuildLvl4, PlannedStructure::Storage)?;
+        center_planner.plan_structure(&mut planner, BuildSpawn, PlannedStructure::MainSpawn)?;
+        center_planner.plan_structure(&mut planner, BuildLvl5, PlannedStructure::CentralLink)?;
+        center_planner.plan_structure(&mut planner, BuildLvl6, PlannedStructure::Terminal)?;
+        center_planner.plan_structure(&mut planner, BuildLvl3, PlannedStructure::Tower)?;
 
         let excavator_positions = plan_sources(&mut planner, center)?;
 
@@ -38,20 +38,20 @@ impl ColonyPlan {
         center_planner.plan_roads(&mut planner);
 
         let controller = room.controller().unwrap().pos().xy();
-        planner.plan_road_between(center, controller, Level1(BuildArterialRoads));
+        planner.plan_road_between(center, controller, BuildArterialRoads);
 
         for source in excavator_positions {
-            planner.plan_road_between(source, center, Level1(BuildArterialRoads));
+            planner.plan_road_between(source, center, BuildArterialRoads);
         }
 
         for deposit in room.find(find::MINERALS, None) {
-            planner.plan_structure(deposit.pos().xy(), Level6, PlannedStructure::Extractor)?;
-            planner.plan_road_between(center, deposit.pos().xy(), Level6);
+            planner.plan_structure(deposit.pos().xy(), BuildLvl6, PlannedStructure::Extractor)?;
+            planner.plan_road_between(center, deposit.pos().xy(), BuildLvl6);
 
             let container_pos = deposit.pos().xy().neighbors().into_iter()
                 .find(|neigh| planner.roads.contains_key(neigh))
                 .ok_or(anyhow!("Unable to find road around deposit"))?;
-            planner.plan_structure(container_pos, Level6, PlannedStructure::MineralContainer)?;
+            planner.plan_structure(container_pos, BuildLvl6, PlannedStructure::MineralContainer)?;
         }
 
         ensure_connectivity(&mut planner, center)?;
@@ -62,14 +62,13 @@ impl ColonyPlan {
 
 fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<Vec<RoomXY>> {
     use ColonyStep::*;
-    use Level1Step::*;
 
     let mut connection_points = Vec::new();
     for source in planner.room.find(find::SOURCES, None).into_iter().sorted_by_key(screeps::HasId::id) {
         let source_pos = source.pos().xy();
         let source_id = source.id();
 
-        let path = planner.find_path_between(source_pos, center, Some(Level1(BuildArterialRoads)));
+        let path = planner.find_path_between(source_pos, center, Some(BuildArterialRoads));
 
         let harvest_pos = path.first().ok_or(anyhow!("Path to source had zero elements"))?;
         let excavator_pos = RoomXY::new(
@@ -77,8 +76,8 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<V
             RoomCoordinate::new(harvest_pos.y as u8).unwrap()
         );
 
-        planner.plan_road(excavator_pos, Level1(BuildArterialRoads));
-        planner.plan_structure(excavator_pos, Level1(BuildBufferAndSourceContainers), PlannedStructure::SourceContainer(source_id))?;
+        planner.plan_road(excavator_pos, BuildArterialRoads);
+        planner.plan_structure(excavator_pos, BuildBufferAndSourceContainers, PlannedStructure::SourceContainer(source_id))?;
 
         let slots = excavator_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))
@@ -91,7 +90,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<V
             RoomCoordinate::new(main_road_pos.y as u8).unwrap()
         );
 
-        planner.plan_road(main_road_pos, Level1(BuildArterialRoads));
+        planner.plan_road(main_road_pos, BuildArterialRoads);
         //planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?; //TODO: Fix
 
         let mut slots = slots.filter(|slot| *slot != main_road_pos);
@@ -111,7 +110,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<V
 fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> anyhow::Result<()> {
     for controller_level in 1_u8..=8 {
         if controller_level == 8 {
-            center_planner.plan_structure(planner, ColonyStep::Level8, PlannedStructure::Observer)?;
+            center_planner.plan_structure(planner, ColonyStep::BuildLvl8, PlannedStructure::Observer)?;
         }
 
         let step = ColonyStep::first_at_level(controller_level);
