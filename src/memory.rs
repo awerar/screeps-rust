@@ -1,8 +1,8 @@
-use std::{collections::{HashMap, HashSet, VecDeque}};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use js_sys::{JsString, Reflect};
-use log::{warn, info};
-use screeps::{Position, RoomName, game};
+use log::warn;
+use screeps::{Creep, MaybeHasId, ObjectId, Position, RoomName, game};
 
 use serde::{Deserialize, Serialize};
 
@@ -25,9 +25,10 @@ pub struct Memory {
     #[serde(default)] pub tick_times: VecDeque<f64>,
 
     #[serde(rename = "internal_creeps")]
-    #[serde(default)] pub creeps: HashMap<String, CreepData>,
+    #[serde(default)] pub creeps: HashMap<ObjectId<Creep>, CreepData>,
     #[serde(default)] pub colonies: Colonies,
 
+    #[serde(default)] pub incoming_creeps: Vec<(String, CreepData)>,
     #[serde(default)] pub callbacks: Callbacks,
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: ClaimRequests,
@@ -65,20 +66,18 @@ impl Memory {
         screeps::raw_memory::set(&JsString::from(mem));
     }
 
-    pub fn cleanup_creep(&mut self, name: &str) {
-        info!("Cleaning up dead creep {name}");
-
-        self.creeps.remove(name);
-        self.movement.creeps_data.remove(name);
-        self.messages.remove(name);
+    pub fn cleanup_creep(&mut self, creep: ObjectId<Creep>) {
+        self.creeps.remove(&creep);
+        //TODO //self.movement.creeps_data.remove(name);
+        //TODO //self.messages.remove(name);
     }
 
     #[expect(clippy::used_underscore_binding)]
     pub fn periodic_cleanup(&mut self) {
-        let alive_creeps: HashSet<_> = game::creeps().keys().collect();
+        let alive_creeps: HashSet<_> = game::creeps().values().map(|creep| creep.try_id().unwrap()).collect();
         let dead_creeps: HashSet<_> = self.creeps.keys().cloned().collect::<HashSet<_>>().difference(&alive_creeps).cloned().collect();
 
-        for dead_creep in &dead_creeps {
+        for dead_creep in dead_creeps {
             self.cleanup_creep(dead_creep);
         }
 

@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, iter, ops::{Add, Mul}, sync::LazyLock};
+use std::{cmp::Reverse, iter, mem, ops::{Add, Mul}, sync::LazyLock};
 
 use itertools::Itertools;
 use log::{debug, info, warn};
@@ -87,7 +87,7 @@ struct CreepPrototype {
 
 impl CreepPrototype {
     fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
-        let creep_data = mem.creeps.get(&creep.name())?;
+        let creep_data = mem.creeps.get(&creep.try_id().unwrap())?;
 
         Some(Self {
             body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
@@ -231,11 +231,24 @@ impl SpawnSchedule {
             }
 
             let creep_data = CreepData::new(spawn.room().unwrap().name(), proto.ty.default_role());
-            mem.creeps.insert(name.clone(), creep_data);
-
-            let creep_death_time = game::time() + proto.body.time_to_spawn() + proto.body.time_to_live();
-            mem.callbacks.schedule(creep_death_time, Callback::CreepCleanup(name));
+            mem.incoming_creeps.push((name.clone(), creep_data));
         }
+    }
+}
+
+pub fn handle_incoming_creeps(mem: &mut Memory) {
+    for (name, data) in mem::take(&mut mem.incoming_creeps).into_iter() {
+        let Some(creep) = game::creeps().get(name.clone()) else {
+            warn!("Unknown incoming creep {name}");
+            continue;
+        };
+
+        let creep_id = creep.try_id().unwrap();
+        mem.creeps.insert(creep_id, data);
+
+        let body: Body = (&creep).into();
+        let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
+        mem.callbacks.schedule(creep_death_time, Callback::CreepCleanup(creep_id));
     }
 }
 
@@ -375,7 +388,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
         #[expect(irrefutable_let_patterns)]
         let SpawnMessage::SpawnTugboatFor(tugged_id) = msg else { continue; };
         let Some(tugged) = tugged_id.resolve() else { continue; };
-        let Some(home) = mem.creeps.get(&tugged.name()).map(|data| data.home) else { continue; };
+        let Some(home) = mem.creeps.get(&tugged.try_id().unwrap()).map(|data| data.home) else { continue; };
 
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
 

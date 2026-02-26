@@ -1,6 +1,7 @@
 #![feature(map_try_insert)]
 #![feature(variant_count)]
 #![feature(trait_alias)]
+#![feature(type_changing_struct_update)]
 
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
@@ -10,7 +11,7 @@ use log::info;
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::do_spawns, tower::do_towers};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
 
 mod logging;
 mod names;
@@ -28,6 +29,7 @@ mod visuals;
 mod statemachine;
 mod commands;
 mod tasks;
+mod id;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -56,6 +58,8 @@ pub fn game_loop() {
         mem.get_average_tick_rate_over(10),
         game::cpu::bucket()
     );
+
+    handle_incoming_creeps(&mut mem);
 
     update_coordinators(&mut mem);
     do_creeps(&mut mem);

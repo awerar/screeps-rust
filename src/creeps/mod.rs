@@ -130,13 +130,15 @@ pub fn do_creeps(mem: &mut Memory) {
     let updatable_creeps: Vec<_> = game::creeps().values()
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
-            if !mem.creeps.contains_key(&creep.name()) {
+            let creep_id = creep.try_id().unwrap();
+
+            if !mem.creeps.contains_key(&creep_id) {
                 let Some(config) = CreepData::try_recover_from(creep, mem) else {
                     warn!("Unable to recover creep data for {}", creep.name());
                     return false;
                 };
 
-                mem.creeps.insert(creep.name(), config);
+                mem.creeps.insert(creep_id, config);
             }
 
             true
@@ -145,7 +147,7 @@ pub fn do_creeps(mem: &mut Memory) {
     let mut update_creeps = updatable_creeps.clone();
     while !update_creeps.is_empty() {
         for creep in &update_creeps {
-            let creep_data = mem.creeps.get_mut(&creep.name()).unwrap();
+            let creep_data = mem.creeps.get_mut(&creep.try_id().unwrap()).unwrap();
             let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
             match &mut creep_data.role {

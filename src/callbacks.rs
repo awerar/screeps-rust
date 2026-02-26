@@ -1,6 +1,6 @@
 use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
 
-use screeps::game;
+use screeps::{Creep, ObjectId, game};
 use serde::{Deserialize, Serialize};
 
 use crate::{memory::Memory, colony::update_colonies};
@@ -29,13 +29,13 @@ impl PeriodicCallback {
 
 #[derive(PartialEq, Eq, Deserialize, Serialize)]
 pub enum Callback {
-    CreepCleanup(String)
+    CreepCleanup(ObjectId<Creep>)
 }
 
 impl Callback {
     pub fn execute(self, mem: &mut Memory) {
         match self {
-            Callback::CreepCleanup(creep) => mem.cleanup_creep(&creep),
+            Callback::CreepCleanup(creep) => mem.cleanup_creep(creep),
         }
     }
 }
