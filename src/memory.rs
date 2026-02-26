@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, marker::PhantomData};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use js_sys::{JsString, Reflect};
 use log::warn;
@@ -6,7 +6,7 @@ use screeps::{Creep, Position, RoomName};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, id::{IDMode, Resolved, ResolvedId, Unresolved}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, Unresolved}, messages::Messages, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -35,9 +35,7 @@ pub struct Memory<M: IDMode> {
     pub truck_coordinators: HashMap<RoomName, TruckCoordinator>,
     pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator>,
 
-    pub messages: Messages,
-
-    pub phantom: PhantomData<M>,
+    pub messages: Messages<M>,
 }
 
 impl<M : IDMode> Default for Memory<M> {
@@ -56,8 +54,7 @@ impl<M : IDMode> Default for Memory<M> {
             claim_requests: Default::default(), 
             truck_coordinators: Default::default(), 
             fabricator_coordinators: Default::default(), 
-            messages: Default::default(), 
-            phantom: Default::default() 
+            messages: Default::default(),
         }
     }
 }
@@ -76,8 +73,12 @@ impl Memory<Unresolved> {
         mem._internal_creeps = None; // This is deserialized separately in JS
         mem
     }
+}
 
-    pub fn resolve(self) -> Memory<Resolved> {
+impl IDResolvable for Memory<Unresolved> {
+    type Target = Memory<Resolved>;
+
+    fn id_resolve(self) -> Self::Target {
         Memory::<Resolved> {
             _internal_creeps: self._internal_creeps, 
             _alliance_allies: self._alliance_allies, 
@@ -85,7 +86,7 @@ impl Memory<Unresolved> {
             _alliance_allies_data: self._alliance_allies_data, 
             tick_times: self.tick_times, 
             creeps: self.creeps.into_iter()
-                .filter_map(|(creep_id, creep_data)| ResolvedId::resolve(creep_id).map(|creep| (creep, creep_data)))
+                .filter_map(|(creep_id, creep_data)| creep_id.try_id_resolve().map(|creep| (creep, creep_data)))
                 .collect(), 
             colonies: self.colonies, 
             incoming_creeps: self.incoming_creeps, 
@@ -94,8 +95,7 @@ impl Memory<Unresolved> {
             claim_requests: self.claim_requests, 
             truck_coordinators: self.truck_coordinators, 
             fabricator_coordinators: self.fabricator_coordinators, 
-            messages: self.messages, 
-            phantom: PhantomData
+            messages: self.messages.id_resolve(),
         }
     }
 }

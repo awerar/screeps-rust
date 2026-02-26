@@ -6,7 +6,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop, TruckStopPos}, id::Resolved, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 pub enum TruckCreep {
@@ -54,7 +54,7 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages<Resolved>);
 impl StateMachine<Creep, Args<'_>> for TruckCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
@@ -178,7 +178,7 @@ pub struct TruckCoordinator {
 }
 
 impl TruckCoordinator {
-    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, messages: Vec<TruckMessage>) {
+    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, messages: Vec<TruckMessage<Resolved>>) {
         self.consumers.handle_timeouts();
         self.providers.handle_timeouts();
 
@@ -330,11 +330,11 @@ impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStruct
     }
 }
 
-impl IntoConsumers for Vec<TruckMessage> {
+impl IntoConsumers for Vec<TruckMessage<Resolved>> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Consumer(id, _) = message else { return None };
-            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(*id)))
+            let TruckMessage::Consumer(creep, _) = message else { return None };
+            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(creep.id)))
         })
     }
 }
@@ -352,11 +352,11 @@ impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStruct
     }
 }
 
-impl IntoProviders for Vec<TruckMessage> {
+impl IntoProviders for Vec<TruckMessage<Resolved>> {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Provider(id, _) = message else { return None };
-            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(*id)))
+            let TruckMessage::Provider(creep, _) = message else { return None };
+            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(creep.id)))
         })
     }
 }

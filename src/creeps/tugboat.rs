@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, id::Resolved, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep {
@@ -15,8 +15,8 @@ pub enum TuggedCreep {
     Finished
 }
 
-impl StateMachine<Creep, Messages> for TuggedCreep {
-    fn update(self, tugged: &Creep, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<Creep, Messages<Resolved>> for TuggedCreep {
+    fn update(self, tugged: &Creep, messages: &mut Messages<Resolved>) -> anyhow::Result<Transition<Self>> {
         use TuggedCreep::*;
         use Transition::*;
 
@@ -28,7 +28,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
                     return Ok(Continue(WaitingFor { tugboat }))
                 }
 
-                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.try_id().unwrap()));
+                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.into()));
             },
             WaitingFor { tugboat } => {
                 let Some(tugboat) = game::creeps().get(tugboat.clone()) else { 
@@ -58,7 +58,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
 }
 
 impl TuggedCreep {
-    pub fn move_tugged_to(&mut self, tugged: &Creep, messages: &mut Messages, target: Position, range: u32) {
+    pub fn move_tugged_to(&mut self, tugged: &Creep, messages: &mut Messages<Resolved>, target: Position, range: u32) {
         if tugged.pos().get_range_to(target.pos()) <= range {
             *self = TuggedCreep::Finished;
             return;
@@ -87,7 +87,7 @@ pub enum TugboatCreep {
     Recycling(ObjectId<StructureSpawn>)
 }
 
-type Args<'a> = (ColonyView<'a>, ObjectId<Creep>, &'a mut Movement, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, ObjectId<Creep>, &'a mut Movement, &'a mut Messages<Resolved>);
 impl StateMachine<Creep, Args<'_>> for TugboatCreep {
     fn update(self, tugboat: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use TugboatCreep::*;

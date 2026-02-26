@@ -11,7 +11,7 @@ use log::info;
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, id::Resolved, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, id::{IDResolvable, Resolved}, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
 
 mod logging;
 mod names;
@@ -50,7 +50,7 @@ pub fn game_loop() {
     }
 
     let mem = Memory::screeps_deserialize();
-    let mut mem = mem.resolve();
+    let mut mem = mem.id_resolve();
 
     mem.movement.update_tick_start();
 

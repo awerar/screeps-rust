@@ -1,36 +1,58 @@
-use std::{collections::HashMap, hash::Hash, ops::Deref};
+use std::{hash::Hash, ops::Deref};
 
-use screeps::{Creep, MaybeHasId, ObjectId};
+use screeps::{MaybeHasId, ObjectId};
 use serde::{Deserialize, Serialize, de::{DeserializeOwned, Error}};
 use wasm_bindgen::JsCast;
 
-use crate::creeps::CreepData;
-
-pub trait IDMode where {
+pub trait IDMode: PartialEq + Eq + Hash + Clone + Default {
     type Wrap<T: JsCast + MaybeHasId>: Eq + Hash + Serialize + DeserializeOwned;
 }
 
+#[derive(PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Unresolved;
 impl IDMode for Unresolved {
     type Wrap<T: JsCast + MaybeHasId> = ObjectId<T>;
 }
 
+#[derive(PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Resolved;
 impl IDMode for Resolved {
     type Wrap<T: JsCast + MaybeHasId> = ResolvedId<T>;
 }
 
-#[derive(Clone)]
-pub struct ResolvedId<T> {
-    inner: T,
-    id: ObjectId<T>
+pub trait IDMaybeResolvable {
+    type Target;
+
+    fn try_id_resolve(self) -> Option<Self::Target>;
 }
 
-impl<T: JsCast + MaybeHasId> ResolvedId<T> {
-    pub fn resolve(id: ObjectId<T>) -> Option<Self> {
-        Some(Self {
-            inner: id.resolve()?,
-            id
+pub trait IDResolvable {
+    type Target;
+
+    fn id_resolve(self) -> Self::Target;
+}
+
+impl<T> IDMaybeResolvable for T where T : IDResolvable {
+    type Target = T::Target;
+
+    fn try_id_resolve(self) -> Option<Self::Target> {
+        Some(self.id_resolve())
+    }
+}
+
+#[derive(Clone)]
+pub struct ResolvedId<T> {
+    pub inner: T,
+    pub id: ObjectId<T>
+}
+
+impl<T: JsCast + MaybeHasId> IDMaybeResolvable for ObjectId<T> {
+    type Target = ResolvedId<T>;
+
+    fn try_id_resolve(self) -> Option<Self::Target> {
+        Some(ResolvedId {
+            inner: self.resolve()?,
+            id: self
         })
     }
 }
@@ -81,36 +103,7 @@ impl<'de, T: MaybeHasId + JsCast> Deserialize<'de> for ResolvedId<T> {
     where
         D: serde::Deserializer<'de> {
         let id = ObjectId::<T>::deserialize(deserializer)?;
-        let id = ResolvedId::resolve(id).ok_or_else(|| D::Error::custom("failed to resolve ObjectId"))?;
+        let id = id.try_id_resolve().ok_or_else(|| D::Error::custom("failed to resolve ObjectId"))?;
         Ok(id)
     }
-}
-
-#[derive(Serialize, Deserialize)]
-struct TestMemory<M: IDMode> {
-    creep: M::Wrap<Creep>,
-    x: u32,
-    creeps: HashMap<M::Wrap<Creep>, CreepData>,
-}
-
-impl TestMemory<Unresolved> {
-    fn resolve(self) -> TestMemory<Resolved> {
-        TestMemory::<Resolved> { 
-            creep: ResolvedId::resolve(self.creep).unwrap(),
-            x: self.x,
-            creeps: self.creeps.into_iter()
-                .filter_map(|(creed_id, creep_data)| ResolvedId::resolve(creed_id).map(|creep| (creep, creep_data)))
-                .collect()
-        }
-    }
-}
-
-fn test() {
-    let s: String = "".to_string();
-
-    let unresolved_mem: TestMemory<Unresolved> = serde_json::from_str(&s).unwrap();
-    let mem = unresolved_mem.resolve();
-    mem.creep.move_direction(screeps::Direction::Bottom);
-
-    let s = serde_json::to_string(&mem).unwrap();
 }
