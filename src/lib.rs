@@ -2,6 +2,8 @@
 #![feature(variant_count)]
 #![feature(trait_alias)]
 #![feature(type_changing_struct_update)]
+#![expect(incomplete_features)]
+#![feature(lazy_type_alias)]
 
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]

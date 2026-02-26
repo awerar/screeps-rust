@@ -216,10 +216,8 @@ impl SpawnSchedule {
                 continue;
             }
 
-            if let CreepType::Tugboat(tugged) = proto.ty {
-                if let Some(tugged) = tugged.resolve() {
-                    mem.messages.creep(&tugged).send(CreepMessage::AssignedTugBoat(name.clone()));
-                }
+            if let CreepType::Tugboat(ref tugged) = proto.ty {
+                mem.messages.creep(&tugged).send(CreepMessage::AssignedTugBoat(name.clone()));
             }
 
             let creep_data = CreepData::new(spawn.room().unwrap().name(), proto.ty.default_role());
@@ -281,7 +279,7 @@ fn schedule_excavators(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
 
         for source in room.find(find::SOURCES, None) {
             let any_excavator_already = schedule.all_creeps()
-                .0.any(|proto| matches!(proto.ty, CreepType::Excavator(excavator_source) if excavator_source == source.id()));
+                .0.any(|proto| matches!(&proto.ty, CreepType::Excavator(excavator_source) if excavator_source.id == source.id()));
             if any_excavator_already { continue; }
 
             let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
@@ -299,7 +297,7 @@ fn schedule_excavators(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
 
             let prototype = CreepPrototype { 
                 body, 
-                ty: CreepType::Excavator(source.id()),
+                ty: CreepType::Excavator(source.into()),
                 home: colony.name
             };
 
@@ -388,7 +386,7 @@ fn schedule_tugboats(mem: &mut Memory<Resolved>, schedule: &mut SpawnSchedule) {
 
         spawner.schedule_or_block(CreepPrototype { 
             body: Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (spawner.energy_capacity / 50) as usize), 
-            ty: CreepType::Tugboat(tugged.id), 
+            ty: CreepType::Tugboat(tugged), 
             home 
         });
     }

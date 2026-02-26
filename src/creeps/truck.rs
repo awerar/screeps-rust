@@ -54,7 +54,7 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Args<'a> = (ColonyView<'a>, &'a mut Movement<Resolved>, &'a mut TruckCoordinator, &'a mut Messages<Resolved>);
+pub type Args<'a> = (ColonyView<'a>, &'a mut Movement<Resolved>, &'a mut TruckCoordinator, &'a mut Messages<Resolved>);
 impl StateMachine<Creep, Args<'_>> for TruckCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;

@@ -14,7 +14,7 @@ pub enum FlagshipCreep {
     Claiming(Position, ObjectId<StructureController>)
 }
 
-type Args<'a> = (&'a mut Movement<Resolved>, &'a mut ClaimRequests);
+pub type Args<'a> = (&'a mut Movement<Resolved>, &'a mut ClaimRequests);
 impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;

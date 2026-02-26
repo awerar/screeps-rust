@@ -1,23 +1,23 @@
-use std::{hash::Hash, ops::Deref};
+use std::{fmt::Debug, hash::Hash, ops::Deref};
 
 use screeps::{MaybeHasId, ObjectId};
-use serde::{Deserialize, Serialize, de::{DeserializeOwned, Error}};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 
 pub trait IDMode: PartialEq + Eq + Hash + Clone + Default {
-    type Wrap<T: JsCast + MaybeHasId>: Eq + Hash + Serialize + DeserializeOwned;
+    type Wrap<T: JsCast + MaybeHasId + Clone + Debug>: Eq + Hash + Serialize + DeserializeOwned + Clone + Debug;
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Unresolved;
 impl IDMode for Unresolved {
-    type Wrap<T: JsCast + MaybeHasId> = ObjectId<T>;
+    type Wrap<T: JsCast + MaybeHasId + Clone + Debug> = ObjectId<T>;
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Resolved;
 impl IDMode for Resolved {
-    type Wrap<T: JsCast + MaybeHasId> = ResolvedId<T>;
+    type Wrap<T: JsCast + MaybeHasId + Clone + Debug> = ResolvedId<T>;
 }
 
 pub trait IDMaybeResolvable {
@@ -44,6 +44,12 @@ impl<T> IDMaybeResolvable for T where T : IDResolvable {
 pub struct ResolvedId<T> {
     pub inner: T,
     pub id: ObjectId<T>
+}
+
+impl<T: Clone> ResolvedId<T> {
+    pub fn cloned(&self) -> T {
+        self.inner.clone()
+    }
 }
 
 impl<T: JsCast + MaybeHasId> IDMaybeResolvable for ObjectId<T> {
@@ -90,6 +96,12 @@ impl<T> Hash for ResolvedId<T> {
     }
 }
 
+impl<T: Debug> Debug for ResolvedId<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
 impl<T: MaybeHasId> Serialize for ResolvedId<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -99,11 +111,9 @@ impl<T: MaybeHasId> Serialize for ResolvedId<T> {
 }
 
 impl<'de, T: MaybeHasId + JsCast> Deserialize<'de> for ResolvedId<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de> {
-        let id = ObjectId::<T>::deserialize(deserializer)?;
-        let id = id.try_id_resolve().ok_or_else(|| D::Error::custom("failed to resolve ObjectId"))?;
-        Ok(id)
+        unimplemented!("ResolvedId's are not meant to be deserialized. This is just here for convenient Deserialize derives.")
     }
 }

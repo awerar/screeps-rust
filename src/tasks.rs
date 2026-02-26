@@ -6,7 +6,7 @@ use screeps::{Creep, MaybeHasId, ObjectId, game};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::statemachine::UnderlyingName;
+use crate::{id::{IDMaybeResolvable, IDResolvable}, statemachine::UnderlyingName};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "D: Serialize + DeserializeOwned")]
@@ -48,6 +48,14 @@ pub struct TaskServer<R, D, const TIMEOUT: u32 = 5>(#[serde(with = "any_key_map"
 impl<R, D> Default for TaskServer<R, D> where R : Serialize + DeserializeOwned + Eq + Hash {
     fn default() -> Self {
         Self(HashMap::new())
+    }
+}
+
+impl<R: IDMaybeResolvable, D> IDResolvable for TaskServer<R, D> where R::Target : Eq + Hash {
+    type Target = TaskServer<R::Target, D>;
+
+    fn id_resolve(self) -> Self::Target {
+        TaskServer(self.0.into_iter().filter_map(|(task, data)| Some((task.try_id_resolve()?, data))).collect())
     }
 }
 

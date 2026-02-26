@@ -11,7 +11,7 @@ use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricat
 extern crate serde_json_path_to_error as serde_json;
 
 #[derive(Serialize, Deserialize)]
-pub struct Memory<M: IDMode> {
+pub struct Memory<M: IDMode + 'static> {
     #[serde(rename = "creeps")]
     _internal_creeps: Option<serde_json::Value>,
 
@@ -25,15 +25,15 @@ pub struct Memory<M: IDMode> {
     pub tick_times: VecDeque<f64>,
 
     #[serde(rename = "internal_creeps")]
-    pub creeps: HashMap<M::Wrap<Creep>, CreepData>,
+    pub creeps: HashMap<M::Wrap<Creep>, CreepData<M>>,
     pub colonies: Colonies,
 
-    pub incoming_creeps: Vec<(String, CreepData)>,
+    pub incoming_creeps: Vec<(String, CreepData<M>)>,
     pub callbacks: Callbacks,
     pub movement: Movement<M>,
     pub claim_requests: ClaimRequests,
     pub truck_coordinators: HashMap<RoomName, TruckCoordinator>,
-    pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator>,
+    pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator<M>>,
 
     pub messages: Messages<M>,
 }
@@ -86,15 +86,15 @@ impl IDResolvable for Memory<Unresolved> {
             _alliance_allies_data: self._alliance_allies_data, 
             tick_times: self.tick_times, 
             creeps: self.creeps.into_iter()
-                .filter_map(|(creep_id, creep_data)| creep_id.try_id_resolve().map(|creep| (creep, creep_data)))
+                .filter_map(|(creep_id, creep_data)| Some((creep_id.try_id_resolve()?, creep_data.try_id_resolve()?)))
                 .collect(), 
             colonies: self.colonies, 
-            incoming_creeps: self.incoming_creeps, 
+            incoming_creeps: self.incoming_creeps.into_iter().filter_map(|(name, data)| Some((name, data.try_id_resolve()?))).collect(), 
             callbacks: self.callbacks, 
             movement: self.movement.id_resolve(), 
             claim_requests: self.claim_requests, 
             truck_coordinators: self.truck_coordinators, 
-            fabricator_coordinators: self.fabricator_coordinators, 
+            fabricator_coordinators: self.fabricator_coordinators.into_iter().map(|(room, coordinator)| (room, coordinator.id_resolve())).collect(), 
             messages: self.messages.id_resolve(),
         }
     }
