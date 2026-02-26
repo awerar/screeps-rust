@@ -270,11 +270,11 @@ impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData
 fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
-    for colony in mem.colonies.keys() {
-        let Some(room) = game::rooms().get(*colony) else { continue; };
+    for colony in mem.colonies.view_all() {
+        let Some(room) = game::rooms().get(colony.name) else { continue; };
 
         let any_excavator_in_colony = schedule.all_creeps()
-            .filter_home(*colony).0
+            .filter_home(colony.name).0
             .find(|proto| matches!(proto.ty, CreepType::Excavator(_)))
             .is_some();
 
@@ -285,7 +285,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
 
             let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
 
-            let any_source_constructions = mem.colonies.get(&room.name()).unwrap().0
+            let any_source_constructions = mem.colonies.view(room.name()).unwrap()
                 .plan.sources.source_plans
                 .get(&source.id())
                 .is_some_and(|source_plan| source_plan.get_construction_site().is_some());
@@ -299,7 +299,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
             let prototype = CreepPrototype { 
                 body, 
                 ty: CreepType::Excavator(source.id()),
-                home: *colony
+                home: colony.name
             };
 
             spawner.schedule_or_block(prototype);
@@ -330,24 +330,24 @@ static MAX_TRUCK_ENERGY: LazyLock<u32> = LazyLock::new(||  (TRUCK_TEMPLATE.clone
 fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
-    for (colony, (colony_data, _)) in &mem.colonies {
-        let total_carry_for_sources = colony_data.plan.sources.source_plans.values()
+    for colony in mem.colonies.view_all() {
+        let total_carry_for_sources = colony.plan.sources.source_plans.values()
             .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
             .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
             .sum::<f32>();
 
         let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
         debug!("Target truck carry in {colony}: {target_carry}");
-        let mut current_carry = schedule.all_creeps().filter_home(*colony).filter_type(CreepType::Truck).part_count(Carry);
+        let mut current_carry = schedule.all_creeps().filter_home(colony.name).filter_type(CreepType::Truck).part_count(Carry);
 
-        for spawner in schedule.spawners().filter_free().filter_room(*colony).0 {
+        for spawner in schedule.spawners().filter_free().filter_room(colony.name).0 {
             if current_carry >= target_carry { break; }
 
             let energy = if current_carry == 0 { spawner.energy_avaliable } else { spawner.energy_capacity };
             let body = TRUCK_TEMPLATE.scaled(energy.min(*MAX_TRUCK_ENERGY), Some(2));
             let creep_carry = body.num(Carry);
 
-            let proto = CreepPrototype { ty: CreepType::Truck, home: *colony, body };
+            let proto = CreepPrototype { ty: CreepType::Truck, home: colony.name, body };
             spawner.schedule_or_block(proto);
             current_carry += creep_carry;
         }
@@ -399,14 +399,14 @@ const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
 const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
 fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
-    for (colony, (colony_data, _)) in &mem.colonies {
-        let mut curr_work_count = schedule.all_creeps().filter_home(*colony).filter_type(CreepType::Fabricator).part_count(Part::Work);
+    for colony in mem.colonies.view_all() {
+        let mut curr_work_count = schedule.all_creeps().filter_home(colony.name).filter_type(CreepType::Fabricator).part_count(Part::Work);
         
-        let buffer_energy = colony_data.buffer().map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));
+        let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));
         let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
         let spawners = schedule.spawners()
-            .filter_room(*colony)
+            .filter_room(colony.name)
             .filter_free()
             .0.sorted_by_key(|spawner| Reverse(spawner.energy_capacity));
 

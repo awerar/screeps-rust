@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyData, creeps::tugboat::TuggedCreep, messages::Messages, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, messages::Messages, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
 pub enum ExcavatorCreep {
@@ -18,7 +18,7 @@ impl Default for ExcavatorCreep {
     }
 }
 
-type Args<'a> = (ObjectId<Source>, &'a ColonyData, &'a mut Messages);
+type Args<'a> = (ObjectId<Source>, ColonyView<'a>, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;

@@ -6,13 +6,13 @@ use screeps::Room;
 use serde::{Deserialize, Serialize};
 use strum::{EnumIter, FromRepr, IntoEnumIterator};
 
-use crate::{colony::ColonyData, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, statemachine::{StateMachine, Transition}};
 
-impl StateMachine<Room, &ColonyData> for ColonyStep {
-    fn update(self, room: &Room, colony_data: &mut &ColonyData) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<Room, &ColonyView<'_>> for ColonyStep {
+    fn update(self, room: &Room, colony_data: &mut &ColonyView<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
-        let controller_level = colony_data.level();
+        let controller_level = colony_data.controller.level();
         if self.controller_level() > controller_level { return Ok(Continue(Self::first_at_level(controller_level))) }
 
         let controller_is_upgraded = controller_level > self.controller_level();

@@ -24,12 +24,10 @@ impl CreepData {
     }
 
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
-        let home = mem.colonies.get(&creep.pos().room_name())
-            .map(|(data, _)| data)
+        let home = mem.colonies.view(creep.pos().room_name())
             .filter(|colony| colony.plan.center.spawn.is_complete())
             .or_else(|| 
-                mem.colonies.values()
-                    .map(|(data, _)| data)
+                mem.colonies.view_all()
                     .filter(|colony| colony.plan.center.spawn.is_complete())
                     .min_by_key(|colony| colony.plan.center.pos.get_range_to(creep.pos()))
             )?;
@@ -47,10 +45,10 @@ impl CreepData {
 
                 CreepRole::Excavator(ExcavatorCreep::default(), source.id()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, home.room_name).id())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, home.name).id())
         };
         
-        Some(CreepData::new(home.room_name, role))
+        Some(CreepData::new(home.name, role))
     }
 }
 
@@ -148,7 +146,7 @@ pub fn do_creeps(mem: &mut Memory) {
     while !update_creeps.is_empty() {
         for creep in &update_creeps {
             let creep_data = mem.creeps.get_mut(&creep.name()).unwrap();
-            let Some((home, _)) = mem.colonies.get(&creep_data.home) else { continue; };
+            let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
             match &mut creep_data.role {
                 Flagship(state) => {

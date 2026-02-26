@@ -3,7 +3,7 @@ use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
 use screeps::game;
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, colony::update_rooms};
+use crate::{memory::Memory, colony::update_colonies};
 
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Clone)]
 enum PeriodicCallback {
@@ -22,7 +22,7 @@ impl PeriodicCallback {
     pub fn execute(&self, mem: &mut Memory) {
         match self {
             PeriodicCallback::MemoryCleanup => mem.periodic_cleanup(),
-            PeriodicCallback::RoomUpdate => update_rooms(mem),
+            PeriodicCallback::RoomUpdate => update_colonies(mem),
         }
     }
 }

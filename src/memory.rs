@@ -6,7 +6,7 @@ use screeps::{Position, RoomName, game};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::{ColonyData, steps::ColonyStep}, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -26,7 +26,7 @@ pub struct Memory {
 
     #[serde(rename = "internal_creeps")]
     #[serde(default)] pub creeps: HashMap<String, CreepData>,
-    #[serde(default)] pub colonies: HashMap<RoomName, (ColonyData, ColonyStep)>,
+    #[serde(default)] pub colonies: Colonies,
 
     #[serde(default)] pub last_alive_creeps: HashSet<String>,
     #[serde(default)] pub callbacks: Callbacks,

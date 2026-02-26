@@ -20,10 +20,10 @@ pub trait StateMachineTransition<U, A> {
     fn transition(&mut self, underlying: &U, args: &mut A);
 }
 
-const MAX_TRANSITIONS: u32 = 10;
+const MAX_TRANSITIONS: u32 = 20;
 impl<SM, U : UnderlyingName, A> StateMachineTransition<U, A> for SM where SM : StateMachine<U, A> {
     fn transition(&mut self, underlying: &U, args: &mut A) {
-        let mut state_names = vec![self.to_string()];
+        let mut state_names = vec![];
 
         for _ in 0..MAX_TRANSITIONS {
             let curr_state_name = self.to_string();
@@ -44,6 +44,7 @@ impl<SM, U : UnderlyingName, A> StateMachineTransition<U, A> for SM where SM : S
             }
         }
 
-        warn!("Stopped {} prematurely. Transitioned too many times:\n{}", underlying.name(), state_names.into_iter().format(" -> "));
+        state_names.push(self.to_string());
+        warn!("Stopped {} prematurely. Transitioned too many times:\n{}", underlying.name(), state_names.into_iter().format(" -> ").to_string());
     }
 }

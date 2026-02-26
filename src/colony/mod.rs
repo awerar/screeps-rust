@@ -1,9 +1,9 @@
-use std::collections::{HashSet, hash_map};
+use std::{collections::{HashMap, HashSet, hash_map}, fmt::Display};
 
 use js_sys::JsString;
 use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
-use serde::{Deserialize, Serialize};
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
 use tap::Tap;
 
 use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::StateMachineTransition, visuals::{RoomDrawerType, draw_in_room_replaced}};
@@ -11,29 +11,48 @@ use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructu
 pub mod planning;
 pub mod steps;
 
-#[derive(Serialize, Deserialize)]
-pub struct ColonyData {
-    pub room_name: RoomName,
-    pub plan: ColonyPlan
+#[derive(Serialize, Deserialize, Default)]
+pub struct Colonies(HashMap<RoomName, (ColonyPlan, ColonyStep)>);
+
+pub struct ColonyView<'mem> {
+    pub plan: &'mem ColonyPlan,
+    #[expect(unused)] pub step: ColonyStep,
+    pub name: RoomName,
+    pub room: Room,
+    pub controller: StructureController,
+    pub buffer: Option<ColonyBuffer>
 }
 
-impl ColonyData {
-    pub fn room(&self) -> Option<Room> {
-        game::rooms().get(self.room_name)
+impl Display for ColonyView<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+impl<'mem> ColonyView<'mem> {
+    pub fn new(room: Room, plan: &'mem ColonyPlan, step: ColonyStep) -> Self {
+        let buffer = plan.center.storage.resolve().map(ColonyBuffer::Storage)
+            .or_else(|| plan.center.container_storage.resolve().map(ColonyBuffer::Container));
+
+        ColonyView { 
+            plan, 
+            step: step, 
+            name: room.name(), 
+            controller: room.controller().expect("Every colony should have a controller"), 
+            room, 
+            buffer
+        }
+    }
+}
+
+impl Colonies {
+    pub fn view(&self, name: RoomName) -> Option<ColonyView<'_>> {
+        let (plan, step) = self.0.get(&name)?;
+        Some(ColonyView::new(game::rooms().get(name)?, plan, *step))
     }
 
-    pub fn controller(&self) -> Option<StructureController> {
-        self.room()?.controller()
-    }
-
-    pub fn level(&self) -> u8 {
-        self.controller().map_or(0, |controller| controller.level())
-    }
-
-    pub fn buffer(&self) -> Option<ColonyBuffer> {
-        if let Some(storage) = self.plan.center.storage.resolve() { 
-            Some(ColonyBuffer::Storage(storage))
-        } else { self.plan.center.container_storage.resolve().map(ColonyBuffer::Container) }
+    pub fn view_all(&self) -> impl Iterator<Item = ColonyView<'_>> {
+        self.0.keys().filter_map(|name| self.view(*name))
     }
 }
 
@@ -83,17 +102,17 @@ fn find_claim_flags() -> Vec<Flag> {
         .collect()
 }
 
-pub fn update_rooms(mem: &mut Memory) {
+pub fn update_colonies(mem: &mut Memory) {
     info!("Updating rooms...");
 
     handle_commands(mem, |command, mem| {
         let Command::ResetColony { room: name } = command else { return false; };
         let Ok(name) = RoomName::new(name) else { return true; };
-        mem.colonies.remove(&name);
+        mem.colonies.0.remove(&name);
         true
     });
 
-    let prev_colonies: HashSet<_> = mem.colonies.keys().copied().collect();
+    let prev_colonies: HashSet<_> = mem.colonies.0.keys().copied().collect();
     let curr_colonies: HashSet<_> = game::rooms().entries()
         .filter(|(_, room)| {
             if let Some(controller) = room.controller() { controller.my() }
@@ -117,7 +136,7 @@ pub fn update_rooms(mem: &mut Memory) {
 
     let lost_colonies = prev_colonies.difference(&curr_colonies);
     for room in lost_colonies {
-        mem.colonies.remove(room);
+        mem.colonies.0.remove(room);
         mem.truck_coordinators.remove(room);
         mem.fabricator_coordinators.remove(room);
         warn!("Lost colony {room}");
@@ -126,7 +145,7 @@ pub fn update_rooms(mem: &mut Memory) {
     for name in curr_colonies {
         let room = game::rooms().get(name).unwrap();
 
-        if let hash_map::Entry::Vacant(e) = mem.colonies.entry(name) {
+        if let hash_map::Entry::Vacant(e) = mem.colonies.0.entry(name) {
             let plan = ColonyPlan::create_for(&room);
             let Ok(plan) = plan else {
                 let Err(err) = plan else { unreachable!() };
@@ -151,26 +170,27 @@ pub fn update_rooms(mem: &mut Memory) {
 
             let plan = plan.tap_mut(|plan| plan.adapt_build_times_to(&room));
 
-            e.insert((ColonyData { room_name: room.name(), plan}, ColonyStep::default()));
+            e.insert((plan, ColonyStep::default()));
         }
 
         if pop_command(Command::ResetColonyStep { room: name.to_string() }) {
-            mem.colonies.get_mut(&name).unwrap().1 = ColonyStep::default();
+            mem.colonies.0.get_mut(&name).unwrap().1 = ColonyStep::default();
         }
 
         if pop_command(Command::VisualizePlan { room: name.to_string(), animate: false }) {
-            let plan_clone = mem.colonies.get(&name).unwrap().0.plan.clone();
+            let plan_clone = mem.colonies.0.get(&name).unwrap().0.clone();
             draw_in_room_replaced(name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
         }
 
         if pop_command(Command::VisualizePlan { room: name.to_string(), animate: true }) {
-            let plan_clone = mem.colonies.get(&name).unwrap().0.plan.clone();
+            let plan_clone = mem.colonies.0.get(&name).unwrap().0.clone();
             plan_clone.draw_progression(name);
         }
 
 
-        let (colony_data, step) = mem.colonies.get_mut(&name).unwrap();
-        step.transition(&room, &mut &*colony_data);
+        let (plan, step) = mem.colonies.0.get_mut(&name).unwrap();
+        let view = ColonyView::new(room.clone(), plan, *step);
+        step.transition(&room, &mut &view);
 
         info!("{name} is at step {step:?}");
     }

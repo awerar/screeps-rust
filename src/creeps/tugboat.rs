@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyData, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep {
@@ -87,7 +87,7 @@ pub enum TugboatCreep {
     Recycling(ObjectId<StructureSpawn>)
 }
 
-type Args<'a> = (&'a ColonyData, ObjectId<Creep>, &'a mut Movement, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, ObjectId<Creep>, &'a mut Movement, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for TugboatCreep {
     fn update(self, tugboat: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use TugboatCreep::*;
@@ -97,7 +97,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
 
         if let Recycling(spawn) = self {
             let Ok(spawn) = spawn.resolve().ok_or(()) else {
-                return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.room_name).id())))
+                return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).id())))
             };
 
             if tugboat.pos().is_near_to(spawn.pos()) {
@@ -111,7 +111,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
 
         let Some(tugged) = tugged.resolve() else {
             warn!("Tugged doesn't exist. Recycling tugboat");
-            return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.room_name).id())));
+            return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).id())));
         };
 
         match &self {
@@ -143,7 +143,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                         }
                     }
                     
-                    let recycle_spawn = get_recycle_spawn(tugboat, home.room_name);
+                    let recycle_spawn = get_recycle_spawn(tugboat, home.name);
                     return match tugboat.move_direction(tugboat.pos().get_direction_to(tugged.pos()).unwrap()) {
                         Ok(()) => {
                             tugboat.pull(&tugged)?;
@@ -156,7 +156,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                 }
 
                 if last_tug_tick + 5 <= game::time() {
-                    return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.room_name).id())))
+                    return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).id())))
                 }
 
                 Ok(Break(self))
