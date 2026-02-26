@@ -28,7 +28,6 @@ pub struct Memory {
     #[serde(default)] pub creeps: HashMap<String, CreepData>,
     #[serde(default)] pub colonies: Colonies,
 
-    #[serde(default)] pub last_alive_creeps: HashSet<String>,
     #[serde(default)] pub callbacks: Callbacks,
     #[serde(default)] pub movement: Movement,
     #[serde(default)] pub claim_requests: ClaimRequests,
@@ -70,8 +69,6 @@ impl Memory {
         info!("Cleaning up dead creep {name}");
 
         self.creeps.remove(name);
-
-        self.last_alive_creeps.remove(name);
         self.movement.creeps_data.remove(name);
         self.messages.remove(name);
     }
@@ -79,7 +76,7 @@ impl Memory {
     #[expect(clippy::used_underscore_binding)]
     pub fn periodic_cleanup(&mut self) {
         let alive_creeps: HashSet<_> = game::creeps().keys().collect();
-        let dead_creeps: HashSet<_> = self.last_alive_creeps.difference(&alive_creeps).cloned().collect();
+        let dead_creeps: HashSet<_> = self.creeps.keys().cloned().collect::<HashSet<_>>().difference(&alive_creeps).cloned().collect();
 
         for dead_creep in &dead_creeps {
             self.cleanup_creep(dead_creep);
@@ -94,8 +91,6 @@ impl Memory {
                 }
             }
         }
-
-        self.last_alive_creeps = alive_creeps;
     }
 
     pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {
