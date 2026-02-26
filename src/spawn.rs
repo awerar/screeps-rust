@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::{debug, info, warn};
 use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
+use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, id::Resolved, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
 
 #[derive(Clone)]
 struct Body(Vec<Part>);
@@ -86,7 +86,7 @@ struct CreepPrototype {
 }
 
 impl CreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
+    fn try_from_existing(mem: &Memory<Resolved>, creep: &Creep) -> Option<Self> {
         let creep_data = mem.creeps.get(&creep.try_id().unwrap())?;
 
         Some(Self {
@@ -123,7 +123,7 @@ struct SpawnerData {
 }
 
 impl SpawnerData {
-    fn try_from(mem: &Memory, spawn: &StructureSpawn) -> Option<Self> {
+    fn try_from(mem: &Memory<Resolved>, spawn: &StructureSpawn) -> Option<Self> {
         let room = spawn.room()?;
         let spawning = spawn.spawning()
             .and_then(|spawning| {
@@ -175,7 +175,7 @@ struct SpawnSchedule {
 }
 
 impl SpawnSchedule {
-    fn new(mem: &Memory) -> Self {
+    fn new(mem: &Memory<Resolved>) -> Self {
         Self {
             spawners: game::spawns().values()
                 .filter_map(|spawn| SpawnerData::try_from(mem, &spawn))
@@ -206,7 +206,7 @@ impl SpawnSchedule {
         SpawnerIterator(self.spawners.iter_mut())
     }
 
-    fn execute(self, mem: &mut Memory) {
+    fn execute(self, mem: &mut Memory<Resolved>) {
         for data in self.spawners {
             let Some(spawn) = game::spawns().get(data.name) else { continue; };
             let SpawnerStatus::Scheduled(proto) = data.status else { continue; };
@@ -236,7 +236,7 @@ impl SpawnSchedule {
     }
 }
 
-pub fn handle_incoming_creeps(mem: &mut Memory) {
+pub fn handle_incoming_creeps(mem: &mut Memory<Resolved>) {
     for (name, data) in mem::take(&mut mem.incoming_creeps).into_iter() {
         let Some(creep) = game::creeps().get(name.clone()) else {
             warn!("Unknown incoming creep {name}");
@@ -280,7 +280,7 @@ impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData
     }
 }
 
-fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
+fn schedule_excavators(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
     use Part::*;
 
     for colony in mem.colonies.view_all() {
@@ -340,7 +340,7 @@ const TRUCK_CARRY_MARGIN: f32 = 0.25;
 
 static TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry, Carry]) });
 static MAX_TRUCK_ENERGY: LazyLock<u32> = LazyLock::new(||  (TRUCK_TEMPLATE.clone() * 10).energy_required());
-fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
+fn schedule_trucks(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
     use Part::*;
 
     for colony in mem.colonies.view_all() {
@@ -368,7 +368,7 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
 }
 
 static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
-fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
+fn schedule_flagships(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
     if mem.claim_requests.is_empty() { return; }
 
     let flagship_count = schedule.all_creeps().filter_type(CreepType::Flagship).0.count();
@@ -383,7 +383,7 @@ fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
     });
 }
 
-fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
+fn schedule_tugboats(mem: &mut Memory<Resolved>, schedule: &mut SpawnSchedule) {
     for msg in mem.messages.spawn.read_all() {
         #[expect(irrefutable_let_patterns)]
         let SpawnMessage::SpawnTugboatFor(tugged_id) = msg else { continue; };
@@ -411,7 +411,7 @@ const TARGET_IDLE_FABRICATOR_WORK_COUNT: usize = 20;
 const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
 const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
-fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
+fn schedule_fabricators(mem: &mut Memory<Resolved>, schedule: &mut SpawnSchedule) {
     for colony in mem.colonies.view_all() {
         let mut curr_work_count = schedule.all_creeps().filter_home(colony.name).filter_type(CreepType::Fabricator).part_count(Part::Work);
         
@@ -440,7 +440,7 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     }
 }
 
-pub fn do_spawns(mem: &mut Memory) {
+pub fn do_spawns(mem: &mut Memory<Resolved>) {
     let mut schedule = SpawnSchedule::new(mem);
 
     schedule_trucks(mem, &mut schedule);

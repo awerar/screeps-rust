@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{collections::{HashMap, HashSet, VecDeque}, marker::PhantomData};
 
 use js_sys::{JsString, Reflect};
 use log::warn;
@@ -6,12 +6,12 @@ use screeps::{Creep, MaybeHasId, ObjectId, Position, RoomName, game};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, id::{IDMode, Resolved, Unresolved}, messages::Messages, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
-#[derive(Serialize, Deserialize, Default)]
-pub struct Memory {
+#[derive(Serialize, Deserialize)]
+pub struct Memory<M: IDMode> {
     #[serde(rename = "creeps")]
     _internal_creeps: Option<serde_json::Value>,
 
@@ -22,37 +22,83 @@ pub struct Memory {
     #[serde(rename = "alliesData")]
     _alliance_allies_data: Option<serde_json::Value>,
     
-    #[serde(default)] pub tick_times: VecDeque<f64>,
+    pub tick_times: VecDeque<f64>,
 
     #[serde(rename = "internal_creeps")]
-    #[serde(default)] pub creeps: HashMap<ObjectId<Creep>, CreepData>,
-    #[serde(default)] pub colonies: Colonies,
+    pub creeps: HashMap<ObjectId<Creep>, CreepData>,
+    pub colonies: Colonies,
 
-    #[serde(default)] pub incoming_creeps: Vec<(String, CreepData)>,
-    #[serde(default)] pub callbacks: Callbacks,
-    #[serde(default)] pub movement: Movement,
-    #[serde(default)] pub claim_requests: ClaimRequests,
-    #[serde(default)] pub truck_coordinators: HashMap<RoomName, TruckCoordinator>,
-    #[serde(default)] pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator>,
+    pub incoming_creeps: Vec<(String, CreepData)>,
+    pub callbacks: Callbacks,
+    pub movement: Movement,
+    pub claim_requests: ClaimRequests,
+    pub truck_coordinators: HashMap<RoomName, TruckCoordinator>,
+    pub fabricator_coordinators: HashMap<RoomName, FabricatorCoordinator>,
 
-    #[serde(default)] pub messages: Messages
+    pub messages: Messages,
+
+    pub phantom: PhantomData<M>,
+}
+
+impl<M : IDMode> Default for Memory<M> {
+    fn default() -> Self {
+        Self { 
+            _internal_creeps: Default::default(), 
+            _alliance_allies: Default::default(), 
+            _alliance_my_data: Default::default(), 
+            _alliance_allies_data: Default::default(), 
+            tick_times: Default::default(), 
+            creeps: Default::default(), 
+            colonies: Default::default(), 
+            incoming_creeps: Default::default(), 
+            callbacks: Default::default(), 
+            movement: Default::default(), 
+            claim_requests: Default::default(), 
+            truck_coordinators: Default::default(), 
+            fabricator_coordinators: Default::default(), 
+            messages: Default::default(), 
+            phantom: Default::default() 
+        }
+    }
 }
 
 pub type ClaimRequests = HashSet<Position>;
 
-impl Memory {
+impl Memory<Unresolved> {
     #[expect(clippy::used_underscore_binding)]
     pub fn screeps_deserialize() -> Self {
         let mem = screeps::raw_memory::get();
-        let mut mem: Memory = serde_json::from_str(&String::from(mem)).unwrap_or_else(|_| {
+        let mut mem = serde_json::from_str(&String::from(mem)).unwrap_or_else(|_| {
             warn!("Unable to parse raw memory. Resetting memory");
-            Memory::default()
+            Memory::<Unresolved>::default()
         });
 
         mem._internal_creeps = None; // This is deserialized separately in JS
         mem
     }
 
+    pub fn resolve(self) -> Memory<Resolved> {
+        Memory::<Resolved> {
+            _internal_creeps: self._internal_creeps, 
+            _alliance_allies: self._alliance_allies, 
+            _alliance_my_data: self._alliance_my_data, 
+            _alliance_allies_data: self._alliance_allies_data, 
+            tick_times: self.tick_times, 
+            creeps: self.creeps, 
+            colonies: self.colonies, 
+            incoming_creeps: self.incoming_creeps, 
+            callbacks: self.callbacks, 
+            movement: self.movement, 
+            claim_requests: self.claim_requests, 
+            truck_coordinators: self.truck_coordinators, 
+            fabricator_coordinators: self.fabricator_coordinators, 
+            messages: self.messages, 
+            phantom: PhantomData
+        }
+    }
+}
+
+impl Memory<Resolved> {
     #[expect(clippy::used_underscore_binding)]
     pub fn screeps_serialize(&mut self) {
         #[allow(deprecated)]

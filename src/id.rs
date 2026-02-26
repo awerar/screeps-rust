@@ -1,46 +1,83 @@
-use derive_deref::Deref;
+use std::{collections::{HashMap, HashSet}, hash::Hash, ops::Deref};
+
 use screeps::{Creep, MaybeHasId, ObjectId};
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsCast;
 
-pub trait Entity: MaybeHasId {}
-impl Entity for Creep {}
+use crate::creeps::CreepData;
 
-pub trait IDMode {
-    type Wrap<T: Entity>;
+pub trait IDMode where {
+    type Wrap<T>: Eq + Hash;
 }
 
 pub struct Unresolved;
 impl IDMode for Unresolved {
-    type Wrap<T: Entity> = ObjectId<T>;
+    type Wrap<T> = ObjectId<T>;
 }
 
 pub struct Resolved;
 impl IDMode for Resolved {
-    type Wrap<T: Entity> = ResolvedId<T>;
+    type Wrap<T> = ResolvedId<T>;
 }
 
-#[derive(Deref)]
-pub struct ResolvedId<T>(pub T);
+pub struct ResolvedId<T> {
+    inner: T,
+    id: ObjectId<T>
+}
+
+impl<T: JsCast + MaybeHasId> ResolvedId<T> {
+    fn resolve(id: ObjectId<T>) -> Option<Self> {
+        Some(Self {
+            inner: id.resolve()?,
+            id
+        })
+    }
+}
+
+impl<T> Deref for ResolvedId<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> Eq for ResolvedId<T> { }
+impl<T> PartialEq for ResolvedId<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<T> Hash for ResolvedId<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
 
 impl<T: MaybeHasId> Serialize for ResolvedId<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer {
-        self.0.try_id().unwrap().serialize(serializer)
+        self.id.serialize(serializer)
     }
 }
 
 #[derive(Serialize, Deserialize)]
 struct TestMemory<M: IDMode> {
     creep: M::Wrap<Creep>,
-    x: u32
+    x: u32,
+    creeps: HashMap<M::Wrap<Creep>, CreepData>,
 }
 
 impl TestMemory<Unresolved> {
     fn resolve(self) -> TestMemory<Resolved> {
         TestMemory::<Resolved> { 
-            creep: self.creep.clone().resolve().map(ResolvedId).unwrap(),
-            x: self.x
+            creep: ResolvedId::resolve(self.creep).unwrap(),
+            x: self.x,
+            creeps: self.creeps.into_iter()
+                .filter_map(|(creed_id, creep_data)| ResolvedId::resolve(creed_id).map(|creep| (creep, creep_data)))
+                .collect()
         }
     }
 }

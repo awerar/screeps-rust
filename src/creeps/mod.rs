@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, id::Resolved, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -23,7 +23,7 @@ impl CreepData {
         CreepData { role, home }
     }
 
-    pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
+    pub fn try_recover_from(creep: &Creep, mem: &Memory<Resolved>) -> Option<Self> {
         let home = mem.colonies.view(creep.pos().room_name())
             .filter(|colony| colony.plan.center.spawn.is_complete())
             .or_else(|| 
@@ -124,7 +124,7 @@ fn do_recycle(creep: &Creep, home: RoomName, movement: &mut Movement, spawn: &Ob
     spawn.id()
 }
 
-pub fn do_creeps(mem: &mut Memory) {
+pub fn do_creeps(mem: &mut Memory<Resolved>) {
     use CreepRole::*;
 
     let updatable_creeps: Vec<_> = game::creeps().values()

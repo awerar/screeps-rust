@@ -11,7 +11,7 @@ use log::info;
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, id::Resolved, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
 
 mod logging;
 mod names;
@@ -49,7 +49,9 @@ pub fn game_loop() {
         return;
     }
 
-    let mut mem = Memory::screeps_deserialize();
+    let mem = Memory::screeps_deserialize();
+    let mut mem = mem.resolve();
+
     mem.movement.update_tick_start();
 
     info!("=== Starting tick {} (L[{:.1}], M[{:.1}], S[{:.1}]) Bucket: {} ===", game::time(), 
@@ -82,14 +84,14 @@ pub fn game_loop() {
     visuals::draw();
 }
 
-fn update_coordinators(mem: &mut Memory) {
+fn update_coordinators(mem: &mut Memory<Resolved>) {
     for colony in mem.colonies.view_all() {
         mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, mem.messages.trucks.read_all());
         mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room, colony.buffer);
     }
 }
 
-fn do_links(mem: &mut Memory) {
+fn do_links(mem: &mut Memory<Resolved>) {
     for colony in mem.colonies.view_all(){
         let central_link: Option<StructureLink> = colony.plan.center.link.resolve();
         let Some(central_link) = central_link else { continue };

@@ -6,7 +6,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
 
-use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::StateMachineTransition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, id::Resolved, memory::Memory, statemachine::StateMachineTransition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 pub mod steps;
@@ -102,7 +102,7 @@ fn find_claim_flags() -> Vec<Flag> {
         .collect()
 }
 
-pub fn update_colonies(mem: &mut Memory) {
+pub fn update_colonies(mem: &mut Memory<Resolved>) {
     info!("Updating rooms...");
 
     handle_commands(mem, |command, mem| {

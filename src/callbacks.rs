@@ -3,7 +3,7 @@ use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
 use screeps::{Creep, ObjectId, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::Memory, colony::update_colonies};
+use crate::{colony::update_colonies, id::Resolved, memory::Memory};
 
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Clone)]
 enum PeriodicCallback {
@@ -19,7 +19,7 @@ static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::
 });
 
 impl PeriodicCallback {
-    pub fn execute(&self, mem: &mut Memory) {
+    pub fn execute(&self, mem: &mut Memory<Resolved>) {
         match self {
             PeriodicCallback::MemoryCleanup => mem.periodic_cleanup(),
             PeriodicCallback::RoomUpdate => update_colonies(mem),
@@ -33,7 +33,7 @@ pub enum Callback {
 }
 
 impl Callback {
-    pub fn execute(self, mem: &mut Memory) {
+    pub fn execute(self, mem: &mut Memory<Resolved>) {
         match self {
             Callback::CreepCleanup(creep) => mem.cleanup_creep(creep),
         }
@@ -67,7 +67,7 @@ impl Callbacks {
     }
 }
 
-impl Memory {
+impl Memory<Resolved> {
     pub fn handle_callbacks(&mut self) {
         while let Some(callback) = self.callbacks.scheduled.peek() {
             if game::time() < callback.0.0 { break; }

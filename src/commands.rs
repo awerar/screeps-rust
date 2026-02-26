@@ -6,7 +6,7 @@ use log::info;
 use screeps::{RoomName, StructureProperties, find, game};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{colony::planning::plan::ColonyPlan, memory::Memory, visuals};
+use crate::{colony::planning::plan::ColonyPlan, id::Resolved, memory::Memory, visuals};
 
 thread_local! {
     static COMMANDS: RefCell<HashSet<Command>> = RefCell::new(HashSet::new());
@@ -56,7 +56,7 @@ pub fn pop_command(cmd: Command) -> bool {
     })
 }
 
-pub fn handle_commands<F>(mem: &mut Memory, f: F) -> usize where F : Fn(&Command, &mut Memory) -> bool {
+pub fn handle_commands<F>(mem: &mut Memory<Resolved>, f: F) -> usize where F : Fn(&Command, &mut Memory<Resolved>) -> bool {
     COMMANDS.with_borrow_mut(|commands| {
         let mut handled = Vec::new();
 
