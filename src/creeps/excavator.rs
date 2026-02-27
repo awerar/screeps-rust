@@ -3,23 +3,36 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, id::{Resolved, ResolvedId, TryIntoResolvedID}, messages::Messages, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, ResolvedId, TryIntoResolvedID, Unresolved}, messages::Messages, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
-pub enum ExcavatorCreep {
-    Going(TuggedCreep),
+pub enum ExcavatorCreep<M: IDMode> {
+    Going(TuggedCreep<M>),
     Mining,
-    Building(ResolvedId<ConstructionSite>)
+    Building(M::Wrap<ConstructionSite>)
 }
 
-impl Default for ExcavatorCreep {
+impl Default for ExcavatorCreep<Resolved> {
     fn default() -> Self {
         Self::Going(TuggedCreep::default())
     }
 }
 
+impl IDResolvable for ExcavatorCreep<Unresolved> {
+    type Target = ExcavatorCreep<Resolved>;
+
+    fn id_resolve(self) -> Self::Target {
+        match self {
+            Self::Going(state) => ExcavatorCreep::Going(state.id_resolve()),
+            Self::Mining => ExcavatorCreep::Mining,
+            Self::Building(site) => 
+                site.try_id_resolve().map(ExcavatorCreep::Building).unwrap_or(ExcavatorCreep::Mining),
+        }
+    }
+}
+
 pub type Args<'a> = (ResolvedId<Source>, ColonyView<'a>, &'a mut Messages<Resolved>);
-impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
+impl StateMachine<Creep, Args<'_>> for ExcavatorCreep<Resolved> {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;

@@ -285,7 +285,7 @@ fn schedule_excavators(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
             let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().0.next() else { continue; };
 
             let prototype = CreepPrototype { 
-                body: get_excavator_body(spawner.energy_avaliable, source_plan), 
+                body: get_excavator_body(spawner.energy_capacity, source_plan), 
                 ty: CreepType::Excavator(source.try_id_resolve().expect("Source ids should always be resolvable in colonies")),
                 home: colony.name
             };
@@ -364,6 +364,8 @@ fn schedule_flagships(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     let tugged_body = Body::from(&*tugged);
     let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.num(Part::Move));
+    let tugged_empty_carry = tugged.store().get_free_capacity(None).div_floor(50) as usize;
+    let target_tugboat_move_parts = target_tugboat_move_parts - tugged_empty_carry;
 
     if target_tugboat_move_parts == 0 {
         warn!("Creep {} has requested tugboat, but doesn't actually benefit from it", tugged.name());
@@ -381,7 +383,7 @@ fn schedule_tugboats(mem: &mut Memory<Resolved>, schedule: &mut SpawnSchedule) {
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
 
         spawner.schedule_or_block(CreepPrototype { 
-            body: get_tugboat_body(spawner.energy_avaliable, &*tugged),
+            body: get_tugboat_body(spawner.energy_capacity, &*tugged),
             ty: CreepType::Tugboat(tugged), 
             home 
         });

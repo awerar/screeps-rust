@@ -4,18 +4,32 @@ use log::warn;
 use screeps::{Creep, HasPosition, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, id::{IntoResolvedID, Resolved, ResolvedId, TryIntoResolvedID}, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, id::{IDMaybeResolvable, IDMode, IDResolvable, IntoResolvedID, Resolved, ResolvedId, TryIntoResolvedID, Unresolved}, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
-pub enum TuggedCreep {
+pub enum TuggedCreep<M: IDMode> {
     #[default]
     Requesting,
     WaitingFor { tugboat: String },
-    GettingTugged(ResolvedId<Creep>),
+    GettingTugged(M::Wrap<Creep>),
     Finished
 }
 
-impl StateMachine<Creep, Messages<Resolved>> for TuggedCreep {
+impl IDResolvable for TuggedCreep<Unresolved> {
+    type Target = TuggedCreep<Resolved>;
+
+    fn id_resolve(self) -> Self::Target {
+        match self {
+            Self::Requesting => TuggedCreep::Requesting,
+            Self::WaitingFor { tugboat } => TuggedCreep::WaitingFor { tugboat },
+            Self::GettingTugged(tugboat) => 
+                tugboat.try_id_resolve().map(TuggedCreep::GettingTugged).unwrap_or(TuggedCreep::Requesting),
+            Self::Finished => TuggedCreep::Finished,
+        }
+    }
+}
+
+impl StateMachine<Creep, Messages<Resolved>> for TuggedCreep<Resolved> {
     fn update(self, tugged: &Creep, messages: &mut Messages<Resolved>) -> anyhow::Result<Transition<Self>> {
         use TuggedCreep::*;
         use Transition::*;
@@ -52,7 +66,7 @@ impl StateMachine<Creep, Messages<Resolved>> for TuggedCreep {
     }
 }
 
-impl TuggedCreep {
+impl TuggedCreep<Resolved> {
     pub fn move_tugged_to(&mut self, tugged: &Creep, messages: &mut Messages<Resolved>, target: Position, range: u32) {
         if tugged.pos().get_range_to(target.pos()) <= range {
             *self = TuggedCreep::Finished;
@@ -74,15 +88,27 @@ impl TuggedCreep {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
-pub enum TugboatCreep {
+pub enum TugboatCreep<M: IDMode> {
     #[default]
     GoingTo,
     Tugging { last_tug_tick: u32 },
-    Recycling(ResolvedId<StructureSpawn>)
+    Recycling(M::Wrap<StructureSpawn>)
+}
+
+impl IDMaybeResolvable for TugboatCreep<Unresolved> {
+    type Target = TugboatCreep<Resolved>;
+
+    fn try_id_resolve(self) -> Option<Self::Target> {
+        Some(match self {
+            Self::GoingTo => TugboatCreep::GoingTo,
+            Self::Tugging { last_tug_tick } => TugboatCreep::Tugging { last_tug_tick },
+            Self::Recycling(spawn) => TugboatCreep::Recycling(spawn.try_id_resolve()?),
+        })
+    }
 }
 
 pub type Args<'a> = (ColonyView<'a>, ResolvedId<Creep>, &'a mut Movement<Resolved>, &'a mut Messages<Resolved>);
-impl StateMachine<Creep, Args<'_>> for TugboatCreep {
+impl StateMachine<Creep, Args<'_>> for TugboatCreep<Resolved> {
     fn update(self, tugboat: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use TugboatCreep::*;
         use Transition::*;

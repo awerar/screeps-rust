@@ -69,10 +69,6 @@ pub fn game_loop() {
     update_coordinators(&mut mem);
     do_creeps(&mut mem);
 
-    mem.messages.trucks.flush();
-    mem.messages.spawn.flush();
-    do_spawns(&mut mem);
-
     do_towers();
     do_links(&mut mem);
 
@@ -82,6 +78,10 @@ pub fn game_loop() {
     if mem.tick_times.len() > 500 { mem.tick_times.pop_back(); }
 
     mem.handle_callbacks();
+
+    mem.messages.trucks.flush();
+    mem.messages.spawn.flush();
+    do_spawns(&mut mem);
     mem.screeps_serialize();
 
     visuals::draw();

@@ -62,9 +62,9 @@ impl IDMaybeResolvable for CreepData<Unresolved> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CreepRole<M: IDMode> {
-    Excavator(ExcavatorCreep, M::Wrap<Source>),
+    Excavator(ExcavatorCreep<M>, M::Wrap<Source>),
     Flagship(FlagshipCreep<M>),
-    Tugboat(TugboatCreep, M::Wrap<Creep>),
+    Tugboat(TugboatCreep<M>, M::Wrap<Creep>),
     Truck(TruckCreep),
     Fabricator(FabricatorCreep<M>),
     Scrap(M::Wrap<StructureSpawn>),
@@ -98,9 +98,9 @@ impl IDMaybeResolvable for CreepRole<Unresolved> {
 
     fn try_id_resolve(self) -> Option<Self::Target> {
         Some(match self {
-            Self::Excavator(state, source) => CreepRole::Excavator(state, source.try_id_resolve()?),
+            Self::Excavator(state, source) => CreepRole::Excavator(state.id_resolve(), source.try_id_resolve()?),
             Self::Flagship(state) => CreepRole::Flagship(state.id_resolve()),
-            Self::Tugboat(state, tugged) => CreepRole::Tugboat(state, tugged.try_id_resolve()?),
+            Self::Tugboat(state, tugged) => CreepRole::Tugboat(state.try_id_resolve()?, tugged.try_id_resolve()?),
             Self::Truck(state) => CreepRole::Truck(state),
             Self::Fabricator(state) => CreepRole::Fabricator(state.id_resolve()),
             Self::Scrap(controller) => CreepRole::Scrap(controller.try_id_resolve()?),
