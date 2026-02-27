@@ -5,20 +5,22 @@ use screeps::{HasId, MaybeHasId, ObjectId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 
+pub trait IDReqs = JsCast + MaybeHasId + Clone + Debug;
+
 pub trait IDMode: PartialEq + Eq + Hash + Clone + Default {
-    type Wrap<T: JsCast + MaybeHasId + Clone + Debug>: Eq + Hash + Serialize + DeserializeOwned + Clone + Debug;
+    type Wrap<T: IDReqs>: Eq + Hash + Serialize + DeserializeOwned + Clone + Debug;
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Unresolved;
 impl IDMode for Unresolved {
-    type Wrap<T: JsCast + MaybeHasId + Clone + Debug> = ObjectId<T>;
+    type Wrap<T: IDReqs> = ObjectId<T>;
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Default, Serialize, Deserialize)]
 pub struct Resolved;
 impl IDMode for Resolved {
-    type Wrap<T: JsCast + MaybeHasId + Clone + Debug> = ResolvedId<T>;
+    type Wrap<T: IDReqs> = ResolvedId<T>;
 }
 
 pub trait IDMaybeResolvable {

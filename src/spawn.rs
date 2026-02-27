@@ -336,11 +336,11 @@ fn schedule_trucks(mem: &Memory<Resolved>, schedule: &mut SpawnSchedule) {
             if current_carry >= target_carry { break; }
 
             let Some(spawner) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { break };
-            spawner.schedule_or_block(CreepPrototype { 
+            if !spawner.schedule_or_block(CreepPrototype { 
                 ty: CreepType::Truck, 
                 home: colony.name, 
                 body: get_truck_body(spawner.energy_capacity)
-            });
+            }) { break }
         }
     }
 }
@@ -406,11 +406,11 @@ fn schedule_fabricators(mem: &mut Memory<Resolved>, schedule: &mut SpawnSchedule
             let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().0.next() else { break; };
             let body = FABRICATOR_TEMPLATE.scaled(spawner.energy_capacity, None);
 
-            spawner.schedule(CreepPrototype { 
+            if !spawner.schedule(CreepPrototype { 
                 body, 
                 ty: CreepType::Fabricator, 
                 home: spawner.room
-            });
+            }) { break; }
         }
     }
 }
