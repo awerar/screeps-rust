@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use js_sys::{JsString, Reflect};
-use log::{warn, error};
+use log::{error, warn};
 use screeps::{Creep, Position, RoomName};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, checked_id::{CheckIDs, CheckedID, TryCheckIDs}, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, checked_id::{CheckIDs, CheckedID, TryCheckIDs}, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement, statemachine::UnderlyingName};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -76,7 +76,7 @@ impl CheckIDs for Memory {
         self.movement = self.movement.check_ids();
         self.messages = self.messages.check_ids();
         self.creeps = self.creeps.into_iter()
-            .filter_map(|(creep_id, creep_data)| Some((creep_id.try_check_ids()?, creep_data)))
+            .filter_map(|(creep_id, creep_data)| Some((creep_id.try_check_ids()?, creep_data.try_check_ids()?)))
             .collect();
 
         self

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
 use js_sys::Math::random;
 use screeps::{Creep, Position, action_error_codes::CreepMoveToErrorCode, game, prelude::*};
 use serde::{Deserialize, Serialize};

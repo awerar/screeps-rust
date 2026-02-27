@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::{debug, info, warn};
 use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{checked_id::CreepGetCheckedID, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
+use crate::{checked_id::{CreepGetCheckedID, GetCheckedID}, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
 
 #[derive(Clone)]
 struct Body(Vec<Part>);
@@ -216,10 +216,8 @@ impl SpawnSchedule {
                 continue;
             }
 
-            if let CreepType::Tugboat(tugged) = proto.ty {
-                if let Some(tugged) = tugged.resolve() {
-                    mem.messages.creep(&tugged).send(CreepMessage::AssignedTugBoat(name.clone()));
-                }
+            if let CreepType::Tugboat(tugged) = &proto.ty {
+                mem.messages.creep(&tugged).send(CreepMessage::AssignedTugBoat(name.clone()));
             }
 
             let creep_data = CreepData::new(spawn.room().unwrap().name(), proto.ty.default_role());
@@ -280,7 +278,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
 
         for source in room.find(find::SOURCES, None) {
             let any_excavator_already = schedule.all_creeps()
-                .0.any(|proto| matches!(proto.ty, CreepType::Excavator(excavator_source) if excavator_source == source.id()));
+                .0.any(|proto| matches!(&proto.ty, CreepType::Excavator(excavator_source) if excavator_source.id == source.id()));
             if any_excavator_already { continue; }
 
             let Some(spawner) = schedule.spawners().filter_room(room.name()).filter_free().0.next() else { continue; };
@@ -298,7 +296,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
 
             let prototype = CreepPrototype { 
                 body, 
-                ty: CreepType::Excavator(source.id()),
+                ty: CreepType::Excavator(source.checked_id()),
                 home: colony.name
             };
 
@@ -387,7 +385,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
 
         spawner.schedule_or_block(CreepPrototype { 
             body: Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (spawner.energy_capacity / 50) as usize), 
-            ty: CreepType::Tugboat(tugged.id), 
+            ty: CreepType::Tugboat(tugged), 
             home 
         });
     }

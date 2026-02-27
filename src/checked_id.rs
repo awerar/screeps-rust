@@ -1,4 +1,4 @@
-use std::{hash::Hash, ops::Deref};
+use std::{fmt::Debug, hash::Hash, ops::Deref};
 
 use screeps::{Creep, HasId, MaybeHasId, ObjectId};
 use serde::{Deserialize, Serialize, ser};
@@ -26,7 +26,7 @@ impl<T: CheckIDs> TryCheckIDs for T {
 
 impl<T: JsCast + MaybeHasId> TryCheckIDs for CheckedID<T> {
     fn try_check_ids(mut self) -> Option<Self> {
-        if !matches!(self.status, CheckedIDStatus::Unchecked) {
+        if matches!(self.status, CheckedIDStatus::Valid(_)) {
             panic!("ID has already been checked")
         }
 
@@ -108,5 +108,11 @@ impl<T> PartialOrd for CheckedID<T> {
 impl<T: Clone> Clone for CheckedID<T> {
     fn clone(&self) -> Self {
         Self { id: self.id.clone(), status: self.status.clone() }
+    }
+}
+
+impl<T> Debug for CheckedID<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(f)
     }
 }
