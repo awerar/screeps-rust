@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::{debug, info, warn};
 use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{callbacks::Callback, creeps::{CreepData, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
+use crate::{creeps::{CreepData, CreepType}, safeid::CreepGetSafeID, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name};
 
 #[derive(Clone)]
 struct Body(Vec<Part>);
@@ -36,14 +36,6 @@ impl Body {
 
     fn energy_required(&self) -> u32 {
         self.0.iter().map(|part| part.cost()).sum()
-    }
-
-    fn time_to_live(&self) -> u32 {
-        if self.0.contains(&Part::Claim) { 600 } else { 1500 }
-    }
-
-    fn time_to_spawn(&self) -> u32 {
-        (self.0.len() * 3) as u32
     }
 
     fn num(&self, part: Part) -> usize {
@@ -87,7 +79,7 @@ struct CreepPrototype {
 
 impl CreepPrototype {
     fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
-        let creep_data = mem.creeps.get(&creep.try_id().unwrap())?;
+        let creep_data = mem.creeps.get(&creep.safe_id())?;
 
         Some(Self {
             body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
@@ -243,12 +235,7 @@ pub fn handle_incoming_creeps(mem: &mut Memory) {
             continue;
         };
 
-        let creep_id = creep.try_id().unwrap();
-        mem.creeps.insert(creep_id, data);
-
-        let body: Body = (&creep).into();
-        let creep_death_time = game::time() + body.time_to_spawn() + body.time_to_live();
-        mem.callbacks.schedule(creep_death_time, Callback::CreepCleanup(creep_id));
+        mem.creeps.insert(creep.safe_id(), data);
     }
 }
 
@@ -386,13 +373,12 @@ fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
 fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     for msg in mem.messages.spawn.read_all() {
         #[expect(irrefutable_let_patterns)]
-        let SpawnMessage::SpawnTugboatFor(tugged_id) = msg else { continue; };
-        let Some(tugged) = tugged_id.resolve() else { continue; };
-        let Some(home) = mem.creeps.get(&tugged.try_id().unwrap()).map(|data| data.home) else { continue; };
+        let SpawnMessage::SpawnTugboatFor(tugged) = msg else { continue; };
+        let Some(home) = mem.creeps.get(&tugged.safe_id()).map(|data| data.home) else { continue; };
 
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
 
-        let tugged_body = Body::from(&tugged);
+        let tugged_body = Body::from(&*tugged);
         let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.num(Part::Move));
 
         if target_tugboat_move_parts == 0 {
@@ -401,7 +387,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
 
         spawner.schedule_or_block(CreepPrototype { 
             body: Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (spawner.energy_capacity / 50) as usize), 
-            ty: CreepType::Tugboat(tugged_id), 
+            ty: CreepType::Tugboat(tugged.id), 
             home 
         });
     }

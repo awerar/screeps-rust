@@ -29,7 +29,7 @@ mod visuals;
 mod statemachine;
 mod commands;
 mod tasks;
-mod id;
+mod safeid;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

@@ -1,10 +1,11 @@
+
 use enum_display::EnumDisplay;
 use anyhow::anyhow;
 use log::warn;
 use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, safeid::CreepGetSafeID, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep {
@@ -28,7 +29,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
                     return Ok(Continue(WaitingFor { tugboat }))
                 }
 
-                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.try_id().unwrap()));
+                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.safe_id()));
             },
             WaitingFor { tugboat } => {
                 let Some(tugboat) = game::creeps().get(tugboat.clone()) else { 
