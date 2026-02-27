@@ -11,7 +11,7 @@ use log::info;
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
+use crate::{checked_id::CheckIDs, colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
 
 mod logging;
 mod names;
@@ -29,7 +29,7 @@ mod visuals;
 mod statemachine;
 mod commands;
 mod tasks;
-mod id;
+mod checked_id;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -49,7 +49,8 @@ pub fn game_loop() {
         return;
     }
 
-    let mut mem = Memory::screeps_deserialize();
+    let mem = Memory::screeps_deserialize();
+    let mut mem = mem.check_ids();
     mem.movement.update_tick_start();
 
     info!("=== Starting tick {} (L[{:.1}], M[{:.1}], S[{:.1}]) Bucket: {} ===", game::time(), 
@@ -64,10 +65,6 @@ pub fn game_loop() {
     update_coordinators(&mut mem);
     do_creeps(&mut mem);
 
-    mem.messages.trucks.flush();
-    mem.messages.spawn.flush();
-    do_spawns(&mut mem);
-
     do_towers();
     do_links(&mut mem);
 
@@ -77,6 +74,10 @@ pub fn game_loop() {
     if mem.tick_times.len() > 500 { mem.tick_times.pop_back(); }
 
     mem.handle_callbacks();
+
+    mem.messages.trucks.flush();
+    mem.messages.spawn.flush();
+    do_spawns(&mut mem);
     mem.screeps_serialize();
 
     visuals::draw();

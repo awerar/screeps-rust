@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use js_sys::{JsString, Reflect};
-use log::warn;
-use screeps::{Creep, MaybeHasId, ObjectId, Position, RoomName, game};
+use log::{warn, error};
+use screeps::{Creep, Position, RoomName};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
+use crate::{callbacks::Callbacks, checked_id::{CheckIDs, CheckedID, TryCheckIDs}, colony::Colonies, creeps::{CreepData, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, messages::Messages, movement::Movement};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -25,7 +25,7 @@ pub struct Memory {
     #[serde(default)] pub tick_times: VecDeque<f64>,
 
     #[serde(rename = "internal_creeps")]
-    #[serde(default)] pub creeps: HashMap<ObjectId<Creep>, CreepData>,
+    #[serde(default)] pub creeps: HashMap<CheckedID<Creep>, CreepData>,
     #[serde(default)] pub colonies: Colonies,
 
     #[serde(default)] pub incoming_creeps: Vec<(String, CreepData)>,
@@ -60,39 +60,25 @@ impl Memory {
         let new_internal_creeps: Option<serde_json::Value> = new_internal_creeps.map(|x| serde_wasm_bindgen::from_value(x).unwrap());
         self._internal_creeps = new_internal_creeps;
 
-        self.periodic_cleanup();
-
-        let mem = serde_json::to_string(&self).unwrap();
-        screeps::raw_memory::set(&JsString::from(mem));
-    }
-
-    pub fn cleanup_creep(&mut self, creep: ObjectId<Creep>) {
-        self.creeps.remove(&creep);
-        //TODO //self.movement.creeps_data.remove(name);
-        //TODO //self.messages.remove(name);
-    }
-
-    #[expect(clippy::used_underscore_binding)]
-    pub fn periodic_cleanup(&mut self) {
-        let alive_creeps: HashSet<_> = game::creeps().values().map(|creep| creep.try_id().unwrap()).collect();
-        let dead_creeps: HashSet<_> = self.creeps.keys().cloned().collect::<HashSet<_>>().difference(&alive_creeps).cloned().collect();
-
-        for dead_creep in dead_creeps {
-            self.cleanup_creep(dead_creep);
-        }
-
-        if let Some(internal_creeps) = &mut self._internal_creeps {
-            if let Some(internal_creeps) = internal_creeps.as_object_mut() {
-                let alive_creeps: HashSet<_> = internal_creeps.keys().cloned().collect();
-                let dead_creeps: HashSet<_> = alive_creeps.difference(&alive_creeps).cloned().collect();
-                for dead_creep in &dead_creeps {
-                    internal_creeps.remove(dead_creep);
-                }
-            }
+        match serde_json::to_string(&self) {
+            Ok(mem) => screeps::raw_memory::set(&JsString::from(mem)),
+            Err(e) => error!("Unable to serialize memory: {e}"),
         }
     }
 
     pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {
         self.tick_times.iter().take(tick_count).sum::<f64>() / (tick_count.min(self.tick_times.len()) as f64)
+    }
+}
+
+impl CheckIDs for Memory {
+    fn check_ids(mut self) -> Self {
+        self.movement = self.movement.check_ids();
+        self.messages = self.messages.check_ids();
+        self.creeps = self.creeps.into_iter()
+            .filter_map(|(creep_id, creep_data)| Some((creep_id.try_check_ids()?, creep_data)))
+            .collect();
+
+        self
     }
 }

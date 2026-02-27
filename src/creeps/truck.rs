@@ -333,8 +333,8 @@ impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStruct
 impl IntoConsumers for Vec<TruckMessage> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Consumer(id, _) = message else { return None };
-            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(*id)))
+            let TruckMessage::Consumer(consumer, _) = message else { return None };
+            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(consumer.id)))
         })
     }
 }
@@ -355,8 +355,8 @@ impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStruct
 impl IntoProviders for Vec<TruckMessage> {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
         self.iter().filter_map(|message| {
-            let TruckMessage::Provider(id, _) = message else { return None };
-            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(*id)))
+            let TruckMessage::Provider(provider, _) = message else { return None };
+            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(provider.id)))
         })
     }
 }

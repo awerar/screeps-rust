@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId,
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{checked_id::CreepGetCheckedID, colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 pub enum FabricatorCreep {
@@ -62,7 +62,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
-                messages.trucks.send(TruckMessage::Provider(creep.try_id().unwrap(), home.name));
+                messages.trucks.send(TruckMessage::Provider(creep.checked_id(), home.name));
                 Ok(Break(self))
             },
             Self::CollectingFor(task) => {
@@ -76,7 +76,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
                         return Ok(Continue(Self::Performing(task.clone())))
                     }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home.name));
+                messages.trucks.send(TruckMessage::Consumer(creep.checked_id(), home.name));
 
                 let Some(buffer) = &home.buffer else {
                     return Ok(Break(Self::CollectingFor(task.clone())))
@@ -103,7 +103,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.try_id().unwrap(), home.name));
+                messages.trucks.send(TruckMessage::Consumer(creep.checked_id(), home.name));
 
                 if !creep.pos().is_near_to(task.pos) {
                     movement.smart_move_creep_to(creep, task.pos).ok();

@@ -1,19 +1,17 @@
 use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
 
-use screeps::{Creep, ObjectId, game};
+use screeps::{game};
 use serde::{Deserialize, Serialize};
 
 use crate::{memory::Memory, colony::update_colonies};
 
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Clone)]
 enum PeriodicCallback {
-    MemoryCleanup,
     RoomUpdate
 }
 
 static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::new(|| {
     HashMap::from([
-        ( PeriodicCallback::MemoryCleanup, 100 ),
         ( PeriodicCallback::RoomUpdate, 10 ),
     ])
 });
@@ -21,7 +19,6 @@ static PERIODIC_CALLBACKS: LazyLock<HashMap<PeriodicCallback, u32>> = LazyLock::
 impl PeriodicCallback {
     pub fn execute(&self, mem: &mut Memory) {
         match self {
-            PeriodicCallback::MemoryCleanup => mem.periodic_cleanup(),
             PeriodicCallback::RoomUpdate => update_colonies(mem),
         }
     }
@@ -29,13 +26,13 @@ impl PeriodicCallback {
 
 #[derive(PartialEq, Eq, Deserialize, Serialize)]
 pub enum Callback {
-    CreepCleanup(ObjectId<Creep>)
+    
 }
 
 impl Callback {
-    pub fn execute(self, mem: &mut Memory) {
+    pub fn execute(self, _mem: &mut Memory) {
         match self {
-            Callback::CreepCleanup(creep) => mem.cleanup_creep(creep),
+            
         }
     }
 }
@@ -62,6 +59,7 @@ pub struct Callbacks{
 }
 
 impl Callbacks {
+    #[expect(dead_code)]
     pub fn schedule(&mut self, time: u32, callback: Callback) {
         self.scheduled.push(ScheduledCallback(Reverse(time), callback));
     }
@@ -71,6 +69,7 @@ impl Memory {
     pub fn handle_callbacks(&mut self) {
         while let Some(callback) = self.callbacks.scheduled.peek() {
             if game::time() < callback.0.0 { break; }
+            #[expect(unreachable_code, unused_variables)]
             let callback = self.callbacks.scheduled.pop().unwrap();
             callback.1.execute(self);
         }
