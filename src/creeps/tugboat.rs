@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{Creep, HasPosition, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, id::{Resolved, ResolvedId}, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, id::{IntoResolvedID, Resolved, ResolvedId, TryIntoResolvedID}, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep {
@@ -28,7 +28,7 @@ impl StateMachine<Creep, Messages<Resolved>> for TuggedCreep {
                     return Ok(Continue(WaitingFor { tugboat }))
                 }
 
-                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.into()));
+                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.clone().try_into_rid().unwrap()));
             },
             WaitingFor { tugboat } => {
                 let Some(tugboat) = game::creeps().get(tugboat.clone()) else { 
@@ -37,7 +37,7 @@ impl StateMachine<Creep, Messages<Resolved>> for TuggedCreep {
                 };
 
                 if tugboat.pos().is_near_to(tugged.pos()) {
-                    return Ok(Continue(GettingTugged(tugboat.into())))
+                    return Ok(Continue(GettingTugged(tugboat.clone().try_into_rid().unwrap())))
                 }
             },
             GettingTugged(tugboat) => {
@@ -133,7 +133,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                         Ok(()) => {
                             tugboat.pull(&tugged)?;
                             messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
-                            Ok(Continue(Recycling(recycle_spawn.into())))
+                            Ok(Continue(Recycling(recycle_spawn.into_rid())))
                         }
                         Err(CreepMoveDirectionErrorCode::Tired) => Ok(Break(self)),
                         Err(e) => Err(anyhow!(e))
@@ -141,7 +141,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                 }
 
                 if last_tug_tick + 5 <= game::time() {
-                    return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).into())))
+                    return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).into_rid())))
                 }
 
                 Ok(Break(self))

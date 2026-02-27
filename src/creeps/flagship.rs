@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, Unresolved}, memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
+use crate::{id::{IDMaybeResolvable, IDMode, IDResolvable, IntoResolvedID, Resolved, Unresolved}, memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<M: IDMode> {
@@ -46,7 +46,7 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep<Resolved> {
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name() {
                     if let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Continue(Claiming(*target, controller.into())))
+                        return Ok(Continue(Claiming(*target, controller.into_rid())))
                     }
                 }
 

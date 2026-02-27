@@ -1,6 +1,7 @@
 use std::{fmt::Debug, hash::Hash, ops::Deref};
 
-use screeps::{MaybeHasId, ObjectId};
+use anyhow::anyhow;
+use screeps::{HasId, MaybeHasId, ObjectId};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 
@@ -63,15 +64,17 @@ impl<T: JsCast + MaybeHasId> IDMaybeResolvable for ObjectId<T> {
     }
 }
 
-impl<T: MaybeHasId> From<T> for ResolvedId<T> {
-    fn from(value: T) -> Self {
-        ResolvedId { id: value.try_id().unwrap(), inner: value }
+pub trait IntoResolvedID<T> { fn into_rid(self) -> ResolvedId<T>; }
+impl<R: HasId> IntoResolvedID<R> for R {
+    fn into_rid(self) -> ResolvedId<R> {
+        ResolvedId { id: self.id(), inner: self }
     }
 }
 
-impl<T: MaybeHasId + Clone> From<&T> for ResolvedId<T> {
-    fn from(value: &T) -> Self {
-        value.clone().into()
+pub trait TryIntoResolvedID<T> { fn try_into_rid(self) -> anyhow::Result<ResolvedId<T>>; }
+impl<R: MaybeHasId> TryIntoResolvedID<R> for R {
+    fn try_into_rid(self) -> anyhow::Result<ResolvedId<R>> {
+        Ok(ResolvedId { id: self.try_id().ok_or(anyhow!("Unable to get id"))?, inner: self })
     }
 }
 

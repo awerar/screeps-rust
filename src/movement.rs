@@ -4,7 +4,7 @@ use js_sys::Math::random;
 use screeps::{Creep, Position, action_error_codes::CreepMoveToErrorCode, game, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, Unresolved};
+use crate::id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, TryIntoResolvedID, Unresolved};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -55,7 +55,7 @@ impl Movement<Resolved> {
     pub fn smart_move_creep_to<T>(&mut self, creep: &Creep, target: T) -> anyhow::Result<(), CreepMoveToErrorCode>
         where T: HasPosition
     {
-        let creep_data = self.creeps_data.entry(creep.into()).or_default();
+        let creep_data = self.creeps_data.entry(creep.clone().try_into_rid().unwrap()).or_default();
 
         if let MoveState::Sleeping(_) = creep_data.move_state {
             //debug!("{} is sleeping... ZZZ", creep.name());
@@ -66,7 +66,7 @@ impl Movement<Resolved> {
 
     pub fn update_tick_start(&mut self) {
         for creep in game::creeps().values() {
-            let creep_data = self.creeps_data.entry((&creep).into()).or_default();
+            let creep_data = self.creeps_data.entry(creep.clone().try_into_rid().unwrap()).or_default();
             
             let new_state = match creep_data.move_state {
                 MoveState::Sleeping(awake_time) => {
@@ -95,7 +95,7 @@ impl Movement<Resolved> {
 
     pub fn update_tick_end(&mut self) {
         for creep in game::creeps().values() {
-            let creep_data = self.creeps_data.entry((&creep).into()).or_default();
+            let creep_data = self.creeps_data.entry(creep.clone().try_into_rid().unwrap()).or_default();
 
             creep_data.snd_last_pos = creep_data.last_pos;
             creep_data.last_pos = Some(creep.pos());

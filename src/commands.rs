@@ -84,5 +84,6 @@ pub enum Command {
     CleanRoomSites { room: String },
     ResetColonyStep { room: String },
     ResetColony { room: String },
-    MigrateColony { room: String }
+    MigrateColony { room: String },
+    DebugSpawn
 }

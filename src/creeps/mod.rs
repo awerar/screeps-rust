@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, ResolvedId, Unresolved}, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, id::{IDMaybeResolvable, IDMode, IDResolvable, IntoResolvedID, Resolved, ResolvedId, TryIntoResolvedID, Unresolved}, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -43,9 +43,9 @@ impl CreepData<Resolved> {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(ExcavatorCreep::default(), source.into()) 
+                CreepRole::Excavator(ExcavatorCreep::default(), source.into_rid()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, home.name).into())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, home.name).into_rid())
         };
         
         Some(CreepData::new(home.name, role))
@@ -144,7 +144,7 @@ pub fn do_creeps(mem: &mut Memory<Resolved>) {
     use CreepRole::*;
 
     let updatable_creeps: Vec<_> = game::creeps().values()
-        .map(Into::<ResolvedId<Creep>>::into)
+        .map(|creep| creep.try_into_rid().unwrap())
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
             if !mem.creeps.contains_key(&creep) {

@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, id::{Resolved, ResolvedId}, messages::Messages, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, id::{Resolved, ResolvedId, TryIntoResolvedID}, messages::Messages, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
 pub enum ExcavatorCreep {
@@ -43,7 +43,7 @@ impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
             Mining => {
                 if creep.store().get_free_capacity(Some(ResourceType::Energy)) < (work_count * 2).try_into().unwrap() {
                     if let Some(site) = plan.get_construction_site() {
-                        Ok(Continue(Building(site.into())))
+                        Ok(Continue(Building(site.try_into_rid()?)))
                     } else {
                         let fillable = plan.get_fillable();
                         if let Some(fillable) = fillable {

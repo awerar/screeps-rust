@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, 
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, id::{IDMaybeResolvable, IDMode, IDResolvable, Resolved, Unresolved}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{colony::{ColonyBuffer, ColonyView}, id::{IDMaybeResolvable, IDMode, IDResolvable, IntoResolvedID, Resolved, TryIntoResolvedID, Unresolved}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 pub enum FabricatorCreep<M: IDMode> {
@@ -100,7 +100,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep<Resolved> {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
-                messages.trucks.send(TruckMessage::Provider(creep.into(), home.name));
+                messages.trucks.send(TruckMessage::Provider(creep.clone().try_into_rid().unwrap(), home.name));
                 Ok(Break(self))
             },
             Self::CollectingFor(task) => {
@@ -114,7 +114,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep<Resolved> {
                         return Ok(Continue(Self::Performing(task.clone())))
                     }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.into(), home.name));
+                messages.trucks.send(TruckMessage::Consumer(creep.clone().try_into_rid().unwrap(), home.name));
 
                 let Some(buffer) = &home.buffer else {
                     return Ok(Break(Self::CollectingFor(task.clone())))
@@ -141,7 +141,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep<Resolved> {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.into(), home.name));
+                messages.trucks.send(TruckMessage::Consumer(creep.clone().try_into_rid().unwrap(), home.name));
 
                 if !creep.pos().is_near_to(task.pos) {
                     movement.smart_move_creep_to(creep, task.pos).ok();
@@ -235,7 +235,7 @@ impl FabricatorCoordinator<Resolved> {
             .filter_map(|structure| {
                 let repairable = structure.as_repairable()?;
                 Some((
-                    structure.as_structure().into(), 
+                    structure.as_structure().clone().into_rid(), 
                     repairable.hits_max() - repairable.hits(),
                     (structure.pos(), 
                     HealthPercentage(repairable.hits() as f32 / repairable.hits_max() as f32))
@@ -247,7 +247,7 @@ impl FabricatorCoordinator<Resolved> {
             .map(|site| {
                 let amount = site.progress_total() - site.progress();
                 let pos = site.pos();
-                (site.into(), amount, pos)
+                (site.clone().try_into_rid().unwrap(), amount, pos)
             })
         );
 
@@ -271,7 +271,7 @@ impl FabricatorCoordinator<Resolved> {
         });
 
         self.upgrades.set_tasks(vec![(
-            controller.into(), 
+            controller.into_rid(), 
             u32::MAX,
             (DowngradePercentage(downgrade_percentage),
             storage_fill_percentage.map(StorageFillPercentage))
