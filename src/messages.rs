@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{Creep, Position, RoomName, SharedCreepProperties};
 use serde::{Deserialize, Serialize};
 
-use crate::safeid::{IDKind, SafeIDs, ToSafeID, TryDeserialize, UnsafeIDs, deserialize_prune_hashet};
+use crate::safeid::{CreepGetSafeID, IDKind, SafeID, SafeIDs, ToSafeID, TryDeserialize, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage {
@@ -99,16 +99,18 @@ pub struct Messages {
     pub spawn: Mailbox<SpawnMessage>,
     pub trucks: Mailbox<TruckMessage>,
 
-    creeps: HashMap<String, Mailbox<CreepMessage>>,
-    creeps_quick: HashMap<String, Mailbox<QuickCreepMessage>>,
+    #[serde(deserialize_with = "deserialize_prune_hashmap")] 
+    creeps: HashMap<SafeID<Creep>, Mailbox<CreepMessage>>,
+    #[serde(deserialize_with = "deserialize_prune_hashmap")] 
+    creeps_quick: HashMap<SafeID<Creep>, Mailbox<QuickCreepMessage>>,
 }
 
 impl Messages where {
     pub fn creep(&mut self, creep: &Creep) -> &mut Mailbox<CreepMessage> {
-        self.creeps.entry(creep.name()).or_default()
+        self.creeps.entry(creep.safe_id()).or_default()
     }
 
     pub fn creep_quick(&mut self, creep: &Creep) -> &mut Mailbox<QuickCreepMessage> {
-        self.creeps_quick.entry(creep.name()).or_default()
+        self.creeps_quick.entry(creep.safe_id()).or_default()
     }
 }

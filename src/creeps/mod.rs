@@ -3,9 +3,9 @@ use std::{collections::HashMap, fmt::Debug};
 use derive_deref::{Deref, DerefMut};
 use log::warn;
 use screeps::{Creep, ObjectId, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, safeid::{CreepGetSafeID, SafeID, ToSafeID}, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, safeid::{CreepGetSafeID, SafeID, deserialize_prune_hashmap}, memory::Memory, movement::Movement, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -13,15 +13,11 @@ mod tugboat;
 pub mod fabricator;
 pub mod truck;
 
-#[derive(Default, Serialize, Deref, DerefMut)]
-pub struct Creeps(pub HashMap<SafeID<Creep>, CreepData>);
-
-impl<'de> Deserialize<'de> for Creeps {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let creeps = HashMap::<ObjectId<Creep>, CreepData>::deserialize(deserializer)?;
-        Ok(Creeps(creeps.into_iter().filter_map(|(k, v)| Some((k.to_safe_id()?, v))).collect()))
-    }
-}
+#[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
+pub struct Creeps(
+    #[serde(deserialize_with = "deserialize_prune_hashmap")]
+    pub HashMap<SafeID<Creep>, CreepData>
+);
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CreepData {

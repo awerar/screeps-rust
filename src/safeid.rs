@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, hash::Hash, ops::Deref};
+use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref};
 
 use derive_deref::{Deref, DerefMut};
 use screeps::{Creep, HasId, MaybeHasId, ObjectId};
@@ -106,7 +106,7 @@ impl<T> PartialOrd for SafeID<T> {
     }
 }
 
-#[derive(Deref, DerefMut, Clone)]
+#[derive(Deref, DerefMut, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct DeserializeOption<T>(pub Option<T>);
 
 impl<'de, T: TryDeserialize> Deserialize<'de> for DeserializeOption<T> {
@@ -119,4 +119,9 @@ impl<'de, T: TryDeserialize> Deserialize<'de> for DeserializeOption<T> {
 pub fn deserialize_prune_hashet<'de, D : Deserializer<'de>, T: TryDeserialize + Eq + Hash>(deserializer: D) -> Result<HashSet<T>, D::Error> {
     let raw = Vec::<DeserializeOption::<T>>::deserialize(deserializer)?;
     Ok(raw.into_iter().filter_map(|x| x.0).collect())
+}
+
+pub fn deserialize_prune_hashmap<'de, D : Deserializer<'de>, K: TryDeserialize + Eq + Hash, V : Deserialize<'de>>(deserializer: D) -> Result<HashMap<K, V>, D::Error> {
+    let raw = HashMap::<DeserializeOption::<K>, V>::deserialize(deserializer)?;
+    Ok(raw.into_iter().filter_map(|(k, v)| k.0.map(|k| (k, v))).collect())
 }
