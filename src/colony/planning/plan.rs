@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use log::warn;
 use itertools::Itertools;
-use screeps::{ConstructionSite, HasPosition, ObjectId, OwnedStructureProperties, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
+use screeps::{ConstructionSite, HasPosition, OwnedStructureProperties, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs, ResolvableSiteRef, ResolvableStructureRef}, steps::ColonyStep};
+use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs, ResolvableSiteRef, ResolvableStructureRef}, steps::ColonyStep}, safeid::UnsafeID};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
@@ -38,7 +38,7 @@ pub struct CenterPlan {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourcesPlan {
     #[serde(with = "any_key_map")] 
-    pub source_plans: HashMap<ObjectId<Source>, SourcePlan>,
+    pub source_plans: HashMap<UnsafeID<Source>, SourcePlan>,
     pub source_containers: PlannedStructureRefs<StructureContainer>
 }
 

@@ -1,8 +1,10 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref};
 
-use screeps::{Creep, HasId, MaybeHasId, ObjectId, Source, StructureContainer, StructureController, StructureSpawn};
-use serde::{Deserialize, Deserializer, Serialize};
+use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId};
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
+
+pub trait DO = DeserializeOwned;
 
 pub trait IDKind: Clone + Copy + for<'de> Deserialize<'de> + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug {
     type ID<T: Clone>: Clone + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug;
@@ -23,7 +25,7 @@ impl IDKind for UnsafeIDs {
 pub type UnsafeID<T> = ObjectId<T>;
 pub struct SafeID<T> {
     pub id: ObjectId<T>,
-    entity: T
+    pub inner: T
 }
 
 impl<T> Debug for SafeID<T> {
@@ -34,7 +36,7 @@ impl<T> Debug for SafeID<T> {
 
 impl<T: Clone> Clone for SafeID<T> {
     fn clone(&self) -> Self {
-        Self { id: self.id.clone(), entity: self.entity.clone() }
+        Self { id: self.id.clone(), inner: self.inner.clone() }
     }
 }
 
@@ -42,7 +44,7 @@ impl<T> Deref for SafeID<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.entity
+        &self.inner
     }
 }
 
@@ -81,27 +83,38 @@ impl<T> PartialOrd for SafeID<T> {
 pub trait ToSafeID<T> { fn to_safe_id(self) -> Option<SafeID<T>>; }
 impl<T: JsCast + MaybeHasId> ToSafeID<T> for ObjectId<T> {
     fn to_safe_id(self) -> Option<SafeID<T>> {
-        self.resolve().map(|entity| SafeID { id: self, entity })
+        self.resolve().map(|entity| SafeID { id: self, inner: entity })
     }
 }
 
-trait NormalEntity {}
-impl NormalEntity for StructureSpawn {}
-impl NormalEntity for StructureContainer {}
-impl NormalEntity for StructureController {}
-impl NormalEntity for Source {}
+auto trait HasIDEntity {}
+impl !HasIDEntity for Creep {}
+impl !HasIDEntity for ConstructionSite {}
 
-pub trait GetSafeID: Sized + Clone { fn safe_id(&self) -> SafeID<Self>; }
-impl<T: Sized + Clone + HasId + NormalEntity> GetSafeID for T {
-    fn safe_id(&self) -> SafeID<Self> {
-        SafeID { id: self.id(), entity: self.clone() }
+pub trait GetSafeID: Sized { fn safe_id(&self) -> SafeID<Self>; }
+impl<T: Clone + HasId + HasIDEntity> GetSafeID for T {
+    default fn safe_id(&self) -> SafeID<Self> {
+        SafeID { id: self.id(), inner: self.clone() }
     }
 }
 
 impl GetSafeID for Creep {
     fn safe_id(&self) -> SafeID<Self> {
         let Some(id) = self.try_id() else { panic!("Creep doesn't have ID yet") };
-        SafeID { id: id, entity: self.clone() }
+        SafeID { id: id, inner: self.clone() }
+    }
+}
+
+pub trait TryGetSafeID: Sized { fn safe_id(&self) -> Option<SafeID<Self>>; }
+impl<T: GetSafeID> TryGetSafeID for T {
+    fn safe_id(&self) -> Option<SafeID<Self>> {
+        Some(self.safe_id())
+    }
+}
+
+impl TryGetSafeID for ConstructionSite {
+    fn safe_id(&self) -> Option<SafeID<Self>> {
+        self.try_id().map(|id| SafeID { id, inner: self.clone() })
     }
 }
 
@@ -125,11 +138,11 @@ impl<S: FromUnsafe> TryFromUnsafe for S {
     }
 }
 
-impl<T: JsCast + MaybeHasId + GetSafeID> TryFromUnsafe for SafeID<T> {
+impl<T: JsCast + MaybeHasId + TryGetSafeID> TryFromUnsafe for SafeID<T> {
     type Unsafe = ObjectId<T>;
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(us.resolve()?.safe_id())
+        Some(us.resolve()?.safe_id()?)
     }
 }
 

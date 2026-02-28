@@ -2,11 +2,11 @@ use std::{collections::{HashMap, HashSet, hash_map}, fmt::Debug, hash::Hash};
 
 use itertools::Itertools;
 use log::warn;
-use screeps::{Creep, MaybeHasId, ObjectId, game};
+use screeps::{Creep, MaybeHasId, game};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::statemachine::UnderlyingName;
+use crate::{safeid::UnsafeID, statemachine::UnderlyingName};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "D: Serialize + DeserializeOwned")]
@@ -15,7 +15,7 @@ struct TaskData<D> {
     pending: TaskAmount,
     data: D,
 
-    creeps: HashMap<ObjectId<Creep>, CreepData>
+    creeps: HashMap<UnsafeID<Creep>, CreepData>
 }
 
 impl<D> TaskData<D> {
@@ -84,7 +84,7 @@ impl<T : Hash + Eq + Clone, D, const TIMEOUT: u32> TaskServer<T, D, TIMEOUT> {
         true
     }
 
-    pub fn finish_task(&mut self, creep: ObjectId<Creep>, task: &T, success: bool) {
+    pub fn finish_task(&mut self, creep: UnsafeID<Creep>, task: &T, success: bool) {
         let Some(task_data) = self.0.get_mut(task) else { return };
         let Some(creep_data) = task_data.creeps.remove(&creep) else { return };
 

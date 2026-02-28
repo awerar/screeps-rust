@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, movement::Movement, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, movement::Movement, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -74,8 +74,9 @@ impl CreepData {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO, ExcavatorCreep<I> : DO"))]
 pub enum CreepRole<I: IDKind = SafeIDs> {
-    Excavator(ExcavatorCreep, I::ID<Source>),
+    Excavator(ExcavatorCreep<I>, I::ID<Source>),
     Flagship(FlagshipCreep),
     Tugboat(TugboatCreep, I::ID<Creep>),
     Truck(TruckCreep),
@@ -88,7 +89,7 @@ impl TryFromUnsafe for CreepRole {
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
         Some(match us {
-            Self::Unsafe::Excavator(state, source) => Self::Excavator(state, source.try_make_safe()?),
+            Self::Unsafe::Excavator(state, source) => Self::Excavator(state.make_safe(), source.try_make_safe()?),
             Self::Unsafe::Tugboat(state, tugged) => Self::Tugboat(state, tugged.try_make_safe()?),
             Self::Unsafe::Flagship(state) => Self::Flagship(state),
             Self::Unsafe::Truck(state) => Self::Truck(state),
@@ -184,7 +185,7 @@ pub fn do_creeps(mem: &mut Memory) {
                     state.transition(creep, &mut args);
                 },
                 Excavator(state, source) => {
-                    let mut args = (source.id, home, &mut mem.messages);
+                    let mut args = (source.clone(), home, &mut mem.messages);
                     state.transition(creep, &mut args);
                 },
                 Tugboat(state, tugged) => {
