@@ -1,12 +1,12 @@
-use std::{collections::{HashMap, HashSet, hash_map}, fmt::Debug, hash::Hash};
+use std::{any::Any, collections::{HashMap, HashSet, hash_map}, fmt::Debug, hash::Hash};
 
 use itertools::Itertools;
 use log::warn;
 use screeps::{Creep, MaybeHasId, game};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json_any_key::any_key_map;
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
+use serde_json_any_key::*;
 
-use crate::{safeid::UnsafeID, statemachine::UnderlyingName};
+use crate::{safeid::{DO, TryFromUnsafe, TryMakeSafe, UnsafeID}, statemachine::UnderlyingName};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "D: Serialize + DeserializeOwned")]
@@ -42,12 +42,29 @@ struct CreepData {
 pub type TaskAmount = u32;
 
 #[derive(Serialize, Deserialize)]
-#[serde(bound = "R: Serialize + DeserializeOwned + Eq + Hash, D: Serialize + DeserializeOwned")]
-pub struct TaskServer<R, D, const TIMEOUT: u32 = 5>(#[serde(with = "any_key_map")] HashMap<R, TaskData<D>>) where R : 'static, D : 'static;
+#[serde(bound(serialize = "R: Serialize + Any, TaskData<D> : Serialize"))]
+#[serde(bound(deserialize = "R: DO + Eq + Hash + Any, TaskData<D> : DO, D : Any"))]
+pub struct TaskServer<R, D, const TIMEOUT: u32 = 5>(
+    #[serde(with = "any_key_map")] 
+    HashMap<R, TaskData<D>>
+);
 
-impl<R, D> Default for TaskServer<R, D> where R : Serialize + DeserializeOwned + Eq + Hash {
+#[expect(private_bounds)]
+pub fn prune_deserialize_taskserver<'de, R, D, De>(deserializer: De) -> Result<TaskServer<R, D>, De::Error>
+where
+    De: Deserializer<'de>,
+    R: TryFromUnsafe + Eq + Hash,
+    R::Unsafe: DeserializeOwned + Eq + Hash + Any,
+    TaskData<D> : DeserializeOwned,
+    D : Any
+{
+    let raw = TaskServer::<R::Unsafe, D>::deserialize(deserializer)?;
+    Ok(TaskServer(raw.0.into_iter().filter_map(|(k, v)| Some((k.try_make_safe()?, v))).collect()))
+}
+
+impl<R, D> Default for TaskServer<R, D> {
     fn default() -> Self {
-        Self(HashMap::new())
+        Self(Default::default())
     }
 }
 

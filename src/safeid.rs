@@ -105,15 +105,15 @@ impl GetSafeID for Creep {
     }
 }
 
-pub trait TryGetSafeID: Sized { fn safe_id(&self) -> Option<SafeID<Self>>; }
+pub trait TryGetSafeID: Sized { fn try_safe_id(&self) -> Option<SafeID<Self>>; }
 impl<T: GetSafeID> TryGetSafeID for T {
-    fn safe_id(&self) -> Option<SafeID<Self>> {
+    fn try_safe_id(&self) -> Option<SafeID<Self>> {
         Some(self.safe_id())
     }
 }
 
 impl TryGetSafeID for ConstructionSite {
-    fn safe_id(&self) -> Option<SafeID<Self>> {
+    fn try_safe_id(&self) -> Option<SafeID<Self>> {
         self.try_id().map(|id| SafeID { id, inner: self.clone() })
     }
 }
@@ -142,7 +142,7 @@ impl<T: JsCast + MaybeHasId + TryGetSafeID> TryFromUnsafe for SafeID<T> {
     type Unsafe = ObjectId<T>;
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(us.resolve()?.safe_id()?)
+        Some(us.resolve()?.try_safe_id()?)
     }
 }
 

@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, movement::Movement, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, movement::Movement, safeid::{GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, DO, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -37,13 +37,11 @@ impl TryFromUnsafe for CreepData {
     }
 }
 
-impl<I: IDKind> CreepData<I> {
-    pub fn new(home: RoomName, role: CreepRole<I>) -> Self {
+impl CreepData {
+    pub fn new(home: RoomName, role: CreepRole) -> Self {
         CreepData { role, home }
     }
-}
 
-impl CreepData {
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
         let home = mem.colonies.view(creep.pos().room_name())
             .filter(|colony| colony.plan.center.spawn.is_complete())
@@ -74,11 +72,11 @@ impl CreepData {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
+#[serde(bound(deserialize = "TugboatCreep<I> : DO, I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
 pub enum CreepRole<I: IDKind = SafeIDs> {
     Excavator(ExcavatorCreep, I::ID<Source>),
     Flagship(FlagshipCreep),
-    Tugboat(TugboatCreep, I::ID<Creep>),
+    Tugboat(TugboatCreep<I>, I::ID<Creep>),
     Truck(TruckCreep),
     Fabricator(FabricatorCreep),
     Scrap(I::ID<StructureSpawn>),
@@ -90,7 +88,7 @@ impl TryFromUnsafe for CreepRole {
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
         Some(match us {
             Self::Unsafe::Excavator(state, source) => Self::Excavator(state.make_safe(), source.try_make_safe()?),
-            Self::Unsafe::Tugboat(state, tugged) => Self::Tugboat(state, tugged.try_make_safe()?),
+            Self::Unsafe::Tugboat(state, tugged) => Self::Tugboat(state.try_make_safe()?, tugged.try_make_safe()?),
             Self::Unsafe::Flagship(state) => Self::Flagship(state),
             Self::Unsafe::Truck(state) => Self::Truck(state),
             Self::Unsafe::Fabricator(state) => Self::Fabricator(state),
@@ -189,7 +187,7 @@ pub fn do_creeps(mem: &mut Memory) {
                     state.transition(creep, &mut args);
                 },
                 Tugboat(state, tugged) => {
-                    let mut args = (home, tugged.id, &mut mem.movement, &mut mem.messages);
+                    let mut args = (home, tugged.clone(), &mut mem.movement, &mut mem.messages);
                     state.transition(creep, &mut args);
                 },
                 Scrap(spawn) => do_recycle(creep, &mut mem.movement, &spawn),

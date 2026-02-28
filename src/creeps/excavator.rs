@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, messages::Messages, safeid::{IDKind, MakeSafe, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, messages::Messages, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
 pub enum ExcavatorCreep<I: IDKind = SafeIDs> {
@@ -16,7 +16,7 @@ impl<'de> Deserialize<'de> for ExcavatorCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let us = ExcavatorCreep::<UnsafeIDs>::deserialize(deserializer)?;
         Ok(match us {
-            ExcavatorCreep::Going(tugged_state) => Self::Going(tugged_state.make_safe()),
+            ExcavatorCreep::Going(tugged_state) => Self::Going(tugged_state),
             ExcavatorCreep::Building(site) => 
                 site.try_make_safe().map(Self::Building).unwrap_or(Self::Mining),
             ExcavatorCreep::Mining => Self::Mining,
@@ -55,7 +55,7 @@ impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
             Mining => {
                 if creep.store().get_free_capacity(Some(ResourceType::Energy)) < (work_count * 2).try_into().unwrap() {
                     if let Some(site) = plan.get_construction_site() {
-                        Ok(Continue(Building(site.safe_id().ok_or(anyhow!("Site has no id"))?)))
+                        Ok(Continue(Building(site.try_safe_id().ok_or(anyhow!("Site has no id"))?)))
                     } else {
                         let fillable = plan.get_fillable();
                         if let Some(fillable) = fillable {

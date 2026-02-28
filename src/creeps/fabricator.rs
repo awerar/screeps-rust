@@ -1,31 +1,66 @@
 use anyhow::anyhow;
 use derive_deref::Deref;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
+use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::GetSafeID, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{DO, GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
-pub enum FabricatorCreep {
+#[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
+pub enum FabricatorCreep<I: IDKind = SafeIDs> {
     #[default] Idle,
-    CollectingFor(FabricatorTask),
-    Performing(FabricatorTask)
+    CollectingFor(FabricatorTask<I>),
+    Performing(FabricatorTask<I>)
+}
+
+impl<'de> Deserialize<'de> for FabricatorCreep {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let us = FabricatorCreep::<UnsafeIDs>::deserialize(deserializer)?;
+        Ok(match us {
+            FabricatorCreep::Idle => Self::Idle,
+            FabricatorCreep::CollectingFor(task) => 
+                task.try_make_safe().map(FabricatorCreep::CollectingFor).unwrap_or(FabricatorCreep::Idle),
+            FabricatorCreep::Performing(task) => 
+                task.try_make_safe().map(FabricatorCreep::Performing).unwrap_or(FabricatorCreep::Idle),
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum FabricatorTaskType {
-    Building(BuildTask),
-    Repairing(RepairTask),
-    UpgradingController(UpgradeTask)
+#[serde(bound(deserialize = "BuildTask<I> : DO, RepairTask<I> : DO, UpgradeTask<I> : DO"))]
+pub enum FabricatorTaskType<I: IDKind = SafeIDs> {
+    Building(BuildTask<I>),
+    Repairing(RepairTask<I>),
+    UpgradingController(UpgradeTask<I>)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FabricatorTask {
-    task_type: FabricatorTaskType,
+#[serde(bound(deserialize = "FabricatorTaskType<I> : DO"))]
+pub struct FabricatorTask<I: IDKind = SafeIDs> {
+    task_type: FabricatorTaskType<I>,
     start_time: u32,
     pos: Position
+}
+
+impl TryFromUnsafe for FabricatorTask {
+    type Unsafe = FabricatorTask<UnsafeIDs>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(Self { 
+            task_type: match us.task_type {
+                FabricatorTaskType::Building(id) => 
+                    FabricatorTaskType::Building(id.try_make_safe()?),
+                FabricatorTaskType::Repairing(id) => 
+                    FabricatorTaskType::Repairing(id.try_make_safe()?),
+                FabricatorTaskType::UpgradingController(id) => 
+                    FabricatorTaskType::UpgradingController(id.try_make_safe()?),
+            }, 
+            start_time: us.start_time, 
+            pos: us.pos 
+        })
+    }
 }
 
 derive_alias! {
@@ -36,9 +71,9 @@ derive_percentage! { struct HealthPercentage(f32); }
 derive_percentage! { struct DowngradePercentage(f32); }
 derive_percentage! { struct StorageFillPercentage(f32); }
 
-type BuildTask = ObjectId<ConstructionSite>;
-type RepairTask = ObjectId<Structure>;
-type UpgradeTask = ObjectId<StructureController>;
+type BuildTask<I = SafeIDs> = <I as IDKind>::ID<ConstructionSite>;
+type RepairTask<I = SafeIDs> = <I as IDKind>::ID<Structure>;
+type UpgradeTask<I = SafeIDs> = <I as IDKind>::ID<StructureController>;
 
 const REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.75);
 const EMERGENCY_REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.5);
@@ -120,12 +155,12 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
 }
 
 impl FabricatorTask {
-    fn new(task_type: FabricatorTaskType) -> Option<Self> {
-        Some(Self {
+    fn new(task_type: FabricatorTaskType) -> Self {
+        Self {
             start_time: game::time(),
-            pos: task_type.try_pos()?,
+            pos: task_type.pos(),
             task_type,
-        })
+        }
     }
 
     fn has_timed_out(&self) -> bool {
@@ -140,27 +175,27 @@ impl FabricatorTask {
     }
 
     fn creep_work(&self, creep: &Creep) -> anyhow::Result<()> {
-        match self.task_type {
+        match &self.task_type {
             FabricatorTaskType::Building(site) => 
-                Ok(creep.build(&site.resolve().ok_or(anyhow!("Unable to resolve site"))?)?),
+                Ok(creep.build(&site)?),
             FabricatorTaskType::Repairing(structure) => {
-                let structure_object = StructureObject::from(structure.resolve().ok_or(anyhow!("Unable to resolve structure"))?);
+                let structure_object = StructureObject::from(structure.inner.clone());
                 let repairable = structure_object.as_repairable().ok_or(anyhow!("Structure is not repairable"))?;
                 Ok(creep.repair(repairable)?)
             },
             FabricatorTaskType::UpgradingController(controller) => 
-                Ok(creep.upgrade_controller(&controller.resolve().ok_or(anyhow!("Unable to resolve controller"))?)?),
+                Ok(creep.upgrade_controller(&controller)?),
         }
     }
 }
 
 impl FabricatorTaskType {
-    fn try_pos(&self) -> Option<Position> {
-        Some(match self {
-            FabricatorTaskType::Building(id) => id.resolve()?.pos(),
-            FabricatorTaskType::Repairing(id) => id.resolve()?.pos(),
-            FabricatorTaskType::UpgradingController(id) => id.resolve()?.pos(),
-        })
+    fn pos(&self) -> Position {
+        match self {
+            FabricatorTaskType::Building(id) => id.pos(),
+            FabricatorTaskType::Repairing(id) => id.pos(),
+            FabricatorTaskType::UpgradingController(id) => id.pos(),
+        }
     }
 }
 
@@ -174,8 +209,11 @@ fn get_creep_work_count(creep: &Creep) -> u32 {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
+    #[serde(deserialize_with = "prune_deserialize_taskserver")] 
     repairs: TaskServer<RepairTask, (Position, HealthPercentage)>,
+    #[serde(deserialize_with = "prune_deserialize_taskserver")] 
     builds: TaskServer<BuildTask, Position>,
+    #[serde(deserialize_with = "prune_deserialize_taskserver")] 
     upgrades: TaskServer<UpgradeTask, (DowngradePercentage, Option<StorageFillPercentage>)>
 }
 
@@ -185,7 +223,7 @@ impl FabricatorCoordinator {
             .filter_map(|structure| {
                 let repairable = structure.as_repairable()?;
                 Some((
-                    structure.as_structure().id(), 
+                    structure.as_structure().safe_id(), 
                     repairable.hits_max() - repairable.hits(),
                     (structure.pos(), 
                     HealthPercentage(repairable.hits() as f32 / repairable.hits_max() as f32))
@@ -196,7 +234,7 @@ impl FabricatorCoordinator {
         self.builds.set_tasks(room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
             .map(|site| {
                 (
-                    site.try_id().unwrap(),
+                    site.try_safe_id().unwrap(),
                     site.progress_total() - site.progress(),
                     site.pos()
                 )
@@ -223,7 +261,7 @@ impl FabricatorCoordinator {
         });
 
         self.upgrades.set_tasks(vec![(
-            controller.id(), 
+            controller.safe_id(), 
             u32::MAX,
             (DowngradePercentage(downgrade_percentage),
             storage_fill_percentage.map(StorageFillPercentage))
@@ -235,7 +273,7 @@ impl FabricatorCoordinator {
             .or_else(|| self.assign_repair(creep).map(FabricatorTaskType::Repairing))
             .or_else(|| self.assign_build(creep).map(FabricatorTaskType::Building))
             .or_else(|| self.assign_upgrade(creep).map(FabricatorTaskType::UpgradingController))
-            .and_then(FabricatorTask::new)
+            .map(FabricatorTask::new)
     }
 
     fn assign_repair(&mut self, creep: &Creep) -> Option<RepairTask> {
@@ -278,7 +316,7 @@ impl FabricatorCoordinator {
     }
 
     fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTask) -> bool {
-        match task.task_type {
+        match &task.task_type {
             FabricatorTaskType::Building(build) => 
                 self.builds.heartbeat_task(creep, &build),
             FabricatorTaskType::Repairing(repair) => 
@@ -291,7 +329,7 @@ impl FabricatorCoordinator {
     fn finish_task(&mut self, creep: &Creep, task: &FabricatorTask, success: bool) {
         let creep_id = creep.try_id().unwrap();
 
-        match task.task_type {
+        match &task.task_type {
             FabricatorTaskType::Building(build) => 
                 self.builds.finish_task(creep_id, &build, success),
             FabricatorTaskType::Repairing(repair) => 

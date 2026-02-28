@@ -2,18 +2,31 @@
 use enum_display::EnumDisplay;
 use anyhow::anyhow;
 use log::warn;
-use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
+use screeps::{Creep, HasPosition, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, safeid::{GetSafeID}, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
-pub enum TuggedCreep {
+pub enum TuggedCreep<I: IDKind = SafeIDs> {
     #[default]
     Requesting,
     WaitingFor { tugboat: String },
-    GettingTugged(ObjectId<Creep>),
+    GettingTugged(I::ID<Creep>),
     Finished
+}
+
+impl<'de> Deserialize<'de> for TuggedCreep {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let us = TuggedCreep::<UnsafeIDs>::deserialize(deserializer)?;
+        Ok(match us {
+            TuggedCreep::Requesting => Self::Requesting,
+            TuggedCreep::WaitingFor { tugboat } => Self::WaitingFor { tugboat },
+            TuggedCreep::GettingTugged(tugboat) => 
+                tugboat.try_make_safe().map(Self::GettingTugged).unwrap_or(TuggedCreep::Requesting),
+            TuggedCreep::Finished => Self::Finished,
+        })
+    }
 }
 
 impl StateMachine<Creep, Messages> for TuggedCreep {
@@ -38,15 +51,10 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
                 };
 
                 if tugboat.pos().is_near_to(tugged.pos()) {
-                    return Ok(Continue(GettingTugged(tugboat.try_id().unwrap())))
+                    return Ok(Continue(GettingTugged(tugboat.safe_id())))
                 }
             },
             GettingTugged(tugboat) => {
-                let Some(tugboat) = tugboat.resolve() else {
-                    warn!("Tugboat for {} disapeared mid-tug", tugged.name());
-                    return Ok(Continue(Requesting)) 
-                };
-
                 if messages.creep_quick(tugged).read(QuickCreepMessage::TugMove) {
                     tugged.move_pulled_by(&tugboat)?;
                 }
@@ -70,8 +78,6 @@ impl TuggedCreep {
         if !messages.creep_quick(tugged).empty() { return; }
 
         let TuggedCreep::GettingTugged(tugboat) = self else { return; };
-        let tugboat = tugboat.resolve().unwrap();
-
         messages.creep_quick(&tugboat).send(QuickCreepMessage::TuggedRequestMove { target, range });
     }
 
@@ -81,39 +87,32 @@ impl TuggedCreep {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
-pub enum TugboatCreep {
+pub enum TugboatCreep<I: IDKind = SafeIDs> {
     #[default]
     GoingTo,
     Tugging { last_tug_tick: u32 },
-    Recycling(ObjectId<StructureSpawn>)
+    Recycling(I::ID<StructureSpawn>)
 }
 
-type Args<'a> = (ColonyView<'a>, ObjectId<Creep>, &'a mut Movement, &'a mut Messages);
+impl TryFromUnsafe for TugboatCreep {
+    type Unsafe = TugboatCreep<UnsafeIDs>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(match us {
+            TugboatCreep::GoingTo => Self::GoingTo,
+            TugboatCreep::Tugging { last_tug_tick } => Self::Tugging { last_tug_tick },
+            TugboatCreep::Recycling(spawn) => Self::Recycling(spawn.try_make_safe()?),
+        })
+    }
+}
+
+type Args<'a> = (ColonyView<'a>, SafeID<Creep>, &'a mut Movement, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for TugboatCreep {
     fn update(self, tugboat: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use TugboatCreep::*;
         use Transition::*;
 
         let (home, tugged, movement, messages) = args;
-
-        if let Recycling(spawn) = self {
-            let Ok(spawn) = spawn.resolve().ok_or(()) else {
-                return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).id())))
-            };
-
-            if tugboat.pos().is_near_to(spawn.pos()) {
-                spawn.recycle_creep(tugboat)?;
-            } else {
-                movement.smart_move_creep_to(tugboat, spawn).ok();
-            }
-
-            return Ok(Break(self));
-        }
-
-        let Some(tugged) = tugged.resolve() else {
-            warn!("Tugged doesn't exist. Recycling tugboat");
-            return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).id())));
-        };
 
         match &self {
             GoingTo => {
@@ -149,7 +148,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                         Ok(()) => {
                             tugboat.pull(&tugged)?;
                             messages.creep_quick(&tugged).send(QuickCreepMessage::TugMove);
-                            Ok(Continue(Recycling(recycle_spawn.id())))
+                            Ok(Continue(Recycling(recycle_spawn.safe_id())))
                         }
                         Err(CreepMoveDirectionErrorCode::Tired) => Ok(Break(self)),
                         Err(e) => Err(anyhow!(e))
@@ -157,12 +156,20 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                 }
 
                 if last_tug_tick + 5 <= game::time() {
-                    return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).id())))
+                    return Ok(Continue(Recycling(get_recycle_spawn(tugboat, home.name).safe_id())))
                 }
 
                 Ok(Break(self))
             },
-            Recycling(_) => unreachable!()
+            Recycling(spawn) => {
+                if tugboat.pos().is_near_to(spawn.pos()) {
+                    spawn.recycle_creep(tugboat)?;
+                } else {
+                    movement.smart_move_creep_to(tugboat, &spawn.inner).ok();
+                }
+
+                return Ok(Break(self));
+            }
         }
     }
 }
