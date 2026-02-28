@@ -1,8 +1,7 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref};
 
-use derive_deref::Deref;
 use screeps::{Creep, HasId, MaybeHasId, ObjectId, Source, StructureContainer, StructureController, StructureSpawn};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use wasm_bindgen::JsCast;
 
 pub trait IDKind: Clone + Copy + for<'de> Deserialize<'de> + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug {
@@ -18,55 +17,10 @@ impl IDKind for SafeIDs {
 #[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct UnsafeIDs {}
 impl IDKind for UnsafeIDs {
-    type ID<T: Clone> = UnsafeID<T>;
+    type ID<T: Clone> = ObjectId<T>;
 }
 
-#[derive(Clone, Copy, Deref)]
-pub struct UnsafeID<T>(ObjectId<T>);
-
-impl<T> Debug for UnsafeID<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl<T> Eq for UnsafeID<T> {}
-impl<T> PartialEq for UnsafeID<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<T> PartialOrd for UnsafeID<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(&other.0)
-    }
-}
-
-impl<T> Ord for UnsafeID<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
-impl<T> Hash for UnsafeID<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-
-impl<'de, T> Deserialize<'de> for UnsafeID<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Self(ObjectId::deserialize(deserializer)?))
-    }
-}
-
-impl<T> Serialize for UnsafeID<T> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
-    }
-}
-
+pub type UnsafeID<T> = ObjectId<T>;
 pub struct SafeID<T> {
     pub id: ObjectId<T>,
     entity: T
@@ -172,7 +126,7 @@ impl<S: FromUnsafe> TryFromUnsafe for S {
 }
 
 impl<T: JsCast + MaybeHasId + GetSafeID> TryFromUnsafe for SafeID<T> {
-    type Unsafe = UnsafeID<T>;
+    type Unsafe = ObjectId<T>;
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
         Some(us.resolve()?.safe_id())
