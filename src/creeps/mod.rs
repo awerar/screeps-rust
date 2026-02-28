@@ -74,9 +74,9 @@ impl CreepData {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO, ExcavatorCreep<I> : DO"))]
+#[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
 pub enum CreepRole<I: IDKind = SafeIDs> {
-    Excavator(ExcavatorCreep<I>, I::ID<Source>),
+    Excavator(ExcavatorCreep, I::ID<Source>),
     Flagship(FlagshipCreep),
     Tugboat(TugboatCreep, I::ID<Creep>),
     Truck(TruckCreep),

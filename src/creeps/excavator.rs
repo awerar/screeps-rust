@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, messages::Messages, safeid::{FromUnsafe, IDKind, MakeSafe, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, messages::Messages, safeid::{IDKind, MakeSafe, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
 pub enum ExcavatorCreep<I: IDKind = SafeIDs> {
@@ -12,16 +12,15 @@ pub enum ExcavatorCreep<I: IDKind = SafeIDs> {
     Building(I::ID<ConstructionSite>)
 }
 
-impl FromUnsafe for ExcavatorCreep {
-    type Unsafe = ExcavatorCreep<UnsafeIDs>;
-
-    fn from_unsafe(us: Self::Unsafe) -> Self {
-        match us {
-            Self::Unsafe::Going(tugged_state) => Self::Going(tugged_state.make_safe()),
-            Self::Unsafe::Building(site) => 
+impl<'de> Deserialize<'de> for ExcavatorCreep {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let us = ExcavatorCreep::<UnsafeIDs>::deserialize(deserializer)?;
+        Ok(match us {
+            ExcavatorCreep::Going(tugged_state) => Self::Going(tugged_state.make_safe()),
+            ExcavatorCreep::Building(site) => 
                 site.try_make_safe().map(Self::Building).unwrap_or(Self::Mining),
-            Self::Unsafe::Mining => Self::Mining,
-        }
+            ExcavatorCreep::Mining => Self::Mining,
+        })
     }
 }
 

@@ -1,17 +1,29 @@
 use enum_display::EnumDisplay;
-use anyhow::anyhow;
-use screeps::{Creep, ObjectId, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
+use screeps::{Creep, Position, StructureController, action_error_codes::ClaimControllerErrorCode, game, prelude::*};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::Movement, statemachine::{StateMachine, Transition}};
+use crate::{memory::ClaimRequests, movement::Movement, safeid::{GetSafeID, IDKind, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
-pub enum FlagshipCreep {
+pub enum FlagshipCreep<I: IDKind = SafeIDs> {
     #[default]
     Idle,
     GoingTo(Position),
-    Claiming(Position, ObjectId<StructureController>)
+    Claiming(Position, I::ID<StructureController>)
+}
+
+impl<'de> Deserialize<'de> for FlagshipCreep {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let us = FlagshipCreep::<UnsafeIDs>::deserialize(deserializer)?;
+        Ok(match us {
+            FlagshipCreep::Idle => Self::Idle,
+            FlagshipCreep::GoingTo(pos) => Self::GoingTo(pos),
+            FlagshipCreep::Claiming(pos, controller) => 
+                controller.try_make_safe().map(|controller| Self::Claiming(pos, controller))
+                    .unwrap_or(Self::GoingTo(pos)),
+        })
+    }
 }
 
 type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
@@ -33,7 +45,7 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name() {
                     if let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Continue(Claiming(*target, controller.id())))
+                        return Ok(Continue(Claiming(*target, controller.safe_id())))
                     }
                 }
 
@@ -41,8 +53,6 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
                 Ok(Break(self))
             }
             Claiming(request, controller) => {
-                let controller = controller.resolve().ok_or(anyhow!("Unable to resolve controller"))?;
-
                 if creep.pos().is_near_to(controller.pos()) {
                     match creep.claim_controller(&controller) {
                         Ok(()) => {
@@ -62,7 +72,7 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
                         }
                     }
                 } else {
-                    movement.smart_move_creep_to(creep, &controller).ok();
+                    movement.smart_move_creep_to(creep, &controller.inner).ok();
                 }
 
                 Ok(Break(self))
