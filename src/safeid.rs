@@ -1,68 +1,86 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref};
 
-use derive_deref::{Deref, DerefMut};
-use screeps::{Creep, HasId, MaybeHasId, ObjectId};
-use serde::{Deserialize, Deserializer, Serialize};
+use derive_deref::Deref;
+use screeps::{Creep, HasId, MaybeHasId, ObjectId, Source, StructureContainer, StructureController, StructureSpawn};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
-pub trait IDKind {
-    type ID<T>;
+pub trait IDKind: Clone + Copy + for<'de> Deserialize<'de> + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug {
+    type ID<T: Clone>: Clone + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug;
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct SafeIDs {}
 impl IDKind for SafeIDs {
-    type ID<T> = SafeID<T>;
+    type ID<T: Clone> = SafeID<T>;
 }
 
+#[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct UnsafeIDs {}
 impl IDKind for UnsafeIDs {
-    type ID<T> = ObjectId<T>;
+    type ID<T: Clone> = UnsafeID<T>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Deref)]
+pub struct UnsafeID<T>(ObjectId<T>);
+
+impl<T> Debug for UnsafeID<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> Eq for UnsafeID<T> {}
+impl<T> PartialEq for UnsafeID<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> PartialOrd for UnsafeID<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl<T> Ord for UnsafeID<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl<T> Hash for UnsafeID<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<'de, T> Deserialize<'de> for UnsafeID<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self(ObjectId::deserialize(deserializer)?))
+    }
+}
+
+impl<T> Serialize for UnsafeID<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
 pub struct SafeID<T> {
     pub id: ObjectId<T>,
     entity: T
 }
 
-pub trait TryDeserialize: Sized {
-    fn try_deserialize<'de, D : Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error>;
-}
-
-impl<T> TryDeserialize for T where T: for<'de> Deserialize<'de> {
-    fn try_deserialize<'de1, D : Deserializer<'de1>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-        Ok(Some(Self::deserialize(deserializer)?))
+impl<T> Debug for SafeID<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(f)
     }
 }
 
-impl<T: JsCast + MaybeHasId> TryDeserialize for SafeID<T> {
-    fn try_deserialize<'de, D>(deserializer: D) -> Result<Option<Self>, D::Error>
-        where D: Deserializer<'de>
-    {
-        Ok(ObjectId::<T>::deserialize(deserializer)?.to_safe_id())
-    }
-}
-
-pub trait ToSafeID<T> { fn to_safe_id(self) -> Option<SafeID<T>>; }
-impl<T: JsCast + MaybeHasId> ToSafeID<T> for ObjectId<T> {
-    fn to_safe_id(self) -> Option<SafeID<T>> {
-        self.resolve().map(|entity| SafeID { id: self, entity })
-    }
-}
-
-pub trait GetSafeID: Sized + Clone { fn safe_id(&self) -> SafeID<Self>; }
-impl<T: Sized + Clone + HasId> GetSafeID for T {
-    fn safe_id(&self) -> SafeID<Self> {
-        SafeID { id: self.id(), entity: self.clone() }
-    }
-}
-
-pub trait CreepGetSafeID: Sized + Clone { fn safe_id(&self) -> SafeID<Self>; }
-impl CreepGetSafeID for Creep {
-    fn safe_id(&self) -> SafeID<Self> {
-        let Some(id) = self.try_id() else { panic!("Creep doesn't have ID yet") };
-        SafeID { id: id, entity: self.clone() }
+impl<T: Clone> Clone for SafeID<T> {
+    fn clone(&self) -> Self {
+        Self { id: self.id.clone(), entity: self.entity.clone() }
     }
 }
 
@@ -106,22 +124,118 @@ impl<T> PartialOrd for SafeID<T> {
     }
 }
 
-#[derive(Deref, DerefMut, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct DeserializeOption<T>(pub Option<T>);
-
-impl<'de, T: TryDeserialize> Deserialize<'de> for DeserializeOption<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(DeserializeOption(T::try_deserialize(deserializer)?))
+pub trait ToSafeID<T> { fn to_safe_id(self) -> Option<SafeID<T>>; }
+impl<T: JsCast + MaybeHasId> ToSafeID<T> for ObjectId<T> {
+    fn to_safe_id(self) -> Option<SafeID<T>> {
+        self.resolve().map(|entity| SafeID { id: self, entity })
     }
 }
 
+trait NormalEntity {}
+impl NormalEntity for StructureSpawn {}
+impl NormalEntity for StructureContainer {}
+impl NormalEntity for StructureController {}
+impl NormalEntity for Source {}
 
-pub fn deserialize_prune_hashet<'de, D : Deserializer<'de>, T: TryDeserialize + Eq + Hash>(deserializer: D) -> Result<HashSet<T>, D::Error> {
-    let raw = Vec::<DeserializeOption::<T>>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|x| x.0).collect())
+pub trait GetSafeID: Sized + Clone { fn safe_id(&self) -> SafeID<Self>; }
+impl<T: Sized + Clone + HasId + NormalEntity> GetSafeID for T {
+    fn safe_id(&self) -> SafeID<Self> {
+        SafeID { id: self.id(), entity: self.clone() }
+    }
 }
 
-pub fn deserialize_prune_hashmap<'de, D : Deserializer<'de>, K: TryDeserialize + Eq + Hash, V : Deserialize<'de>>(deserializer: D) -> Result<HashMap<K, V>, D::Error> {
-    let raw = HashMap::<DeserializeOption::<K>, V>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| k.0.map(|k| (k, v))).collect())
+impl GetSafeID for Creep {
+    fn safe_id(&self) -> SafeID<Self> {
+        let Some(id) = self.try_id() else { panic!("Creep doesn't have ID yet") };
+        SafeID { id: id, entity: self.clone() }
+    }
+}
+
+pub trait FromUnsafe {
+    type Unsafe;
+
+    fn from_unsafe(us: Self::Unsafe) -> Self;
+}
+
+pub trait TryFromUnsafe: Sized {
+    type Unsafe;
+    
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self>;
+}
+
+impl<S: FromUnsafe> TryFromUnsafe for S {
+    type Unsafe = S::Unsafe;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(Self::from_unsafe(us))
+    }
+}
+
+impl<T: JsCast + MaybeHasId + GetSafeID> TryFromUnsafe for SafeID<T> {
+    type Unsafe = UnsafeID<T>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(us.resolve()?.safe_id())
+    }
+}
+
+impl<'de, S: Deserialize<'de>> FromUnsafe for S {
+    type Unsafe = S;
+
+    fn from_unsafe(us: Self::Unsafe) -> Self {
+        us
+    }
+}
+
+pub trait MakeSafe<S> {
+    fn make_safe(self) -> S;
+}
+
+impl<S: FromUnsafe> MakeSafe<S> for S::Unsafe {
+    fn make_safe(self) -> S {
+        S::from_unsafe(self)
+    }
+}
+
+pub trait TryMakeSafe<S> {
+    fn try_make_safe(self) -> Option<S>;
+}
+
+impl<S: TryFromUnsafe> TryMakeSafe<S> for S::Unsafe {
+    fn try_make_safe(self) -> Option<S> {
+        S::try_from_unsafe(self)
+    }
+}
+
+pub fn deserialize_prune_hashet<'de, D, T>(deserializer: D) -> Result<HashSet<T>, D::Error>
+where
+    D : Deserializer<'de>,
+    T: TryFromUnsafe + Hash + Eq,
+    T::Unsafe : Deserialize<'de>
+{
+    let raw = Vec::<T::Unsafe>::deserialize(deserializer)?;
+    Ok(raw.into_iter().filter_map(|u| T::try_from_unsafe(u)).collect())
+}
+
+pub fn deserialize_prune_hashmap_keys<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error> 
+where
+    D : Deserializer<'de>,
+    K: TryFromUnsafe + Eq + Hash,
+    K::Unsafe : Deserialize<'de> + Eq + Hash,
+    V: Deserialize<'de>
+{
+    let raw = HashMap::<K::Unsafe, V>::deserialize(deserializer)?;
+    Ok(raw.into_iter().filter_map(|(k, v)| K::try_from_unsafe(k).map(|k| (k, v))).collect())
+}
+
+pub fn deserialize_prune_hashmap<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+where
+    D : Deserializer<'de>,
+    K: TryFromUnsafe + Eq + Hash,
+    K::Unsafe: Deserialize<'de> + Eq + Hash,
+    V: TryFromUnsafe,
+    V::Unsafe: Deserialize<'de>,
+{
+    let raw = HashMap::<K::Unsafe, V::Unsafe>::deserialize(deserializer)?;
+    Ok(raw.into_iter().filter_map(|(k, v)| K::try_from_unsafe(k).and_then(|k| V::try_from_unsafe(v).map(|v| (k, v)))).collect())
 }

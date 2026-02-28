@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, HasId, HasPosition, MaybeHasId, ObjectId, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, safeid::CreepGetSafeID, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, safeid::{GetSafeID}, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep {

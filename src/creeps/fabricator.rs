@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasId, HasPosition, MaybeHasId, ObjectId,
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, safeid::CreepGetSafeID, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, statemachine::{StateMachine, Transition}, tasks::TaskServer};
+use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::GetSafeID, statemachine::{StateMachine, Transition}, tasks::TaskServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 pub enum FabricatorCreep {

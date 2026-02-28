@@ -1,10 +1,10 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash, mem};
 
 use itertools::Itertools;
-use screeps::{Creep, Position, RoomName, SharedCreepProperties};
-use serde::{Deserialize, Serialize};
+use screeps::{Creep, Position, RoomName};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::safeid::{CreepGetSafeID, IDKind, SafeID, SafeIDs, ToSafeID, TryDeserialize, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap};
+use crate::safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap_keys};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage {
@@ -23,11 +23,12 @@ pub enum SpawnMessage<I: IDKind = SafeIDs> {
     SpawnTugboatFor(I::ID<Creep>)
 }
 
-impl TryDeserialize for SpawnMessage {
-    fn try_deserialize<'de, D : serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-        let raw = SpawnMessage::<UnsafeIDs>::deserialize(deserializer)?;
-        Ok(match raw {
-            SpawnMessage::SpawnTugboatFor(id) => id.to_safe_id().map(Self::SpawnTugboatFor),
+impl TryFromUnsafe for SpawnMessage {
+    type Unsafe = SpawnMessage<UnsafeIDs>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(match us {
+            Self::Unsafe::SpawnTugboatFor(id) => Self::SpawnTugboatFor(id.try_make_safe()?),
         })
     }
 }
@@ -38,12 +39,13 @@ pub enum TruckMessage<I: IDKind = SafeIDs> {
     Consumer(I::ID<Creep>, RoomName),
 }
 
-impl TryDeserialize for TruckMessage {
-    fn try_deserialize<'de, D : serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-        let raw = TruckMessage::<UnsafeIDs>::deserialize(deserializer)?;
-        Ok(match raw {
-            TruckMessage::Provider(id, x) => id.to_safe_id().map(|id| Self::Provider(id, x)),
-            TruckMessage::Consumer(id, x) => id.to_safe_id().map(|id| Self::Consumer(id, x)),
+impl TryFromUnsafe for TruckMessage {
+    type Unsafe = TruckMessage<UnsafeIDs>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(match us {
+            Self::Unsafe::Provider(id, x) => Self::Provider(id.try_make_safe()?, x),
+            Self::Unsafe::Consumer(id, x) => Self::Consumer(id.try_make_safe()?, x),
         })
     }
 }
@@ -59,7 +61,7 @@ impl TruckMessage {
 
 
 #[derive(Serialize, Deserialize)]
-#[serde(bound = "T: Hash + Eq + Serialize + TryDeserialize")]
+#[serde(bound = "T: Serialize + TryFromUnsafe + Hash + Eq, T::Unsafe : DeserializeOwned")]
 pub struct Mailbox<T> {
     #[serde(deserialize_with = "deserialize_prune_hashet")] new: HashSet<T>,
     #[serde(deserialize_with = "deserialize_prune_hashet")] readable: HashSet<T>,
@@ -99,9 +101,9 @@ pub struct Messages {
     pub spawn: Mailbox<SpawnMessage>,
     pub trucks: Mailbox<TruckMessage>,
 
-    #[serde(deserialize_with = "deserialize_prune_hashmap")] 
+    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 
     creeps: HashMap<SafeID<Creep>, Mailbox<CreepMessage>>,
-    #[serde(deserialize_with = "deserialize_prune_hashmap")] 
+    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 
     creeps_quick: HashMap<SafeID<Creep>, Mailbox<QuickCreepMessage>>,
 }
 
