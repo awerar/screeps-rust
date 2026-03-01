@@ -179,7 +179,7 @@ impl FabricatorTask {
             FabricatorTaskType::Building(site) => 
                 Ok(creep.build(&site)?),
             FabricatorTaskType::Repairing(structure) => {
-                let structure_object = StructureObject::from(structure.inner.clone());
+                let structure_object = StructureObject::from(structure.as_ref().clone());
                 let repairable = structure_object.as_repairable().ok_or(anyhow!("Structure is not repairable"))?;
                 Ok(creep.repair(repairable)?)
             },

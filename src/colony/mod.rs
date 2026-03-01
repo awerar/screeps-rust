@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet, hash_map}, fmt::Display};
 
 use js_sys::JsString;
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
+use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, ResourceType, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
@@ -81,6 +81,14 @@ impl ColonyBuffer {
             ColonyBuffer::Container(container) => container.store(),
             ColonyBuffer::Storage(storage) => storage.store(),
         }
+    }
+
+    pub fn energy(&self) -> u32 {
+        self.store().get_used_capacity(Some(ResourceType::Energy))
+    }
+
+    pub fn energy_capacity_left(&self) -> u32 {
+        self.store().get_free_capacity(Some(ResourceType::Energy)).try_into().unwrap_or(0)
     }
 }
 

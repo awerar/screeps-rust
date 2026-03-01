@@ -72,7 +72,7 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
                         }
                     }
                 } else {
-                    movement.smart_move_creep_to(creep, &controller.inner).ok();
+                    movement.smart_move_creep_to(creep, controller.as_ref()).ok();
                 }
 
                 Ok(Break(self))

@@ -165,7 +165,7 @@ impl StateMachine<Creep, Args<'_>> for TugboatCreep {
                 if tugboat.pos().is_near_to(spawn.pos()) {
                     spawn.recycle_creep(tugboat)?;
                 } else {
-                    movement.smart_move_creep_to(tugboat, &spawn.inner).ok();
+                    movement.smart_move_creep_to(tugboat, spawn.as_ref()).ok();
                 }
 
                 return Ok(Break(self));

@@ -60,13 +60,13 @@ impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
                         let fillable = plan.get_fillable();
                         if let Some(fillable) = fillable {
                             creep.transfer(&*fillable, ResourceType::Energy, None).ok();
-                            creep.harvest(&source.inner).ok();
+                            creep.harvest(source.as_ref()).ok();
                         }
 
                         Ok(Break(self))
                     }
                 } else {
-                    creep.harvest(&source.inner).ok();
+                    creep.harvest(source.as_ref()).ok();
                     Ok(Break(self))
                 }
             },

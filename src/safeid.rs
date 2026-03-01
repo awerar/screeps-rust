@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref};
+use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
 
 use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
@@ -6,26 +6,32 @@ use wasm_bindgen::JsCast;
 
 pub trait DO = DeserializeOwned;
 
-pub trait IDKind: Clone + Copy + for<'de> Deserialize<'de> + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug {
-    type ID<T: Clone>: Clone + Serialize + Hash + PartialEq + Eq + PartialOrd + Ord + Debug;
+pub trait IDKind {
+    type ID<T>: Serialize + Debug + Clone + PartialEq + Eq + PartialOrd + Ord + Hash;
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct SafeIDs {}
 impl IDKind for SafeIDs {
-    type ID<T: Clone> = SafeID<T>;
+    type ID<T> = SafeID<T>;
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct UnsafeIDs {}
 impl IDKind for UnsafeIDs {
-    type ID<T: Clone> = ObjectId<T>;
+    type ID<T> = ObjectId<T>;
 }
 
 pub type UnsafeID<T> = ObjectId<T>;
 pub struct SafeID<T> {
     pub id: ObjectId<T>,
-    pub inner: T
+    inner: Rc<T>
+}
+
+impl<T> AsRef<T> for SafeID<T> {
+    fn as_ref(&self) -> &T {
+        &self.inner
+    }
 }
 
 impl<T> Debug for SafeID<T> {
@@ -34,7 +40,7 @@ impl<T> Debug for SafeID<T> {
     }
 }
 
-impl<T: Clone> Clone for SafeID<T> {
+impl<T> Clone for SafeID<T> {
     fn clone(&self) -> Self {
         Self { id: self.id.clone(), inner: self.inner.clone() }
     }
@@ -83,7 +89,7 @@ impl<T> PartialOrd for SafeID<T> {
 pub trait ToSafeID<T> { fn to_safe_id(self) -> Option<SafeID<T>>; }
 impl<T: JsCast + MaybeHasId> ToSafeID<T> for ObjectId<T> {
     fn to_safe_id(self) -> Option<SafeID<T>> {
-        self.resolve().map(|entity| SafeID { id: self, inner: entity })
+        self.resolve().map(|entity| SafeID { id: self, inner: Rc::new(entity) })
     }
 }
 
@@ -94,14 +100,14 @@ impl !HasIDEntity for ConstructionSite {}
 pub trait GetSafeID: Sized { fn safe_id(&self) -> SafeID<Self>; }
 impl<T: Clone + HasId + HasIDEntity> GetSafeID for T {
     default fn safe_id(&self) -> SafeID<Self> {
-        SafeID { id: self.id(), inner: self.clone() }
+        SafeID { id: self.id(), inner: Rc::new(self.clone()) }
     }
 }
 
 impl GetSafeID for Creep {
     fn safe_id(&self) -> SafeID<Self> {
         let Some(id) = self.try_id() else { panic!("Creep doesn't have ID yet") };
-        SafeID { id: id, inner: self.clone() }
+        SafeID { id: id, inner: Rc::new(self.clone()) }
     }
 }
 
@@ -114,7 +120,7 @@ impl<T: GetSafeID> TryGetSafeID for T {
 
 impl TryGetSafeID for ConstructionSite {
     fn try_safe_id(&self) -> Option<SafeID<Self>> {
-        self.try_id().map(|id| SafeID { id, inner: self.clone() })
+        self.try_id().map(|id| SafeID { id, inner: Rc::new(self.clone()) })
     }
 }
 
