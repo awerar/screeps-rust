@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::tugboat::TuggedCreep, messages::Messages, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, creeps::tugged::TuggedCreep, messages::Messages, movement::MovementSolver, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay)]
 pub enum ExcavatorCreep<I: IDKind = SafeIDs> {
@@ -30,13 +30,13 @@ impl Default for ExcavatorCreep {
     }
 }
 
-type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut Messages);
+type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut Messages, &'a mut MovementSolver);
 impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
 
-        let (ref source, home, messages) = args;
+        let (ref source, home, messages, movement_solver) = args;
 
         let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 
@@ -45,12 +45,11 @@ impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
         match self {
             Going(mut tugged_state) => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                tugged_state.move_tugged_to(creep, messages, harvest_pos, 0);
-                if tugged_state.is_finished() {
-                    Ok(Continue(Mining))
-                } else {
-                    Ok(Break(Going(tugged_state)))
+                if tugged_state.move_tugged_to(creep, messages, movement_solver, harvest_pos, 0) {
+                    return Ok(Continue(Mining))
                 }
+
+                Ok(Break(Going(tugged_state)))
             },
             Mining => {
                 if creep.store().get_free_capacity(Some(ResourceType::Energy)) < (work_count * 2).try_into().unwrap() {

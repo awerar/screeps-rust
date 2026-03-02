@@ -1,21 +1,26 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash, mem};
 
 use itertools::Itertools;
-use screeps::{Creep, Position, RoomName};
+use screeps::{Creep, RoomName};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap_keys};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
-pub enum CreepMessage {
-    AssignedTugBoat(String),
+pub enum CreepMessage<I: IDKind = SafeIDs> {
+    AssignedTugBoat(I::ID<Creep>),
     TruckTarget
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
-pub enum QuickCreepMessage {
-    TuggedRequestMove { target: Position, range: u32 },
-    TugMove,
+impl TryFromUnsafe for CreepMessage {
+    type Unsafe = CreepMessage<UnsafeIDs>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(match us {
+            Self::Unsafe::AssignedTugBoat(tugboat) => Self::AssignedTugBoat(tugboat.try_make_safe()?),
+            Self::Unsafe::TruckTarget => Self::TruckTarget,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -90,10 +95,6 @@ impl<T: Eq + Hash + Clone> Mailbox<T> {
     pub fn send(&mut self, msg: T) {
         self.new.insert(msg);
     }
-
-    pub fn empty(&self) -> bool {
-        self.readable.is_empty()
-    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -103,16 +104,10 @@ pub struct Messages {
 
     #[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 
     creeps: HashMap<SafeID<Creep>, Mailbox<CreepMessage>>,
-    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 
-    creeps_quick: HashMap<SafeID<Creep>, Mailbox<QuickCreepMessage>>,
 }
 
 impl Messages where {
     pub fn creep(&mut self, creep: &Creep) -> &mut Mailbox<CreepMessage> {
         self.creeps.entry(creep.safe_id()).or_default()
-    }
-
-    pub fn creep_quick(&mut self, creep: &Creep) -> &mut Mailbox<QuickCreepMessage> {
-        self.creeps_quick.entry(creep.safe_id()).or_default()
     }
 }

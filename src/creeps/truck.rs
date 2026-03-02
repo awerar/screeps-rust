@@ -6,7 +6,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, DO}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::MovementSolver, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -110,12 +110,23 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, &'a mut MovementSolver, &'a mut TruckCoordinator, &'a mut Messages);
 impl StateMachine<Creep, Args<'_>> for TruckCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
-        let (home, movement, coordinator, messages) = args;
+        let (home, movement_solver, coordinator, messages) = args;
+
+        let fail_task_transition = |task, coordinator: &mut TruckCoordinator| {
+            coordinator.finish(creep, task, false);
+            Ok(Transition::Continue(Self::Idle))
+        };
+
+        let creep_id = creep.try_id().unwrap();
+        let fail_consumer_task_transition = |task, coordinator: &mut TruckCoordinator| {
+            coordinator.consumers.finish_task(creep_id, task, false);
+            anyhow::Ok(Transition::Continue(Self::Idle))
+        };
 
         match &self {
             Self::FillingUpFor(ConsumerTruckStop::Creep(creep)) |
@@ -150,54 +161,37 @@ impl StateMachine<Creep, Args<'_>> for TruckCreep {
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                if !task.still_valid() {
-                    coordinator.finish(creep, task, false);
-                    return Ok(Continue(Self::Idle))
-                }
-
-                if !coordinator.heartbeat(creep, task) { return Ok(Continue(Self::Idle)) }
-
-                if creep.pos().is_near_to(task.pos()) {
+                if !task.still_valid() || !coordinator.heartbeat(creep, task) { return fail_task_transition(task, coordinator) }
+                
+                if movement_solver.move_creep_to(creep, task.pos(), 1) {
                     task.creep_perform(creep)?;
                     coordinator.finish(creep, task, true);
-                    Ok(Break(Self::Idle))
-                } else {
-                    movement.smart_move_creep_to(creep, task.pos()).ok();
-                    Ok(Break(self))
+                    return Ok(Break(Self::Idle))
                 }
+                    
+                Ok(Break(self))
             },
             Self::FillingUpFor(ref consumer) => {
-                let Some(buffer) = &home.buffer else {
-                    coordinator.consumers.finish_task(creep.try_id().unwrap(), consumer, false);
-                    return Ok(Continue(Self::Idle))
-                };
+                let Some(buffer) = &home.buffer else { return fail_consumer_task_transition(consumer, coordinator) };
+                if buffer.energy() == 0 || !coordinator.consumers.heartbeat_task(creep, consumer) { return fail_consumer_task_transition(consumer, coordinator) }
 
-                if buffer.energy() == 0 {
-                    coordinator.consumers.finish_task(creep.try_id().unwrap(), consumer, false);
-                    return Ok(Continue(Self::Idle))
-                }
-
-                if !coordinator.consumers.heartbeat_task(creep, consumer) { return Ok(Continue(Self::Idle)) }
-
-                if creep.pos().is_near_to(buffer.pos()) {
+                if movement_solver.move_creep_to(creep, buffer.pos(), 1) {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
-                    Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
-                } else {
-                    movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(Break(self))
+                    return Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
                 }
+                    
+                Ok(Break(self))
             },
             Self::StoringAway => {
                 let Some(buffer) = &home.buffer else { return Ok(Continue(Self::Idle)) };
                 if buffer.energy_capacity_left() == 0 { return Ok(Continue(Self::Idle)) }
                 
-                if creep.pos().is_near_to(buffer.pos()) {
+                if movement_solver.move_creep_to(creep, buffer.pos(), 1) {
                     creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
-                    Ok(Break(Self::Idle))
-                } else {
-                    movement.smart_move_creep_to(creep, buffer.pos()).ok();
-                    Ok(Break(self))
+                    return Ok(Break(Self::Idle))
                 }
+
+                Ok(Break(self))
             },
         }
     }

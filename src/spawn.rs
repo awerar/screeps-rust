@@ -219,10 +219,6 @@ impl SpawnSchedule {
                 continue;
             }
 
-            if let CreepType::Tugboat(tugged) = &proto.ty {
-                mem.messages.creep(&tugged).send(CreepMessage::AssignedTugBoat(name.clone()));
-            }
-
             let creep_data = CreepData::new(spawn.room().unwrap().name(), proto.ty.default_role());
             mem.incoming_creeps.push((name.clone(), creep_data));
         }
@@ -235,6 +231,10 @@ pub fn handle_incoming_creeps(mem: &mut Memory) {
             warn!("Unknown incoming creep {name}");
             continue;
         };
+
+        if let CreepRole::Tugboat(tugged) = &data.role {
+            mem.messages.creep(tugged).send(CreepMessage::AssignedTugBoat(creep.safe_id()));
+        }
 
         mem.creeps.insert(creep.safe_id(), data);
     }

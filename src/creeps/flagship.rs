@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::Movement, safeid::{GetSafeID, IDKind, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{memory::ClaimRequests, movement::MovementSolver, safeid::{GetSafeID, IDKind, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<I: IDKind = SafeIDs> {
@@ -26,13 +26,13 @@ impl<'de> Deserialize<'de> for FlagshipCreep {
     }
 }
 
-type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
+type Args<'a> = (&'a mut MovementSolver, &'a mut ClaimRequests);
 impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
     fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
 
-        let (movement, claim_requests) = args;
+        let (movement_solver, claim_requests) = args;
 
         match &self {
             Idle => {
@@ -49,11 +49,11 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
                     }
                 }
 
-                movement.smart_move_creep_to(creep, *target).ok();
+                movement_solver.move_creep_to(creep, *target, 0);
                 Ok(Break(self))
             }
             Claiming(request, controller) => {
-                if creep.pos().is_near_to(controller.pos()) {
+                if movement_solver.move_creep_to(creep, controller.pos(), 1) {
                     match creep.claim_controller(&controller) {
                         Ok(()) => {
                             info!("Sucessfully claimed controller!");
@@ -71,8 +71,6 @@ impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
                             return Ok(Continue(Idle))
                         }
                     }
-                } else {
-                    movement.smart_move_creep_to(creep, controller.as_ref()).ok();
                 }
 
                 Ok(Break(self))

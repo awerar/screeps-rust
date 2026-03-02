@@ -21,7 +21,6 @@ mod logging;
 mod names;
 mod memory;
 mod tower;
-mod movement;
 mod spawn;
 mod creeps;
 mod callbacks;
@@ -34,6 +33,7 @@ mod statemachine;
 mod commands;
 mod tasks;
 mod safeid;
+mod movement;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -54,8 +54,6 @@ pub fn game_loop() {
     }
 
     let mut mem = Memory::screeps_deserialize();
-    mem.movement.update_tick_start();
-
     info!("=== Starting tick {} (L[{:.1}], M[{:.1}], S[{:.1}]) Bucket: {} ===", game::time(), 
         mem.get_average_tick_rate_over(500), 
         mem.get_average_tick_rate_over(100),
@@ -74,8 +72,6 @@ pub fn game_loop() {
 
     do_towers();
     do_links(&mut mem);
-
-    mem.movement.update_tick_end();
 
     mem.tick_times.push_front(game::cpu::get_used());
     if mem.tick_times.len() > 500 { mem.tick_times.pop_back(); }

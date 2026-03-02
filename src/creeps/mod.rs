@@ -5,11 +5,11 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, tugboat::TugboatCreep}, memory::Memory, movement::Movement, safeid::{GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, DO, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::MovementSolver, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
-mod tugboat;
+mod tugged;
 pub mod fabricator;
 pub mod truck;
 
@@ -64,7 +64,7 @@ impl CreepData {
 
                 CreepRole::Excavator(ExcavatorCreep::default(), source.safe_id()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, home.name).safe_id())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).safe_id())
         };
         
         Some(CreepData::new(home.name, role))
@@ -72,13 +72,13 @@ impl CreepData {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "TugboatCreep<I> : DO, I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
+#[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
 pub enum CreepRole<I: IDKind = SafeIDs> {
     Excavator(ExcavatorCreep, I::ID<Source>),
     Flagship(FlagshipCreep),
-    Tugboat(TugboatCreep<I>, I::ID<Creep>),
     Truck(TruckCreep),
     Fabricator(FabricatorCreep),
+    Tugboat(I::ID<Creep>),
     Scrap(I::ID<StructureSpawn>),
 }
 
@@ -88,10 +88,10 @@ impl TryFromUnsafe for CreepRole {
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
         Some(match us {
             Self::Unsafe::Excavator(state, source) => Self::Excavator(state.make_safe(), source.try_make_safe()?),
-            Self::Unsafe::Tugboat(state, tugged) => Self::Tugboat(state.try_make_safe()?, tugged.try_make_safe()?),
             Self::Unsafe::Flagship(state) => Self::Flagship(state),
             Self::Unsafe::Truck(state) => Self::Truck(state),
             Self::Unsafe::Fabricator(state) => Self::Fabricator(state),
+            Self::Unsafe::Tugboat(tugged) => Self::Tugboat(tugged.try_make_safe()?),
             Self::Unsafe::Scrap(state) => Self::Scrap(state.try_make_safe()?),
         })
     }
@@ -112,7 +112,7 @@ impl CreepRole {
         match self {
             CreepRole::Flagship(_) => CreepType::Flagship,
             CreepRole::Excavator(_, source) => CreepType::Excavator(source.clone()),
-            CreepRole::Tugboat(_, tugged) => CreepType::Tugboat(tugged.clone()),
+            CreepRole::Tugboat(tugged) => CreepType::Tugboat(tugged.clone()),
             CreepRole::Scrap(source) => CreepType::Scrap(source.clone()),
             CreepRole::Truck(_) => CreepType::Truck,
             CreepRole::Fabricator(_) => CreepType::Fabricator,
@@ -136,7 +136,7 @@ impl CreepType {
         match self {
             CreepType::Flagship => CreepRole::Flagship(FlagshipCreep::default()),
             CreepType::Excavator(source) => CreepRole::Excavator(ExcavatorCreep::default(), source.clone()),
-            CreepType::Tugboat(tugged) => CreepRole::Tugboat(TugboatCreep::default(), tugged.clone()),
+            CreepType::Tugboat(tugged) => CreepRole::Tugboat(tugged.clone()),
             CreepType::Scrap(spawn) => CreepRole::Scrap(spawn.clone()),
             CreepType::Truck => CreepRole::Truck(TruckCreep::default()),
             CreepType::Fabricator => CreepRole::Fabricator(FabricatorCreep::default()),
@@ -144,18 +144,25 @@ impl CreepType {
     }
 }
 
-fn do_recycle(creep: &Creep, movement: &mut Movement, spawn: &SafeID<StructureSpawn>) {
+fn do_recycle(creep: &Creep, movement_solver: &mut MovementSolver, spawn: &SafeID<StructureSpawn>) {
+    movement_solver.move_creep_to(creep, spawn.pos(), 1);
     if creep.pos().is_near_to(spawn.pos()) {
         spawn.recycle_creep(creep).ok();
+    }
+}
+
+fn do_tugboat(tugboat: &Creep, tugged: &SafeID<Creep>, movement_solver: &mut MovementSolver, home: ColonyView<'_>) -> CreepRole {
+    if movement_solver.move_tugboat(tugboat, tugged) {
+        CreepRole::Scrap(get_recycle_spawn(tugboat, &home).safe_id())
     } else {
-        movement.smart_move_creep_to(creep, spawn.pos()).ok();
+        CreepRole::Tugboat(tugged.clone())
     }
 }
 
 pub fn do_creeps(mem: &mut Memory) {
     use CreepRole::*;
 
-    let updatable_creeps: Vec<_> = game::creeps().values()
+    let update_creeps: Vec<_> = game::creeps().values()
         .map(|creep| creep.safe_id())
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
@@ -171,63 +178,47 @@ pub fn do_creeps(mem: &mut Memory) {
             true
         }).collect();
 
-    let mut update_creeps = updatable_creeps.clone();
-    while !update_creeps.is_empty() {
-        for creep in &update_creeps {
-            let creep_data = mem.creeps.get_mut(creep).unwrap();
-            let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
+    let mut movement_solver = MovementSolver::new();
+    for creep in &update_creeps {
+        let creep_data = mem.creeps.get_mut(creep).unwrap();
+        let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
-            match &mut creep_data.role {
-                Flagship(state) => {
-                    let mut args  = (&mut mem.movement, &mut mem.claim_requests);
-                    state.transition(creep, &mut args);
-                },
-                Excavator(state, source) => {
-                    let mut args = (source.clone(), home, &mut mem.messages);
-                    state.transition(creep, &mut args);
-                },
-                Tugboat(state, tugged) => {
-                    let mut args = (home, tugged.clone(), &mut mem.movement, &mut mem.messages);
-                    state.transition(creep, &mut args);
-                },
-                Scrap(spawn) => do_recycle(creep, &mut mem.movement, &spawn),
-                Truck(state) => {
-                    let mut args = (home, &mut mem.movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
-                    state.transition(creep, &mut args);
-                },
-                Fabricator(state) => {
-                    let mut args = (home, &mut mem.movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
-                    state.transition(creep, &mut args);
-                }
-            }
+        match &mut creep_data.role {
+            Flagship(state) => {
+                let mut args  = (&mut movement_solver, &mut mem.claim_requests);
+                state.transition(creep, &mut args);
+            },
+            Excavator(state, source) => {
+                let mut args = (source.clone(), home, &mut mem.messages, &mut movement_solver);
+                state.transition(creep, &mut args);
+            },
+            Truck(state) => {
+                let mut args = (home, &mut movement_solver, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                state.transition(creep, &mut args);
+            },
+            Fabricator(state) => {
+                let mut args = (home, &mut movement_solver, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                state.transition(creep, &mut args);
+            },
+            Tugboat(tugged) => creep_data.role = do_tugboat(creep, tugged, &mut movement_solver, home),
+            Scrap(spawn) => do_recycle(creep, &mut movement_solver, &spawn),
         }
-
-        for creep in &updatable_creeps {
-            mem.messages.creep_quick(creep).flush();
-        }
-
-        update_creeps = updatable_creeps.iter()
-            .filter(|creep| !mem.messages.creep_quick(creep).empty())
-            .cloned()
-            .collect();
     }
 
-    for creep in &updatable_creeps {
+    for creep in &update_creeps {
         mem.messages.creep(creep).flush();
     }
 }
 
-fn get_recycle_spawn(creep: &Creep, home: RoomName) -> StructureSpawn {
-    if creep.pos().room_name() == home {
+fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {
+    if creep.pos().room_name() == home.name {
         if let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
             return spawn
         }
     }
 
-    if let Some(home) = game::rooms().get(home) {
-        if let Some(spawn) = home.find(find::MY_SPAWNS, None).into_iter().next() {
-            return spawn
-        }
+    if let Some(spawn) = home.plan.center.spawn.resolve() {
+        return spawn
     }
 
     game::spawns().values()
