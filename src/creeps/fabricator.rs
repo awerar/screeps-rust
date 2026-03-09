@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, 
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{DO, GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -84,8 +84,8 @@ const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
 type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut FabricatorCoordinator, &'a mut Messages);
-impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<SafeID<Creep>, Args<'_>> for FabricatorCreep {
+    fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         let (home, movement, coordinator, messages) = args;
@@ -97,7 +97,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
-                messages.trucks.send(TruckMessage::Provider(creep.safe_id(), home.name));
+                messages.trucks.send(TruckMessage::Provider(creep.clone(), home.name));
                 Ok(Break(self))
             },
             Self::CollectingFor(task) => {
@@ -111,7 +111,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
                         return Ok(Continue(Self::Performing(task.clone())))
                     }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.safe_id(), home.name));
+                messages.trucks.send(TruckMessage::Consumer(creep.clone(), home.name));
 
                 let Some(buffer) = &home.buffer else {
                     return Ok(Break(Self::CollectingFor(task.clone())))
@@ -138,7 +138,7 @@ impl StateMachine<Creep, Args<'_>> for FabricatorCreep {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.safe_id(), home.name));
+                messages.trucks.send(TruckMessage::Consumer(creep.clone(), home.name));
 
                 if !creep.pos().is_near_to(task.pos) {
                     movement.smart_move_creep_to(creep, task.pos).ok();

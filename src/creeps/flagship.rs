@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::Movement, safeid::{GetSafeID, IDKind, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{memory::ClaimRequests, movement::Movement, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<I: IDKind = SafeIDs> {
@@ -27,8 +27,8 @@ impl<'de> Deserialize<'de> for FlagshipCreep {
 }
 
 type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
-impl StateMachine<Creep, Args<'_>> for FlagshipCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
+    fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
 

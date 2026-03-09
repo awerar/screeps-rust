@@ -4,12 +4,14 @@ use js_sys::Math::random;
 use screeps::{Creep, Position, action_error_codes::CreepMoveToErrorCode, game, prelude::*};
 use serde::{Deserialize, Serialize};
 
+use crate::safeid::{SafeID, deserialize_prune_hashmap_keys};
+
 extern crate serde_json_path_to_error as serde_json;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Movement {
-    #[serde(default)]
-    pub creeps_data: HashMap<String, CreepMovementData>,
+    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
+    pub creeps_data: HashMap<SafeID<Creep>, CreepMovementData>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -32,10 +34,10 @@ enum MoveState {
 }
 
 impl Movement {
-    pub fn smart_move_creep_to<T>(&mut self, creep: &Creep, target: T) -> anyhow::Result<(), CreepMoveToErrorCode>
+    pub fn smart_move_creep_to<T>(&mut self, creep: &SafeID<Creep>, target: T) -> anyhow::Result<(), CreepMoveToErrorCode>
         where T: HasPosition
     {
-        let creep_data = self.creeps_data.entry(creep.name()).or_default();
+        let creep_data = self.creeps_data.entry(creep.clone()).or_default();
 
         if let MoveState::Sleeping(_) = creep_data.move_state {
             //debug!("{} is sleeping... ZZZ", creep.name());
@@ -45,8 +47,8 @@ impl Movement {
     }
 
     pub fn update_tick_start(&mut self) {
-        for (creep_name, creep) in game::creeps().entries() {
-            let creep_data = self.creeps_data.entry(creep_name.clone()).or_default();
+        for creep in SafeID::creeps() {
+            let creep_data = self.creeps_data.entry(creep.clone()).or_default();
             
             let new_state = match creep_data.move_state {
                 MoveState::Sleeping(awake_time) => {
@@ -74,8 +76,8 @@ impl Movement {
     }
 
     pub fn update_tick_end(&mut self) {
-        for (creep_name, creep) in game::creeps().entries() {
-            let creep_data = self.creeps_data.entry(creep_name.clone()).or_default();
+        for creep in SafeID::creeps() {
+            let creep_data = self.creeps_data.entry(creep.clone()).or_default();
 
             creep_data.snd_last_pos = creep_data.last_pos;
             creep_data.last_pos = Some(creep.pos());

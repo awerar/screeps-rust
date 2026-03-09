@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, HasPosition, Position, SharedCreepProperties, StructureSpawn, action_error_codes::{CreepMoveDirectionErrorCode, CreepMoveToErrorCode}, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{colony::ColonyView, creeps::get_recycle_spawn, messages::{CreepMessage, Messages, QuickCreepMessage, SpawnMessage}, movement::Movement, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep<I: IDKind = SafeIDs> {
@@ -29,8 +29,8 @@ impl<'de> Deserialize<'de> for TuggedCreep {
     }
 }
 
-impl StateMachine<Creep, Messages> for TuggedCreep {
-    fn update(self, tugged: &Creep, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<SafeID<Creep>, Messages> for TuggedCreep {
+    fn update(self, tugged: &SafeID<Creep>, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
         use TuggedCreep::*;
         use Transition::*;
 
@@ -42,7 +42,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
                     return Ok(Continue(WaitingFor { tugboat }))
                 }
 
-                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.safe_id()));
+                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.clone()));
             },
             WaitingFor { tugboat } => {
                 let Some(tugboat) = game::creeps().get(tugboat.clone()) else { 
@@ -51,7 +51,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
                 };
 
                 if tugboat.pos().is_near_to(tugged.pos()) {
-                    return Ok(Continue(GettingTugged(tugboat.safe_id())))
+                    return Ok(Continue(GettingTugged(tugboat.try_safe_id().unwrap())))
                 }
             },
             GettingTugged(tugboat) => {
@@ -67,7 +67,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
 }
 
 impl TuggedCreep {
-    pub fn move_tugged_to(&mut self, tugged: &Creep, messages: &mut Messages, target: Position, range: u32) {
+    pub fn move_tugged_to(&mut self, tugged: &SafeID<Creep>, messages: &mut Messages, target: Position, range: u32) {
         if tugged.pos().get_range_to(target.pos()) <= range {
             *self = TuggedCreep::Finished;
             return;
@@ -107,8 +107,8 @@ impl TryFromUnsafe for TugboatCreep {
 }
 
 type Args<'a> = (ColonyView<'a>, SafeID<Creep>, &'a mut Movement, &'a mut Messages);
-impl StateMachine<Creep, Args<'_>> for TugboatCreep {
-    fn update(self, tugboat: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<SafeID<Creep>, Args<'_>> for TugboatCreep {
+    fn update(self, tugboat: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use TugboatCreep::*;
         use Transition::*;
 
