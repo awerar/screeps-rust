@@ -9,7 +9,6 @@ use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef},
 
 mod flagship;
 mod excavator;
-mod tugged;
 pub mod fabricator;
 pub mod truck;
 
@@ -151,9 +150,9 @@ fn do_recycle(creep: &SafeID<Creep>, movement_solver: &mut MovementSolver, spawn
     }
 }
 
-fn do_tugboat(tugboat: &SafeID<Creep>, tugged: &SafeID<Creep>, movement_solver: &mut MovementSolver, home: ColonyView<'_>) -> CreepRole {
+fn do_tugboat(tugboat: &SafeID<Creep>, tugged: &SafeID<Creep>, movement_solver: &mut MovementSolver, home: &ColonyView<'_>) -> CreepRole {
     if movement_solver.move_tugboat(tugboat, tugged) == MoveTugboatResult::Done {
-        CreepRole::Scrap(get_recycle_spawn(tugboat, &home).safe_id())
+        CreepRole::Scrap(get_recycle_spawn(tugboat, home).safe_id())
     } else {
         CreepRole::Tugboat(tugged.clone())
     }
@@ -177,32 +176,33 @@ pub fn do_creeps(mem: &mut Memory) {
             true
         }).collect();
 
-    let mut movement_solver = MovementSolver::new();
     for creep in &update_creeps {
         let creep_data = mem.creeps.get_mut(creep).unwrap();
         let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
         match &mut creep_data.role {
             Flagship(state) => {
-                let mut args  = (&mut movement_solver, &mut mem.claim_requests);
+                let mut args  = (&mut mem.movement, &mut mem.claim_requests);
                 state.transition(creep, &mut args);
             },
             Excavator(state, source) => {
-                let mut args = (source.clone(), home, &mut mem.messages, &mut movement_solver);
+                let mut args = (source.clone(), home, &mut mem.movement);
                 state.transition(creep, &mut args);
             },
             Truck(state) => {
-                let mut args = (home, &mut movement_solver, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                let mut args = (home, &mut mem.movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
                 state.transition(creep, &mut args);
             },
             Fabricator(state) => {
-                let mut args = (home, &mut movement_solver, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                let mut args = (home, &mut mem.movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
                 state.transition(creep, &mut args);
             },
-            Tugboat(tugged) => creep_data.role = do_tugboat(creep, tugged, &mut movement_solver, home),
-            Scrap(spawn) => do_recycle(creep, &mut movement_solver, &spawn),
+            Tugboat(tugged) => creep_data.role = do_tugboat(creep, tugged, &mut mem.movement, &home),
+            Scrap(spawn) => do_recycle(creep, &mut mem.movement, spawn),
         }
     }
+
+    mem.movement.solve();
 
     for creep in &update_creeps {
         mem.messages.creep(creep).flush();

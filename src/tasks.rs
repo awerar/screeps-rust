@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{Creep, MaybeHasId, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
-use serde_json_any_key::*;
+use serde_json_any_key::any_key_map;
 
 use crate::{safeid::{DO, TryFromUnsafe, TryMakeSafe, UnsafeID}, statemachine::UnderlyingName};
 
@@ -64,7 +64,7 @@ where
 
 impl<R, D> Default for TaskServer<R, D> {
     fn default() -> Self {
-        Self(Default::default())
+        Self(HashMap::default())
     }
 }
 

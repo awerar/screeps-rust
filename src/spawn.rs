@@ -175,8 +175,7 @@ impl SpawnSchedule {
             spawners: game::spawns().values()
                 .filter_map(|spawn| SpawnerData::try_from(mem, &spawn))
                 .collect(),
-            already_spawned: game::creeps().keys()
-                .filter_map(|name| SafeID::from_name(name))
+            already_spawned: SafeID::creeps()
                 .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
                 .collect()
         }
@@ -227,7 +226,7 @@ impl SpawnSchedule {
 }
 
 pub fn handle_incoming_creeps(mem: &mut Memory) {
-    for (name, data) in mem::take(&mut mem.incoming_creeps).into_iter() {
+    for (name, data) in mem::take(&mut mem.incoming_creeps) {
         let Some(creep) = SafeID::from_name(name) else { error!("Invalid incoming creep"); continue; };
 
         if let CreepRole::Tugboat(tugged) = &data.role {
@@ -359,7 +358,7 @@ fn schedule_flagships(mem: &Memory, schedule: &mut SpawnSchedule) {
 }
 
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
-    let tugged_body = Body::from(&*tugged);
+    let tugged_body = Body::from(tugged);
     let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.num(Part::Move));
     let tugged_empty_carry = tugged.store().get_free_capacity(None).div_floor(50) as usize;
     let target_tugboat_move_parts = target_tugboat_move_parts - tugged_empty_carry;
@@ -380,7 +379,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
 
         spawner.schedule_or_block(CreepPrototype { 
-            body: get_tugboat_body(spawner.energy_capacity, &*tugged),
+            body: get_tugboat_body(spawner.energy_capacity, &tugged),
             ty: CreepType::Tugboat(tugged), 
             home 
         });

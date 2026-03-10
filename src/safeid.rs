@@ -42,7 +42,7 @@ impl<T> Debug for SafeID<T> {
 
 impl<T> Clone for SafeID<T> {
     fn clone(&self) -> Self {
-        Self { id: self.id.clone(), inner: self.inner.clone() }
+        Self { id: self.id, inner: self.inner.clone() }
     }
 }
 
@@ -82,7 +82,7 @@ impl<T> Ord for SafeID<T> {
 
 impl<T> PartialOrd for SafeID<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 
@@ -149,11 +149,11 @@ pub trait TryFromUnsafe: Sized {
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self>;
 }
 
-impl<S: FromUnsafe> TryFromUnsafe for S {
-    type Unsafe = S::Unsafe;
+impl<A: TryFromUnsafe, B: TryFromUnsafe> TryFromUnsafe for (A, B) {
+    type Unsafe = (A::Unsafe, B::Unsafe);
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(Self::from_unsafe(us))
+        Some((us.0.try_make_safe()?, us.1.try_make_safe()?))
     }
 }
 
@@ -161,7 +161,7 @@ impl<T: JsCast + MaybeHasId + TryGetSafeID> TryFromUnsafe for SafeID<T> {
     type Unsafe = ObjectId<T>;
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(us.resolve()?.try_safe_id()?)
+        us.resolve()?.try_safe_id()
     }
 }
 
@@ -193,7 +193,7 @@ impl<S: TryFromUnsafe> TryMakeSafe<S> for S::Unsafe {
     }
 }
 
-pub fn deserialize_prune_hashet<'de, D, T>(deserializer: D) -> Result<HashSet<T>, D::Error>
+pub fn deserialize_prune_hashset<'de, D, T>(deserializer: D) -> Result<HashSet<T>, D::Error>
 where
     D : Deserializer<'de>,
     T: TryFromUnsafe + Hash + Eq,

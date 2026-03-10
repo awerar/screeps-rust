@@ -54,7 +54,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
             }
             Claiming(request, controller) => {
                 if movement_solver.move_creep_to(creep, controller.pos(), 1).in_range() {
-                    match creep.claim_controller(&controller) {
+                    match creep.claim_controller(controller) {
                         Ok(()) => {
                             info!("Sucessfully claimed controller!");
                             claim_requests.remove(request);
@@ -62,7 +62,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
                             return Ok(Continue(Idle))
                         },
                         Err(ClaimControllerErrorCode::InvalidTarget) => {
-                            creep.attack_controller(&controller).ok();
+                            creep.attack_controller(controller).ok();
                         },
                         Err(_) => {
                             warn!("Unable to claim controller!");

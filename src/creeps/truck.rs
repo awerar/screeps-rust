@@ -23,10 +23,10 @@ impl<'de> Deserialize<'de> for TruckCreep {
         Ok(match us {
             TruckCreep::Idle => Self::Idle,
             TruckCreep::Performing(x) => 
-                x.try_make_safe().map(Self::Performing).unwrap_or(Self::Idle),
+                x.try_make_safe().map_or(Self::Idle, Self::Performing),
             TruckCreep::StoringAway => Self::StoringAway,
             TruckCreep::FillingUpFor(x) => 
-                x.try_make_safe().map(Self::FillingUpFor).unwrap_or(Self::Idle),
+                x.try_make_safe().map_or(Self::Idle, Self::FillingUpFor),
         })
     }
 }
@@ -647,7 +647,7 @@ mod truck_stop {
     impl Withdraw for TruckStop<Provider, Resource> {
         fn creep_withdraw(&self, creep: &Creep, ty: ResourceType) -> anyhow::Result<()> {
             if self.id.resource_type() != ty { return Err(anyhow!("Resource has wrong type. Expected {ty}, found {}", self.id.resource_type())) }
-            Ok(creep.pickup(&*self.id)?)
+            Ok(creep.pickup(&self.id)?)
         }
     }
 }

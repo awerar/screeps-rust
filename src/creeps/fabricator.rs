@@ -21,9 +21,9 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
         Ok(match us {
             FabricatorCreep::Idle => Self::Idle,
             FabricatorCreep::CollectingFor(task) => 
-                task.try_make_safe().map(FabricatorCreep::CollectingFor).unwrap_or(FabricatorCreep::Idle),
+                task.try_make_safe().map_or(FabricatorCreep::Idle, FabricatorCreep::CollectingFor),
             FabricatorCreep::Performing(task) => 
-                task.try_make_safe().map(FabricatorCreep::Performing).unwrap_or(FabricatorCreep::Idle),
+                task.try_make_safe().map_or(FabricatorCreep::Idle, FabricatorCreep::Performing),
         })
     }
 }
@@ -168,14 +168,14 @@ impl FabricatorTask {
     fn creep_work(&self, creep: &Creep) -> anyhow::Result<()> {
         match &self.task_type {
             FabricatorTaskType::Building(site) => 
-                Ok(creep.build(&site)?),
+                Ok(creep.build(site)?),
             FabricatorTaskType::Repairing(structure) => {
                 let structure_object = StructureObject::from(structure.as_ref().clone());
                 let repairable = structure_object.as_repairable().ok_or(anyhow!("Structure is not repairable"))?;
                 Ok(creep.repair(repairable)?)
             },
             FabricatorTaskType::UpgradingController(controller) => 
-                Ok(creep.upgrade_controller(&controller)?),
+                Ok(creep.upgrade_controller(controller)?),
         }
     }
 }
@@ -309,11 +309,11 @@ impl FabricatorCoordinator {
     fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTask) -> bool {
         match &task.task_type {
             FabricatorTaskType::Building(build) => 
-                self.builds.heartbeat_task(creep, &build),
+                self.builds.heartbeat_task(creep, build),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.heartbeat_task(creep, &repair),
+                self.repairs.heartbeat_task(creep, repair),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.heartbeat_task(creep, &upgrade),
+                self.upgrades.heartbeat_task(creep, upgrade),
         }
     }
 
@@ -322,11 +322,11 @@ impl FabricatorCoordinator {
 
         match &task.task_type {
             FabricatorTaskType::Building(build) => 
-                self.builds.finish_task(creep_id, &build, success),
+                self.builds.finish_task(creep_id, build, success),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.finish_task(creep_id, &repair, success),
+                self.repairs.finish_task(creep_id, repair, success),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.finish_task(creep_id, &upgrade, success),
+                self.upgrades.finish_task(creep_id, upgrade, success),
         }
     }
 }

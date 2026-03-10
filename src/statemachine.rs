@@ -24,6 +24,7 @@ pub trait StateMachineTransition<U, A> {
 }
 
 const MAX_TRANSITIONS: u32 = 20;
+#[expect(clippy::to_string_in_format_args)]
 impl<SM, U : UnderlyingName, A> StateMachineTransition<U, A> for SM where SM : StateMachine<U, A> {
     fn transition(&mut self, underlying: &U, args: &mut A) {
         let mut state_names = vec![];

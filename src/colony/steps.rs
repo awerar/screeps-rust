@@ -53,7 +53,7 @@ pub enum ColonyStep {
 }
 
 impl ColonyStep {
-    pub fn controller_level(&self) -> u8 {
+    pub fn controller_level(self) -> u8 {
         match self {
             Self::BuildSpawn
             | Self::BuildBufferAndSourceContainers
@@ -88,8 +88,8 @@ impl ColonyStep {
         panic!();
     }
 
-    pub fn promotion(&self) -> Option<Self> {
-        Self::from_repr(*self as u8 + 1)
+    pub fn promotion(self) -> Option<Self> {
+        Self::from_repr(self as u8 + 1)
     }
 
     pub const fn last() -> Self {

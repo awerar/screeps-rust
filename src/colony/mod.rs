@@ -36,7 +36,7 @@ impl<'mem> ColonyView<'mem> {
 
         ColonyView { 
             plan, 
-            step: step, 
+            step, 
             name: room.name(), 
             controller: room.controller().expect("Every colony should have a controller"), 
             room, 

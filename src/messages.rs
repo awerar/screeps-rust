@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{Creep, RoomName};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap_keys};
+use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashset, deserialize_prune_hashmap_keys};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage<I: IDKind = SafeIDs> {
@@ -68,8 +68,8 @@ impl TruckMessage {
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "T: Serialize + TryFromUnsafe + Hash + Eq, T::Unsafe : DeserializeOwned")]
 pub struct Mailbox<T> {
-    #[serde(deserialize_with = "deserialize_prune_hashet")] new: HashSet<T>,
-    #[serde(deserialize_with = "deserialize_prune_hashet")] readable: HashSet<T>,
+    #[serde(deserialize_with = "deserialize_prune_hashset")] new: HashSet<T>,
+    #[serde(deserialize_with = "deserialize_prune_hashset")] readable: HashSet<T>,
 }
 
 impl<T> Default for Mailbox<T> {
