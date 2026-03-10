@@ -3,8 +3,11 @@ use itertools::Itertools;
 use log::{error, warn};
 use screeps::{Creep, Room, SharedCreepProperties};
 
+use crate::safeid::SafeID;
+
 pub trait UnderlyingName { fn name(&self) -> String; }
 impl UnderlyingName for Creep { fn name(&self) -> String { SharedCreepProperties::name(self) } }
+impl UnderlyingName for SafeID<Creep> { fn name(&self) -> String { SharedCreepProperties::name(self.as_ref()) } }
 impl UnderlyingName for Room { fn name(&self) -> String { self.name().to_string() } }
 
 pub enum Transition<S> {

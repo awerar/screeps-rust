@@ -1,9 +1,9 @@
 use std::{iter, mem, ops::{Add, Mul}, sync::LazyLock};
 
-use log::{info, warn};
+use log::{error, info, warn};
 use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name, safeid::{GetSafeID, ToSafeID}};
+use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, CreepType}, memory::Memory, messages::{CreepMessage, SpawnMessage}, names::get_new_creep_name, safeid::{SafeID, ToSafeID}};
 
 #[derive(Clone)]
 struct Body(Vec<Part>);
@@ -77,8 +77,8 @@ struct CreepPrototype {
 }
 
 impl CreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
-        let creep_data = mem.creeps.get(&creep.safe_id())?;
+    fn try_from_existing(mem: &Memory, creep: &SafeID<Creep>) -> Option<Self> {
+        let creep_data = mem.creeps.get(creep)?;
 
         Some(Self {
             body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
@@ -118,8 +118,8 @@ impl SpawnerData {
         let room = spawn.room()?;
         let spawning = spawn.spawning()
             .and_then(|spawning| {
-                let prototype = game::creeps().get(spawning.name().into())
-                .and_then(|creep| CreepPrototype::try_from_existing(mem, &creep))?;
+                let creep = SafeID::from_name(spawning.name().into())?;
+                let prototype = CreepPrototype::try_from_existing(mem, &creep)?;
 
                 Some((prototype, spawning.remaining_time()))
             });
@@ -175,7 +175,8 @@ impl SpawnSchedule {
             spawners: game::spawns().values()
                 .filter_map(|spawn| SpawnerData::try_from(mem, &spawn))
                 .collect(),
-            already_spawned: game::creeps().values()
+            already_spawned: game::creeps().keys()
+                .filter_map(|name| SafeID::from_name(name))
                 .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
                 .collect()
         }
@@ -227,16 +228,12 @@ impl SpawnSchedule {
 
 pub fn handle_incoming_creeps(mem: &mut Memory) {
     for (name, data) in mem::take(&mut mem.incoming_creeps).into_iter() {
-        let Some(creep) = game::creeps().get(name.clone()) else {
-            warn!("Unknown incoming creep {name}");
-            continue;
-        };
+        let Some(creep) = SafeID::from_name(name) else { error!("Invalid incoming creep"); continue; };
 
         if let CreepRole::Tugboat(tugged) = &data.role {
-            mem.messages.creep(tugged).send(CreepMessage::AssignedTugBoat(creep.safe_id()));
+            mem.messages.creep(tugged).send(CreepMessage::AssignedTugBoat(creep.clone()));
         }
-
-        mem.creeps.insert(creep.safe_id(), data);
+        mem.creeps.insert(creep, data);
     }
 }
 

@@ -144,7 +144,7 @@ impl CreepType {
     }
 }
 
-fn do_recycle(creep: &Creep, movement_solver: &mut MovementSolver, spawn: &SafeID<StructureSpawn>) {
+fn do_recycle(creep: &SafeID<Creep>, movement_solver: &mut MovementSolver, spawn: &SafeID<StructureSpawn>) {
     movement_solver.move_creep_to(creep, spawn.pos(), 1);
     if creep.pos().is_near_to(spawn.pos()) {
         spawn.recycle_creep(creep).ok();
@@ -162,8 +162,7 @@ fn do_tugboat(tugboat: &Creep, tugged: &SafeID<Creep>, movement_solver: &mut Mov
 pub fn do_creeps(mem: &mut Memory) {
     use CreepRole::*;
 
-    let update_creeps: Vec<_> = game::creeps().values()
-        .map(|creep| creep.safe_id())
+    let update_creeps: Vec<_> = SafeID::creeps()
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
             if !mem.creeps.contains_key(creep) {

@@ -31,8 +31,8 @@ impl Default for ExcavatorCreep {
 }
 
 type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut Messages, &'a mut MovementSolver);
-impl StateMachine<Creep, Args<'_>> for ExcavatorCreep {
-    fn update(self, creep: &Creep, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<SafeID<Creep>, Args<'_>> for ExcavatorCreep {
+    fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
 

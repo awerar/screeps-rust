@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
 
-use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId};
+use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 
@@ -86,6 +86,20 @@ impl<T> PartialOrd for SafeID<T> {
     }
 }
 
+impl SafeID<Creep> {
+    pub fn from_name(name: String) -> Option<SafeID<Creep>> {
+        Self::from_creep(game::creeps().get(name)?)
+    }
+
+    pub fn from_creep(creep: Creep) -> Option<SafeID<Creep>> {
+        Some(SafeID { id: creep.try_id()?, inner: Rc::new(creep) })
+    }
+
+    pub fn creeps() -> impl Iterator<Item = SafeID<Creep>> {
+        game::creeps().values().filter_map(Self::from_creep)
+    }
+}
+
 pub trait ToSafeID<T> { fn to_safe_id(self) -> Option<SafeID<T>>; }
 impl<T: JsCast + MaybeHasId> ToSafeID<T> for ObjectId<T> {
     fn to_safe_id(self) -> Option<SafeID<T>> {
@@ -104,13 +118,6 @@ impl<T: Clone + HasId + HasIDEntity> GetSafeID for T {
     }
 }
 
-impl GetSafeID for Creep {
-    fn safe_id(&self) -> SafeID<Self> {
-        let Some(id) = self.try_id() else { panic!("Creep doesn't have ID yet") };
-        SafeID { id: id, inner: Rc::new(self.clone()) }
-    }
-}
-
 pub trait TryGetSafeID: Sized { fn try_safe_id(&self) -> Option<SafeID<Self>>; }
 impl<T: GetSafeID> TryGetSafeID for T {
     fn try_safe_id(&self) -> Option<SafeID<Self>> {
@@ -119,6 +126,12 @@ impl<T: GetSafeID> TryGetSafeID for T {
 }
 
 impl TryGetSafeID for ConstructionSite {
+    fn try_safe_id(&self) -> Option<SafeID<Self>> {
+        self.try_id().map(|id| SafeID { id, inner: Rc::new(self.clone()) })
+    }
+}
+
+impl TryGetSafeID for Creep {
     fn try_safe_id(&self) -> Option<SafeID<Self>> {
         self.try_id().map(|id| SafeID { id, inner: Rc::new(self.clone()) })
     }

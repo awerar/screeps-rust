@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{Creep, RoomName};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap_keys};
+use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashet, deserialize_prune_hashmap_keys};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage<I: IDKind = SafeIDs> {
@@ -107,7 +107,7 @@ pub struct Messages {
 }
 
 impl Messages where {
-    pub fn creep(&mut self, creep: &Creep) -> &mut Mailbox<CreepMessage> {
-        self.creeps.entry(creep.safe_id()).or_default()
+    pub fn creep(&mut self, creep: &SafeID<Creep>) -> &mut Mailbox<CreepMessage> {
+        self.creeps.entry(creep.clone()).or_default()
     }
 }
