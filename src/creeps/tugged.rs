@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{Creep, Position};
 use serde::{Deserialize, Serialize};
 
-use crate::{messages::{CreepMessage, Messages, SpawnMessage}, movement::MovementSolver, safeid::{GetSafeID, IDKind, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, StateMachineTransition, Transition}};
+use crate::{messages::{CreepMessage, Messages, SpawnMessage}, movement::MovementSolver, safeid::{IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, StateMachineTransition, Transition}};
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq, EnumDisplay)]
 pub enum TuggedCreep<I: IDKind = SafeIDs> {
@@ -25,8 +25,8 @@ impl<'de> Deserialize<'de> for TuggedCreep {
     }
 }
 
-impl StateMachine<Creep, Messages> for TuggedCreep {
-    fn update(self, tugged: &Creep, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
+impl StateMachine<SafeID<Creep>, Messages> for TuggedCreep {
+    fn update(self, tugged: &SafeID<Creep>, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
         use TuggedCreep::*;
         use Transition::*;
 
@@ -37,7 +37,7 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
                     return Ok(Continue(GettingTugged(tugboat)))
                 }
 
-                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.safe_id()));
+                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.clone()));
                 Ok(Break(self))
             },
             GettingTugged(_) => { Ok(Break(self)) },
@@ -47,13 +47,13 @@ impl StateMachine<Creep, Messages> for TuggedCreep {
 }
 
 impl TuggedCreep {
-    pub fn move_tugged_to(&mut self, tugged: &Creep, messages: &mut Messages, movement_solver: &mut MovementSolver, target: Position, range: u32) -> bool {
+    pub fn move_tugged_to(&mut self, tugged: &SafeID<Creep>, messages: &mut Messages, movement_solver: &mut MovementSolver, target: Position, range: u32) -> bool {
         self.transition(tugged, messages);
         match self {
             TuggedCreep::Requesting => false,
             TuggedCreep::Finished => true,
             TuggedCreep::GettingTugged(tugboat) => {
-                let done = movement_solver.move_tugged_to(tugged, tugboat, target, range);
+                let done = movement_solver.move_tugged_to(tugged, tugboat, target, range).in_range();
                 if done { *self = Self::Finished; }
                 done
             }

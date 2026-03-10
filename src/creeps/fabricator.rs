@@ -118,7 +118,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FabricatorCreep {
                 let Some(buffer) = &home.buffer else { return fail_task_transition(task, coordinator) };
                 if buffer.store().get_used_capacity(Some(ResourceType::Energy)) == 0 { return fail_task_transition(task, coordinator) }
 
-                if movement_solver.move_creep_to(creep, buffer.pos(), 1) {
+                if movement_solver.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None)?;
                     return Ok(Break(Self::Performing(task.clone())))
                 }
@@ -135,7 +135,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FabricatorCreep {
 
                 messages.trucks.send(TruckMessage::Consumer(creep.clone(), home.name));
 
-                if movement_solver.move_creep_to(creep, task.pos, task.work_range()) && creep_energy > 0 {
+                if movement_solver.move_creep_to(creep, task.pos, task.work_range()).in_range() && creep_energy > 0 {
                     task.creep_work(creep)?;
                 }
 

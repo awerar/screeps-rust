@@ -163,7 +163,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
             Self::Performing(ref task) => {
                 if !task.still_valid() || !coordinator.heartbeat(creep, task) { return fail_task_transition(task, coordinator) }
                 
-                if movement_solver.move_creep_to(creep, task.pos(), 1) {
+                if movement_solver.move_creep_to(creep, task.pos(), 1).in_range() {
                     task.creep_perform(creep)?;
                     coordinator.finish(creep, task, true);
                     return Ok(Break(Self::Idle))
@@ -175,7 +175,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
                 let Some(buffer) = &home.buffer else { return fail_consumer_task_transition(consumer, coordinator) };
                 if buffer.energy() == 0 || !coordinator.consumers.heartbeat_task(creep, consumer) { return fail_consumer_task_transition(consumer, coordinator) }
 
-                if movement_solver.move_creep_to(creep, buffer.pos(), 1) {
+                if movement_solver.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
                     return Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
                 }
@@ -186,7 +186,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
                 let Some(buffer) = &home.buffer else { return Ok(Continue(Self::Idle)) };
                 if buffer.energy_capacity_left() == 0 { return Ok(Continue(Self::Idle)) }
                 
-                if movement_solver.move_creep_to(creep, buffer.pos(), 1) {
+                if movement_solver.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
                     return Ok(Break(Self::Idle))
                 }

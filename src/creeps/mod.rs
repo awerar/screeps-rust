@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::MovementSolver, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::{MoveTugboatResult, MovementSolver}, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -151,8 +151,8 @@ fn do_recycle(creep: &SafeID<Creep>, movement_solver: &mut MovementSolver, spawn
     }
 }
 
-fn do_tugboat(tugboat: &Creep, tugged: &SafeID<Creep>, movement_solver: &mut MovementSolver, home: ColonyView<'_>) -> CreepRole {
-    if movement_solver.move_tugboat(tugboat, tugged) {
+fn do_tugboat(tugboat: &SafeID<Creep>, tugged: &SafeID<Creep>, movement_solver: &mut MovementSolver, home: ColonyView<'_>) -> CreepRole {
+    if movement_solver.move_tugboat(tugboat, tugged) == MoveTugboatResult::Done {
         CreepRole::Scrap(get_recycle_spawn(tugboat, &home).safe_id())
     } else {
         CreepRole::Tugboat(tugged.clone())

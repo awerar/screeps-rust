@@ -53,7 +53,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
                 Ok(Break(self))
             }
             Claiming(request, controller) => {
-                if movement_solver.move_creep_to(creep, controller.pos(), 1) {
+                if movement_solver.move_creep_to(creep, controller.pos(), 1).in_range() {
                     match creep.claim_controller(&controller) {
                         Ok(()) => {
                             info!("Sucessfully claimed controller!");
