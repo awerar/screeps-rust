@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::MovementSolver, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{memory::ClaimRequests, movement::Movement, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<I: IDKind = SafeIDs> {
@@ -26,13 +26,13 @@ impl<'de> Deserialize<'de> for FlagshipCreep {
     }
 }
 
-type Args<'a> = (&'a mut MovementSolver, &'a mut ClaimRequests);
+type Args<'a> = (&'a mut Movement, &'a mut ClaimRequests);
 impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
 
-        let (movement_solver, claim_requests) = args;
+        let (movement, claim_requests) = args;
 
         match &self {
             Idle => {
@@ -49,11 +49,11 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
                     }
                 }
 
-                movement_solver.move_creep_to(creep, *target, 0);
+                movement.move_creep_to(creep, *target, 0);
                 Ok(Break(self))
             }
             Claiming(request, controller) => {
-                if movement_solver.move_creep_to(creep, controller.pos(), 1).in_range() {
+                if movement.move_creep_to(creep, controller.pos(), 1).in_range() {
                     match creep.claim_controller(controller) {
                         Ok(()) => {
                             info!("Sucessfully claimed controller!");

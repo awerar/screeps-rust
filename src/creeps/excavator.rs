@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, movement::MovementSolver, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, movement::Movement, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep<I: IDKind = SafeIDs> {
@@ -25,13 +25,13 @@ impl<'de> Deserialize<'de> for ExcavatorCreep {
     }
 }
 
-type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut MovementSolver);
+type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut Movement);
 impl StateMachine<SafeID<Creep>, Args<'_>> for ExcavatorCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
 
-        let (ref source, home, movement_solver) = args;
+        let (ref source, home, movement) = args;
 
         let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 
@@ -40,7 +40,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for ExcavatorCreep {
         match self {
             Going => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                if movement_solver.move_tugged_to(creep, harvest_pos, 0).in_range() {
+                if movement.move_tugged_to(creep, harvest_pos, 0).in_range() {
                     return Ok(Continue(Mining))
                 }
 

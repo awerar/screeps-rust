@@ -6,7 +6,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::MovementSolver, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -110,12 +110,12 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Args<'a> = (ColonyView<'a>, &'a mut MovementSolver, &'a mut TruckCoordinator, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages);
 impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
-        let (home, movement_solver, coordinator, messages) = args;
+        let (home, movement, coordinator, messages) = args;
 
         let fail_task_transition = |task, coordinator: &mut TruckCoordinator| {
             coordinator.finish(creep, task, false);
@@ -163,7 +163,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
             Self::Performing(ref task) => {
                 if !task.still_valid() || !coordinator.heartbeat(creep, task) { return fail_task_transition(task, coordinator) }
                 
-                if movement_solver.move_creep_to(creep, task.pos(), 1).in_range() {
+                if movement.move_creep_to(creep, task.pos(), 1).in_range() {
                     task.creep_perform(creep)?;
                     coordinator.finish(creep, task, true);
                     return Ok(Break(Self::Idle))
@@ -175,7 +175,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
                 let Some(buffer) = &home.buffer else { return fail_consumer_task_transition(consumer, coordinator) };
                 if buffer.energy() == 0 || !coordinator.consumers.heartbeat_task(creep, consumer) { return fail_consumer_task_transition(consumer, coordinator) }
 
-                if movement_solver.move_creep_to(creep, buffer.pos(), 1).in_range() {
+                if movement.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
                     return Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
                 }
@@ -186,7 +186,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
                 let Some(buffer) = &home.buffer else { return Ok(Continue(Self::Idle)) };
                 if buffer.energy_capacity_left() == 0 { return Ok(Continue(Self::Idle)) }
                 
-                if movement_solver.move_creep_to(creep, buffer.pos(), 1).in_range() {
+                if movement.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
                     return Ok(Break(Self::Idle))
                 }

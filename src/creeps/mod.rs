@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::{MoveTugboatResult, MovementSolver}, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::{MoveTugboatResult, Movement}, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 mod flagship;
 mod excavator;
@@ -143,15 +143,15 @@ impl CreepType {
     }
 }
 
-fn do_recycle(creep: &SafeID<Creep>, movement_solver: &mut MovementSolver, spawn: &SafeID<StructureSpawn>) {
-    movement_solver.move_creep_to(creep, spawn.pos(), 1);
+fn do_recycle(creep: &SafeID<Creep>, movement: &mut Movement, spawn: &SafeID<StructureSpawn>) {
+    movement.move_creep_to(creep, spawn.pos(), 1);
     if creep.pos().is_near_to(spawn.pos()) {
         spawn.recycle_creep(creep).ok();
     }
 }
 
-fn do_tugboat(tugboat: &SafeID<Creep>, tugged: &SafeID<Creep>, movement_solver: &mut MovementSolver, home: &ColonyView<'_>) -> CreepRole {
-    if movement_solver.move_tugboat(tugboat, tugged) == MoveTugboatResult::Done {
+fn do_tugboat(tugboat: &SafeID<Creep>, tugged: &SafeID<Creep>, movement: &mut Movement, home: &ColonyView<'_>) -> CreepRole {
+    if movement.move_tugboat(tugboat, tugged) == MoveTugboatResult::Done {
         CreepRole::Scrap(get_recycle_spawn(tugboat, home).safe_id())
     } else {
         CreepRole::Tugboat(tugged.clone())
@@ -202,7 +202,7 @@ pub fn do_creeps(mem: &mut Memory) {
         }
     }
 
-    mem.movement.solve();
+    mem.movement.move_all();
 
     for creep in &update_creeps {
         mem.messages.creep(creep).flush();
