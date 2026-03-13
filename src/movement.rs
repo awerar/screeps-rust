@@ -7,16 +7,34 @@ use serde::{Deserialize, Serialize};
 
 use crate::safeid::{SafeID, deserialize_prune_hashset, deserialize_prune_hashmap_keys};
 
+pub struct MovementOpen;
 #[derive(Serialize, Deserialize, Default)]
-pub struct Movement {
+pub struct MovementClosed;
+
+trait MovementTypeState { type Requests; }
+impl MovementTypeState for MovementOpen { type Requests = HashMap<SafeID<Creep>, MovementRequest>; }
+impl MovementTypeState for MovementClosed { type Requests = (); }
+
+#[derive(Serialize, Deserialize, Default)]
+#[expect(private_bounds)]
+pub struct Movement<S : MovementTypeState = MovementOpen> {
     #[serde(deserialize_with = "deserialize_prune_hashset")]
     done_tugboats: HashSet<SafeID<Creep>>,
 
     #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
     paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Direction>)>,
 
-    #[serde(default, skip)]
-    requests: HashMap<SafeID<Creep>, MovementRequest>
+    requests: S::Requests
+}
+
+impl Movement<MovementClosed> {
+    pub fn open(self) -> Movement<MovementOpen> {
+        Movement { 
+            requests: HashMap::new(), 
+            done_tugboats: self.done_tugboats,
+            paths: self.paths
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -70,7 +88,7 @@ pub enum MoveTugboatResult {
     Done, NotDone
 }
 
-impl Movement {
+impl Movement<MovementOpen> {
     pub fn move_creep_to(&mut self, creep: &SafeID<Creep>, target: Position, range: u32) -> MoveToResult {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep);
@@ -122,8 +140,15 @@ impl Movement {
     
      */
 
-    pub fn move_all(&mut self) {
-        let tugboat2tugged: HashMap<_ ,_> = self.requests.iter()
+    pub fn close(mut self) -> Movement<MovementClosed> {
+        let requests = self.requests;
+        let mut movement = Movement { 
+            done_tugboats: self.done_tugboats, 
+            paths: self.paths, 
+            requests: () 
+        };
+
+        let tugboat2tugged: HashMap<_ ,_> = requests.iter()
             .filter_map(|(creep, request)| {
                 let MovementRequest::TugboatMove(tugged) = request else { return None };
                 Some((Tugboat(creep.clone()), tugged.clone()))
@@ -138,7 +163,7 @@ impl Movement {
                 })
             }).into_iter()
             .filter_map(|(tugged, tugboat)| {
-                let MovementRequest::TuggedMoveTo(target) = self.requests.get(&tugged)? else { return None };
+                let MovementRequest::TuggedMoveTo(target) = requests.get(&tugged)? else { return None };
                 Some((tugged, (tugboat, target.clone())))
             }).collect();
 
@@ -169,20 +194,20 @@ impl Movement {
 
         let shoveable: HashMap<_, _> = SafeID::creeps()
             .filter(|creep| {
-                self.requests.get(creep).is_none_or(|request| {
+                requests.get(creep).is_none_or(|request| {
                     let MovementRequest::MoveTo(target) = request else { return false };
                     target.in_range(creep)
                 })
             }).filter(|creep| !blocked.contains(&creep.pos()))
             .map(|creep| {
-                let target = self.requests.get(&creep).and_then(MovementRequest::target).cloned();
+                let target = requests.get(&creep).and_then(MovementRequest::target).cloned();
                 (creep.pos(), (creep, target))
             }).collect();
 
         let moveable: HashMap<_, _> = SafeID::creeps()
             .filter_map(|creep| {
-                let target = self.requests.get(&creep)?.target()?.clone();
-                if target.in_range(&creep) { return None };
+                let target = requests.get(&creep)?.target()?.clone();
+                if target.in_range(&creep) { return None }
 
                 Some((creep.pos(), (creep, target)))
             }).collect();
@@ -192,9 +217,11 @@ impl Movement {
             shoveable,
             moveable,
             tugged2tugboat,
-        }.solve();
+        }.solve(&mut movement);
 
         self.done_tugboats = unused_tugboats.into_iter().map(|tugboat| tugboat.0).collect();
+
+        movement
     }
 }
 
@@ -207,7 +234,7 @@ struct MovementSolver {
 }
 
 impl MovementSolver {
-    fn solve(self) {
+    fn solve(self, movement: &mut Movement<MovementClosed>) {
 
     }
 }

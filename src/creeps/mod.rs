@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, mem};
 
 use derive_deref::{Deref, DerefMut};
 use log::warn;
@@ -176,33 +176,34 @@ pub fn do_creeps(mem: &mut Memory) {
             true
         }).collect();
 
+    let mut movement = mem::take(&mut mem.movement).open();
     for creep in &update_creeps {
         let creep_data = mem.creeps.get_mut(creep).unwrap();
         let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
         match &mut creep_data.role {
             Flagship(state) => {
-                let mut args  = (&mut mem.movement, &mut mem.claim_requests);
+                let mut args  = (&mut movement, &mut mem.claim_requests);
                 state.transition(creep, &mut args);
             },
             Excavator(state, source) => {
-                let mut args = (source.clone(), home, &mut mem.movement);
+                let mut args = (source.clone(), home, &mut movement);
                 state.transition(creep, &mut args);
             },
             Truck(state) => {
-                let mut args = (home, &mut mem.movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                let mut args = (home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
                 state.transition(creep, &mut args);
             },
             Fabricator(state) => {
-                let mut args = (home, &mut mem.movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                let mut args = (home, &mut movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
                 state.transition(creep, &mut args);
             },
-            Tugboat(tugged) => creep_data.role = do_tugboat(creep, tugged, &mut mem.movement, &home),
-            Scrap(spawn) => do_recycle(creep, &mut mem.movement, spawn),
+            Tugboat(tugged) => creep_data.role = do_tugboat(creep, tugged, &mut movement, &home),
+            Scrap(spawn) => do_recycle(creep, &mut movement, spawn),
         }
     }
 
-    mem.movement.move_all();
+    mem.movement = movement.close();
 
     for creep in &update_creeps {
         mem.messages.creep(creep).flush();
