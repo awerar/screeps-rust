@@ -140,7 +140,7 @@ impl Movement<MovementOpen> {
     
      */
 
-    pub fn close(mut self) -> Movement<MovementClosed> {
+    pub fn close(self) -> Movement<MovementClosed> {
         let requests = self.requests;
         let mut movement = Movement { 
             done_tugboats: self.done_tugboats, 
@@ -219,8 +219,7 @@ impl Movement<MovementOpen> {
             tugged2tugboat,
         }.solve(&mut movement);
 
-        self.done_tugboats = unused_tugboats.into_iter().map(|tugboat| tugboat.0).collect();
-
+        movement.done_tugboats = unused_tugboats.into_iter().map(|tugboat| tugboat.0).collect();
         movement
     }
 }
