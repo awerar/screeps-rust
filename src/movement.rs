@@ -1,11 +1,12 @@
-use std::{cmp::min_by_key, collections::{HashMap, HashSet, VecDeque}};
+use std::{cmp::min_by_key, collections::{HashMap, HashSet, VecDeque}, mem};
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use screeps::{Creep, Direction, HasPosition, Part, Position};
+use screeps::{Creep, Direction, HasPosition, Part, Position, game};
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::convert::TryFromJsValue;
 
-use crate::safeid::{SafeID, deserialize_prune_hashset, deserialize_prune_hashmap_keys};
+use crate::safeid::{SafeID, TryGetSafeID, deserialize_prune_hashmap_keys, deserialize_prune_hashset};
 
 pub struct MovementOpen;
 #[derive(Serialize, Deserialize, Default)]
@@ -30,7 +31,15 @@ pub struct Movement<S : MovementTypeState = MovementOpen> {
 impl Movement<MovementClosed> {
     pub fn open(self) -> Movement<MovementOpen> {
         Movement { 
-            requests: HashMap::new(), 
+            requests: game::spawns().values()
+                .filter_map(|spawn| spawn.spawning())
+                .filter(|spawning| spawning.remaining_time() == 0)
+                .filter_map(|spawning| {
+                    let creep = game::creeps().get(spawning.name().into())?.try_safe_id()?;
+                    let request = MovementRequest::SpawnMove { pos: spawning.spawn().pos(), directions: spawning.directions().into_iter().map(|val| Direction::try_from_js_value(val).unwrap()).collect() };
+
+                    Some((creep, request))
+                }).collect(), 
             done_tugboats: self.done_tugboats,
             paths: self.paths
         }
@@ -122,24 +131,6 @@ impl Movement<MovementOpen> {
         }
     }
 
-    /*
-        Blocked: positions that will contain a creep at the end of the tick
-            Initialized by:
-                Creeps with no MOVE part and (!being tugged or tugboat fatigued)
-                Fatigued creeps
-                Tugboats
-
-        Shovable creeps: positions with creeps that can could be moved out of the way
-            Creeps with no move request or that are their target (tugged and normal)
-            Shoving can fail if no spot within target is found
-            After an attempted shove blocked is updated
-
-        Moving creeps: positions with creeps that are expected to unblock this tick
-            Creeps that aren't at their target (tugged and normal)
-
-    
-     */
-
     pub fn close(self) -> Movement<MovementClosed> {
         let requests = self.requests;
         let mut movement = Movement { 
@@ -212,12 +203,21 @@ impl Movement<MovementOpen> {
                 Some((creep.pos(), (creep, target)))
             }).collect();
 
-        MovementSolver {
-            blocked,
-            shoveable,
-            moveable,
-            tugged2tugboat,
-        }.solve(&mut movement);
+        let tugged: HashMap<_, _> = tugged2tugboat.into_iter()
+            .map(|(tugged, (tugboat, target))| {
+                (tugged.pos(), (tugged, tugboat, target))
+            }).collect();
+
+        let spawns = requests.into_values()
+            .filter_map(|request| {
+                let MovementRequest::SpawnMove { pos, directions } = request else { return None };
+                Some((pos, directions))
+            }).collect();
+
+        let creeps: HashSet<_> = SafeID::creeps().map(|creep| creep.pos()).collect();
+
+        MovementSolver { blocked, shoveable, moveable, creeps, tugged, spawns }
+            .solve(&mut movement);
 
         movement.done_tugboats = unused_tugboats.into_iter().map(|tugboat| tugboat.0).collect();
         movement
@@ -228,12 +228,37 @@ struct MovementSolver {
     blocked: HashSet<Position>,
     shoveable: HashMap<Position, (SafeID<Creep>, Option<MoveTarget>)>,
     moveable: HashMap<Position, (SafeID<Creep>, MoveTarget)>,
+    creeps: HashSet<Position>,
 
-    tugged2tugboat: HashMap<Tugged, (Tugboat, MoveTarget)>
+    tugged: HashMap<Position, (Tugged, Tugboat, MoveTarget)>,
+    spawns: HashMap<Position, Vec<Direction>>
 }
 
 impl MovementSolver {
-    fn solve(self, movement: &mut Movement<MovementClosed>) {
+    fn solve(mut self, movement: &mut Movement<MovementClosed>) {
+        while let Some(pos) = self.tugged.keys().next() {
+            self.try_clear(*pos, &mut HashSet::new());
+        }
 
+        while let Some(pos) = self.moveable.keys().next() {
+            self.try_clear(*pos, &mut HashSet::new());
+        }
+
+        for (pos, directions) in mem::take(&mut self.spawns) {
+            let positions = directions.into_iter()
+                .map(|dir| pos + dir)
+                .sorted_by_key(|pos| i32::from(self.creeps.contains(pos)));
+
+            for pos in positions {
+                if self.try_clear(pos, &mut HashSet::new()) {
+                    break;
+                }
+            }
+
+        }
+    }
+
+    fn try_clear(&mut self, pos: Position, cleared: &mut HashSet<Position>) -> bool {
+        todo!()
     }
 }
