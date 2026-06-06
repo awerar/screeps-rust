@@ -1,19 +1,19 @@
-use std::{cmp::min_by_key, collections::{HashMap, HashSet, VecDeque}, mem};
+use std::{collections::{HashMap, HashSet, VecDeque}, ops::Not};
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use screeps::{Creep, Direction, HasPosition, Part, Position, game};
+use screeps::{Creep, Direction, HasPosition, Position, RoomTerrain, Spawning, Terrain, game, look};
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::convert::TryFromJsValue;
+use bimap::BiHashMap;
 
-use crate::safeid::{SafeID, TryGetSafeID, deserialize_prune_hashmap_keys, deserialize_prune_hashset};
+use crate::{memory::Memory, messages::SpawnMessage, safeid::{SafeID, deserialize_prune_hashmap_keys, deserialize_prune_hashset}};
 
 pub struct MovementOpen;
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementClosed;
 
 trait MovementTypeState { type Requests; }
-impl MovementTypeState for MovementOpen { type Requests = HashMap<SafeID<Creep>, MovementRequest>; }
+impl MovementTypeState for MovementOpen { type Requests = HashMap<SafeID<Creep>, MoveRequest>; }
 impl MovementTypeState for MovementClosed { type Requests = (); }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -31,15 +31,7 @@ pub struct Movement<S : MovementTypeState = MovementOpen> {
 impl Movement<MovementClosed> {
     pub fn open(self) -> Movement<MovementOpen> {
         Movement { 
-            requests: game::spawns().values()
-                .filter_map(|spawn| spawn.spawning())
-                .filter(|spawning| spawning.remaining_time() == 0)
-                .filter_map(|spawning| {
-                    let creep = game::creeps().get(spawning.name().into())?.try_safe_id()?;
-                    let request = MovementRequest::SpawnMove { pos: spawning.spawn().pos(), directions: spawning.directions().into_iter().map(|val| Direction::try_from_js_value(val).unwrap()).collect() };
-
-                    Some((creep, request))
-                }).collect(), 
+            requests: HashMap::new(),
             done_tugboats: self.done_tugboats,
             paths: self.paths
         }
@@ -64,18 +56,17 @@ struct Tugboat(SafeID<Creep>);
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugged(SafeID<Creep>);
 
-enum MovementRequest {
+enum MoveRequest {
     MoveTo(MoveTarget),
     TuggedMoveTo(MoveTarget),
-    TugboatMove(Tugged),
-    SpawnMove { pos: Position, directions: Vec<Direction> }
+    TugboatMove(Tugged)
 }
 
-impl MovementRequest {
+impl MoveRequest {
     fn target(&self) -> Option<&MoveTarget> {
         match self {
-            MovementRequest::MoveTo(target)
-            | MovementRequest::TuggedMoveTo(target) => Some(target),
+            MoveRequest::MoveTo(target)
+            | MoveRequest::TuggedMoveTo(target) => Some(target),
             _ => None
         }
     }
@@ -102,7 +93,7 @@ impl Movement<MovementOpen> {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep);
 
-        self.requests.insert(creep.clone(), MovementRequest::MoveTo(target));
+        self.requests.insert(creep.clone(), MoveRequest::MoveTo(target));
         if in_range { 
             MoveToResult::InRange 
         } else { 
@@ -114,7 +105,7 @@ impl Movement<MovementOpen> {
         if self.done_tugboats.contains(tugboat) {
             MoveTugboatResult::Done
         } else {
-            self.requests.insert(tugboat.clone(), MovementRequest::TugboatMove(Tugged(tugged.clone())) );
+            self.requests.insert(tugboat.clone(), MoveRequest::TugboatMove(Tugged(tugged.clone())) );
             MoveTugboatResult::NotDone
         }
     }
@@ -123,7 +114,7 @@ impl Movement<MovementOpen> {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep);
 
-        self.requests.insert(creep.clone(), MovementRequest::TuggedMoveTo(target));
+        self.requests.insert(creep.clone(), MoveRequest::TuggedMoveTo(target));
         if in_range { 
             MoveToResult::InRange 
         } else { 
@@ -131,134 +122,244 @@ impl Movement<MovementOpen> {
         }
     }
 
-    pub fn close(self) -> Movement<MovementClosed> {
-        let requests = self.requests;
+    pub fn close(self, mem: &mut Memory) -> Movement<MovementClosed> {
+        let mut processor = MoveRequestProcessor::new(self.requests);
         let mut movement = Movement { 
             done_tugboats: self.done_tugboats, 
             paths: self.paths, 
             requests: () 
         };
 
-        let tugboat2tugged: HashMap<_ ,_> = requests.iter()
-            .filter_map(|(creep, request)| {
-                let MovementRequest::TugboatMove(tugged) = request else { return None };
-                Some((Tugboat(creep.clone()), tugged.clone()))
-            }).collect();
+        processor.collect_sessions();
+        processor.handle_unpaired();
+        processor.handle_distant_sessions();
 
-        let tugged2tugboat: HashMap<_, _> = tugboat2tugged.iter()
-            .map(|(tugboat, tugged)| (tugged.clone(), tugboat.clone()))
-            .into_grouping_map()
-            .reduce(|closest_tugboat, tugged, candidate_tugboat| {
-                min_by_key(closest_tugboat, candidate_tugboat, |tugboat| {
-                    tugged.pos().get_range_to(tugboat.pos())
-                })
-            }).into_iter()
-            .filter_map(|(tugged, tugboat)| {
-                let MovementRequest::TuggedMoveTo(target) = requests.get(&tugged)? else { return None };
-                Some((tugged, (tugboat, target.clone())))
-            }).collect();
+        MovementSolver::new(processor.get_virtual_creeps()).solve();
 
-        let used_tugboats: HashSet<_> = tugged2tugboat.values()
-            .map(|(tugboat, _)| tugboat)
-            .cloned()
-            .collect();
+        for tugged in &processor.unpaired_tugged {
+            mem.messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.0.clone()));
+        }
 
-        let all_tugboats = tugboat2tugged.keys()
-            .cloned()
-            .collect::<HashSet<_>>();
-
-        let unused_tugboats: HashSet<_> = all_tugboats.difference(&used_tugboats)
-            .cloned()
-            .collect();
-
-        let blocked = SafeID::creeps()
-            .filter(|creep| {
-                let has_move_parts = creep.body().into_iter().any(|bodypart| bodypart.part() == Part::Move);
-                let is_fatigued = creep.fatigue() > 0;
-                let is_used_tugboat = used_tugboats.contains(&Tugboat(creep.clone()));
-                let will_be_tugged = tugged2tugboat.get(&Tugged(creep.clone()))
-                    .is_some_and(|(tugboat, _)| tugboat.fatigue() == 0);
-
-                is_fatigued || is_used_tugboat || !(has_move_parts || will_be_tugged)
-            }).map(|creep| creep.pos())
-            .collect::<HashSet<_>>();
-
-        let shoveable: HashMap<_, _> = SafeID::creeps()
-            .filter(|creep| {
-                requests.get(creep).is_none_or(|request| {
-                    let MovementRequest::MoveTo(target) = request else { return false };
-                    target.in_range(creep)
-                })
-            }).filter(|creep| !blocked.contains(&creep.pos()))
-            .map(|creep| {
-                let target = requests.get(&creep).and_then(MovementRequest::target).cloned();
-                (creep.pos(), (creep, target))
-            }).collect();
-
-        let moveable: HashMap<_, _> = SafeID::creeps()
-            .filter_map(|creep| {
-                let target = requests.get(&creep)?.target()?.clone();
-                if target.in_range(&creep) { return None }
-
-                Some((creep.pos(), (creep, target)))
-            }).collect();
-
-        let tugged: HashMap<_, _> = tugged2tugboat.into_iter()
-            .map(|(tugged, (tugboat, target))| {
-                (tugged.pos(), (tugged, tugboat, target))
-            }).collect();
-
-        let spawns = requests.into_values()
-            .filter_map(|request| {
-                let MovementRequest::SpawnMove { pos, directions } = request else { return None };
-                Some((pos, directions))
-            }).collect();
-
-        let creeps: HashSet<_> = SafeID::creeps().map(|creep| creep.pos()).collect();
-
-        MovementSolver { blocked, shoveable, moveable, creeps, tugged, spawns }
-            .solve(&mut movement);
-
-        movement.done_tugboats = unused_tugboats.into_iter().map(|tugboat| tugboat.0).collect();
+        movement.done_tugboats = processor.unpaired_tugboats.into_iter().map(|tugboat| tugboat.0).collect();
         movement
     }
 }
 
-struct MovementSolver {
-    blocked: HashSet<Position>,
-    shoveable: HashMap<Position, (SafeID<Creep>, Option<MoveTarget>)>,
-    moveable: HashMap<Position, (SafeID<Creep>, MoveTarget)>,
-    creeps: HashSet<Position>,
+struct MoveRequestProcessor {
+    requests: HashMap<SafeID<Creep>, MoveRequest>,
+    sessions: BiHashMap<Tugboat, Tugged>,
+    unpaired_tugboats: Vec<Tugboat>,
+    unpaired_tugged: Vec<Tugged>,
 
-    tugged: HashMap<Position, (Tugged, Tugboat, MoveTarget)>,
-    spawns: HashMap<Position, Vec<Direction>>
+    spawning: Vec<Spawning>
 }
 
-impl MovementSolver {
-    fn solve(mut self, movement: &mut Movement<MovementClosed>) {
-        while let Some(pos) = self.tugged.keys().next() {
-            self.try_clear(*pos, &mut HashSet::new());
-        }
-
-        while let Some(pos) = self.moveable.keys().next() {
-            self.try_clear(*pos, &mut HashSet::new());
-        }
-
-        for (pos, directions) in mem::take(&mut self.spawns) {
-            let positions = directions.into_iter()
-                .map(|dir| pos + dir)
-                .sorted_by_key(|pos| i32::from(self.creeps.contains(pos)));
-
-            for pos in positions {
-                if self.try_clear(pos, &mut HashSet::new()) {
-                    break;
-                }
-            }
-
+impl MoveRequestProcessor {
+    fn new(requests: HashMap<SafeID<Creep>, MoveRequest>) -> MoveRequestProcessor {
+        MoveRequestProcessor { 
+            requests, 
+            sessions: BiHashMap::new(),
+            unpaired_tugboats: Vec::new(),
+            unpaired_tugged: Vec::new(),
+            spawning: Vec::new()
         }
     }
 
-    fn try_clear(&mut self, pos: Position, cleared: &mut HashSet<Position>) -> bool {
-        todo!()
+    fn get_tugged_target<'a>(&'a self, tugged: &Tugged) -> Option<&'a MoveTarget> {
+        let MoveRequest::TuggedMoveTo(target) = self.requests.get(&tugged.0)? else { return None };
+        Some(target)
+    }
+
+    fn collect_sessions(&mut self) {
+        self.sessions = self.requests.iter()
+            .filter_map(|(creep, request)| {
+                let MoveRequest::TugboatMove(tugged) = request else { return None };
+                self.get_tugged_target(tugged)?;
+
+                Some((Tugboat(creep.clone()), tugged.clone()))
+            }).collect();
+    }
+
+    fn handle_unpaired(&mut self) {
+        self.requests.iter()
+            .filter(|(_, r)| matches!(r, MoveRequest::TugboatMove(_)))
+            .map(|(creep, _)| Tugboat(creep.clone()))
+            .collect::<HashSet<_>>()
+            .difference(
+                &self.sessions.left_values().cloned().collect()
+            )
+            .for_each(|tugboat| {
+                self.requests.remove(tugboat);
+                self.unpaired_tugboats.push(tugboat.clone());
+            });
+
+        self.requests.iter()
+            .filter(|(_, r)| matches!(r, MoveRequest::TuggedMoveTo(_)))
+            .map(|(creep, _)| Tugged(creep.clone()))
+            .collect::<HashSet<_>>()
+            .difference(
+                &self.sessions.right_values().cloned().collect()
+            )
+            .for_each(|tugged| {
+                let target = self.get_tugged_target(tugged).unwrap().clone();
+                self.requests.insert(tugged.0.clone(), MoveRequest::MoveTo(target));
+                self.unpaired_tugged.push(tugged.clone());
+            });
+    }
+
+    fn handle_distant_sessions(&mut self) {
+        self.sessions.iter()
+            .filter(|(tugboat, tugged)| !tugboat.pos().is_near_to(tugged.pos()))
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect_vec().into_iter()
+            .for_each(|(tugboat, tugged)| {
+                self.sessions.remove_by_left(&tugboat);
+
+                let target = self.get_tugged_target(&tugged).unwrap().clone();
+                self.requests.insert(tugged.0.clone(), MoveRequest::MoveTo(target));
+
+                self.requests.insert(tugboat.0.clone(), MoveRequest::MoveTo(MoveTarget { target: tugged.pos(), range: 1 }));
+            });
+    }
+
+    fn get_virtual_creeps(&mut self) -> HashMap<SafeID<Creep>, VirtualCreep> {
+        SafeID::creeps().flat_map(|creep| {
+            let Some(request) = self.requests.get(&creep) else {
+                return creep.spawning().not().then(||
+                    (creep, VirtualCreep::Single { target: None }))
+            };
+
+            let virtual_creep = match request {
+                MoveRequest::MoveTo(target) => 
+                    VirtualCreep::Single { 
+                        target: Some(target.clone()) 
+                    },
+                MoveRequest::TuggedMoveTo(target) => 
+                    VirtualCreep::Tail { 
+                        target: Some(target.clone()), 
+                        next: self.sessions.get_by_right(&Tugged(creep.clone())).unwrap().0.clone()
+                    },
+                MoveRequest::TugboatMove(tugged) => 
+                    VirtualCreep::Head { 
+                        prev: tugged.0.clone()
+                    },
+            };
+
+            Some((creep, virtual_creep))
+        }).collect()
+    }
+}
+
+#[derive(Clone)]
+enum VirtualCreep {
+    Head { prev: SafeID<Creep> },
+    Tail { next: SafeID<Creep>, target: Option<MoveTarget> },
+    Single { target: Option<MoveTarget> }
+}
+
+impl VirtualCreep {
+    fn is_single(&self) -> bool { matches!(self, Self::Single { .. }) }
+    fn is_tail(&self) -> bool { matches!(self, Self::Tail { .. }) }
+    fn is_head(&self) -> bool { matches!(self, Self::Head { .. }) }
+
+    fn next(&self) -> Option<&SafeID<Creep>> {
+        match self {
+            Self::Tail { next, .. } => Some(next),
+            _ => None
+        }
+    }
+
+    fn prev(&self) -> Option<&SafeID<Creep>> {
+        match self {
+            Self::Head { prev } => Some(prev),
+            _ => None
+        }
+    }
+
+    fn target(&self) -> Option<&MoveTarget> {
+        match self {
+            Self::Tail { target, .. }
+            | Self::Single { target } => target.as_ref(),
+            _ => None
+        }
+    }
+}
+
+struct MovementSolver {
+    curr: HashMap<Position, SafeID<Creep>>,
+    next: HashMap<Position, SafeID<Creep>>,
+    creeps: HashMap<SafeID<Creep>, VirtualCreep>,
+
+    solution: HashMap<SafeID<Creep>, Option<Direction>>
+}
+
+impl MovementSolver {
+    fn new(creeps: HashMap<SafeID<Creep>, VirtualCreep>) -> Self {
+        MovementSolver { 
+            curr: creeps.keys().cloned().map(|creep| (creep.pos(), creep)).collect(), 
+            next: HashMap::new(), 
+            creeps,
+            solution: HashMap::new()
+        }
+    }
+
+    fn solve(mut self) {
+        let spawning = game::spawns().values()
+            .filter_map(|spawn| spawn.spawning())
+            .filter(|spawning| spawning.remaining_time() == 0)
+            .collect_vec();
+
+        let unsatisfied = self.creeps.iter().filter(|(creep, vcreep)| {
+                vcreep.is_single()
+                && vcreep.target().is_some_and(|target| target.in_range(*creep))
+            }).map(|(creep, _)| creep.clone())
+            .collect_vec();
+
+        let tails = self.creeps.iter().filter(|(_, vcreep)| vcreep.is_tail())
+            .map(|(creep, _)| creep.clone())
+            .collect_vec();
+
+        for creep in tails.into_iter().chain(unsatisfied.into_iter()) {
+            self.poke(creep, &mut HashSet::new());
+        }
+
+        for creep in spawning {
+            self.poke_spawning(&creep);
+        }
+    }
+
+    fn poke_spawning(&mut self, creep: &Spawning) {
+
+    }
+
+    fn poke(&mut self, creep: SafeID<Creep>, visited: &mut HashSet<SafeID<Creep>>) -> bool {
+        if self.next.get(&creep.pos()).is_some() { return false }
+        if self.creeps.get(&creep).is_none_or(|vcreep| vcreep.is_head()) { return false }
+        if visited.contains(&creep) { return true }
+        visited.insert(creep.clone());
+
+        
+
+        visited.remove(&creep);
+        self.is_clear_at(creep.pos())
+    }
+
+    fn vcreep(&self, creep: SafeID<Creep>) -> &VirtualCreep {
+        self.creeps.get(&creep).unwrap()
+    }
+
+    fn is_clear_at(&self, pos: Position) -> bool {
+        self.next.get(&pos).is_none() &&
+        self.curr.get(&pos).is_none_or(|creep| self.solution.get(creep).is_some_and(|dir| dir.is_some()))
+    }
+
+    fn walkable_at(&self, pos: Position) -> bool {
+        RoomTerrain::new(pos.room_name()).unwrap().get_xy(pos.xy()) != Terrain::Wall
+        && pos.look_for(look::STRUCTURES).ok().is_none_or(|structures| {
+            structures.into_iter().all(|structure| !structure.structure_type().is_obstacle())
+        })
+        && pos.look_for(look::CREEPS).ok().is_none_or(|creeps| {
+            creeps.into_iter().all(|creep| creep.my())
+        })
     }
 }
