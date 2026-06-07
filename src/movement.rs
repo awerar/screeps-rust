@@ -218,6 +218,16 @@ enum SimpleMoveCreep {
     Stationary
 }
 
+impl SimpleMoveCreep {
+    fn prev(&self) -> Option<&SafeID<Creep>> {
+        match self {
+            Self::Head { prev, .. }
+            | Self::Follower { prev, .. } => prev.as_ref(),
+            Self::Free | Self::Stationary => None
+        }
+    }
+}
+
 struct MovementSimplifier {
     creeps: HashMap<SafeID<Creep>, MoveCreep>,
     result: HashMap<SafeID<Creep>, SimpleMoveCreep>
@@ -259,20 +269,24 @@ impl MovementSimplifier {
 
         for (creep, mcreep) in self.result.iter().map(|(a, b)| (a.clone(), b.clone())).collect_vec() {
             let SimpleMoveCreep::Head { .. } = mcreep else { continue; };
-            self.handle_train_fatigue(creep);
+            self.handle_train_fatigue(&creep);
         }
 
         self.result
     }
 
     // Splits disconnected trains into smaller connected trains
+    // Also peels away tail segments which satisfy their target
     // Returns new tail (tail of frontmost train)
     fn split_train(&mut self, tail: &SafeID<Creep>) -> SafeID<Creep> {
         let mut train: VecDeque<SafeID<Creep>> = VecDeque::new();
 
         let mut segment = tail.clone();
-        while let MoveCreep::Follower { prev, next, .. } = self.creeps.get(&segment).unwrap() {
-            if !next.pos().is_near_to(segment.pos()) {
+        while let MoveCreep::Follower { prev, next, target } = self.creeps.get(&segment).unwrap() {
+            let disconnected = !next.pos().is_near_to(segment.pos());
+            let detachable = target.in_range(&segment) && train.is_empty();
+
+            if disconnected || detachable {
                 self.result.insert(
                     segment.clone(), 
                     SimpleMoveCreep::Head { 
@@ -354,8 +368,33 @@ impl MovementSimplifier {
         );
     }
 
-    fn handle_train_fatigue(&mut self, head: SafeID<Creep>) {
-        todo!()
+    fn handle_train_fatigue(&mut self, head: &SafeID<Creep>) {
+        if self.pull_backwards_rec(head) {
+            self.make_train_stationary(head);
+        }
+    }
+
+    // Pulls the train backwards from any fatigued creep
+    // This makes it recieve negative fatigue from the head
+    fn pull_backwards_rec(&mut self, segment: &SafeID<Creep>) -> bool {
+        if segment.fatigue() > 0 { return true; }
+
+        let Some(prev) = self.result.get(segment).unwrap().prev().cloned() else { return false };
+        if self.pull_backwards_rec(&prev) {
+            prev.pull(segment);
+            segment.move_pulled_by(&prev);
+
+            true
+        } else {
+            false
+        }
+    }
+
+    fn make_train_stationary(&mut self, head: &SafeID<Creep>) {
+        let mut segment = Some(head.clone());
+        while let Some(seg) = &segment {
+            segment = self.result.insert(seg.clone(), SimpleMoveCreep::Stationary).unwrap().prev().cloned();
+        }
     }
 }
 
