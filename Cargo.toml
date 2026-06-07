@@ -2,7 +2,7 @@
 name = "screeps-starter-rust"
 version = "0.0.0"
 authors = []
-edition = "2021"
+edition = "2024"
 
 [lints.clippy]
 pedantic = "warn"

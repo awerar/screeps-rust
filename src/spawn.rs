@@ -369,8 +369,9 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     for msg in mem.messages.spawn.read_all() {
         #[expect(irrefutable_let_patterns)]
         let SpawnMessage::SpawnTugboatFor(tugged) = msg else { continue; };
-        // if schedule.all_creeps().filter_type(C)
-        // TODO
+        let already_exists = schedule.all_creeps().0
+            .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == tugged));
+        if already_exists { continue; }
 
         let Some(home) = mem.creeps.get(&tugged).map(|data| data.home) else { continue; };
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };

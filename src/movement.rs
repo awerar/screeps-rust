@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, ops::Not};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use derive_deref::Deref;
 use itertools::Itertools;
@@ -6,7 +6,7 @@ use screeps::{Creep, Direction, HasPosition, Position, RoomTerrain, Spawning, St
 use serde::{Deserialize, Serialize};
 use bimap::BiHashMap;
 
-use crate::{memory::Memory, messages::SpawnMessage, safeid::{SafeID, deserialize_prune_hashmap_keys}};
+use crate::{memory::Memory, safeid::{SafeID, deserialize_prune_hashmap_keys}};
 
 /* 
 ===== Movement Solver Specification =====
@@ -18,6 +18,8 @@ Creep chains try to destruct themselves as quickly as possible
 Each segment in a chain has a target
 Chains are evaluated from tail to the head
 Chains are simplified so that just the head has a target
+
+TODO: Force heads to move if they have any unsatisfied segments
 */
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -105,6 +107,11 @@ impl Movement {
         self.remove_invalid_sessions();
         self.handle_unpaired_tugboats();
         self.handle_unpaired_tuggeds();
+
+        let creeps = self.collect_creeps();
+        let creeps = MovementSimplifier::new(creeps).simplify();
+
+        MovementSolver::new(creeps, mem).solve();
     }
 
     fn remove_invalid_sessions(&mut self) {
@@ -115,126 +122,261 @@ impl Movement {
     }
 
     fn handle_unpaired_tugboats(&mut self) {
-
-    }
-
-    fn handle_unpaired_tuggeds(&mut self) {
-
-    }
-}
-
-/*struct ChainProcessor {
-    requests: HashMap<SafeID<Creep>, MoveRequest>,
-    sessions: BiHashMap<Tugboat, Tugged>
-}
-
-impl ChainProcessor {
-    fn new(requests: HashMap<SafeID<Creep>, MoveRequest>) -> ChainProcessor {
-        ChainProcessor { 
-            requests, 
-            sessions: BiHashMap::new()
-        }
-    }
-
-    fn handle_unpaired(&mut self) {
-        self.requests.iter()
-            .filter(|(_, r)| matches!(r, MoveRequest::TugboatMove(_)))
-            .map(|(creep, _)| Tugboat(creep.clone()))
+        self.tugboats.keys()
+            .cloned()
             .collect::<HashSet<_>>()
             .difference(
                 &self.sessions.left_values().cloned().collect()
             )
             .for_each(|tugboat| {
-                self.requests.remove(tugboat);
-                self.unpaired_tugboats.push(tugboat.clone());
+                let spawn = self.tugboats.remove(tugboat).unwrap();
+                if tugboat.pos().is_near_to(spawn.pos()) {
+                    spawn.recycle_creep(tugboat).ok();
+                } else {
+                    self.singles.insert(tugboat.0.clone(), MoveTarget { target: spawn.pos(), range: 1 });
+                }
             });
+    }
 
-        self.requests.iter()
-            .filter(|(_, r)| matches!(r, MoveRequest::TuggedMoveTo(_)))
-            .map(|(creep, _)| Tugged(creep.clone()))
+    fn handle_unpaired_tuggeds(&mut self) {
+        self.tuggeds.keys()
+            .cloned()
             .collect::<HashSet<_>>()
             .difference(
                 &self.sessions.right_values().cloned().collect()
             )
             .for_each(|tugged| {
-                let target = self.get_tugged_target(tugged).unwrap().clone();
-                self.requests.insert(tugged.0.clone(), MoveRequest::MoveTo(target));
-                self.unpaired_tugged.push(tugged.clone());
+                let target = self.tuggeds.remove(tugged).unwrap();
+                self.singles.insert(tugged.0.clone(), target);
             });
     }
 
-    fn handle_distant_sessions(&mut self) {
-        self.sessions.iter()
-            .filter(|(tugboat, tugged)| !tugboat.pos().is_near_to(tugged.pos()))
-            .map(|(a, b)| (a.clone(), b.clone()))
-            .collect_vec().into_iter()
-            .for_each(|(tugboat, tugged)| {
-                self.sessions.remove_by_left(&tugboat);
+    fn collect_creeps(self) -> HashMap<SafeID<Creep>, MoveCreep> {
+        SafeID::creeps().map(|creep| {
+                let move_creep = if let Some(tugged) = self.sessions.get_by_left(&Tugboat(creep.clone())) {
+                    MoveCreep::Head { 
+                        prev: Some(tugged.0.clone()), 
+                        target: MoveTarget { 
+                            target: self.tugboats.get(&Tugboat(creep.clone())).unwrap().pos(), 
+                            range: 1
+                        } 
+                    }
+                } else if let Some(tugboat) = self.sessions.get_by_right(&Tugged(creep.clone())) {
+                    MoveCreep::Follower { 
+                        prev: None, 
+                        next: tugboat.0.clone(), 
+                        target: self.tuggeds.get(&Tugged(creep.clone())).unwrap().clone()
+                    }
+                } else {
+                    self.singles.get(&creep)
+                        .map(|target| MoveCreep::Head { prev: None, target: target.clone() })
+                        .unwrap_or(MoveCreep::Free)
+                };
 
-                let target = self.get_tugged_target(&tugged).unwrap().clone();
-                self.requests.insert(tugged.0.clone(), MoveRequest::MoveTo(target));
-
-                self.requests.insert(tugboat.0.clone(), MoveRequest::MoveTo(MoveTarget { target: tugged.pos(), range: 1 }));
-            });
+                (creep, move_creep)
+            }).collect()
     }
-
-    fn generate_virtual_creeps(&mut self) -> HashMap<SafeID<Creep>, VirtualCreep> {
-        SafeID::creeps().flat_map(|creep| {
-            let Some(request) = self.requests.get(&creep) else {
-                return creep.spawning().not().then(||
-                    (creep, VirtualCreep::Single { target: None }))
-            };
-
-            let virtual_creep = match request {
-                MoveRequest::MoveTo(target) => 
-                    VirtualCreep::Single { 
-                        target: Some(target.clone()) 
-                    },
-                MoveRequest::TuggedMoveTo(target) => 
-                    VirtualCreep::Tail { 
-                        target: Some(target.clone()), 
-                        next: self.sessions.get_by_right(&Tugged(creep.clone())).unwrap().0.clone()
-                    },
-                MoveRequest::TugboatMove(tugged) => 
-                    VirtualCreep::Head { 
-                        prev: tugged.0.clone()
-                    },
-            };
-
-            Some((creep, virtual_creep))
-        }).collect()
-    }
-}*/
-
-enum MoveConstraint {
-    PulledBy(SafeID<Creep>),
-    GoTo(MoveTarget),
-    Stay,
-    Free
 }
 
 #[derive(Clone)]
-enum VirtualCreep {
-    Head { prev: SafeID<Creep> },
-    Segment { prev: Option<SafeID<Creep>>, next: SafeID<Creep>, target: MoveTarget },
-    Single { target: Option<MoveTarget> }
+enum MoveCreep {
+    Head { prev: Option<SafeID<Creep>>, target: MoveTarget },
+    Follower { prev: Option<SafeID<Creep>>, next: SafeID<Creep>, target: MoveTarget },
+    Free
 }
 
-struct MovementSolver {
+impl MoveCreep {
+    fn prev(&self) -> Option<&SafeID<Creep>> {
+        match self {
+            Self::Head { prev, .. }
+            | Self::Follower { prev, .. } => prev.as_ref(),
+            Self::Free => None
+        }
+    }
+
+    fn next(&self) -> Option<&SafeID<Creep>> {
+        match self {
+            MoveCreep::Follower { next, ..} => Some(next),
+            MoveCreep::Head { .. } | MoveCreep::Free => None,
+        }
+    }
+
+    fn target(&self) -> Option<&MoveTarget> {
+        match self {
+            Self::Head { target, .. }
+            | Self::Follower { target, .. } => Some(target),
+            Self::Free => None
+        }
+    }
+}
+
+#[derive(Clone)]
+enum SimpleMoveCreep {
+    Head { prev: Option<SafeID<Creep>>, target: MoveTarget, must_move: bool },
+    Follower { prev: Option<SafeID<Creep>>, next: SafeID<Creep> },
+    Free,
+    Stationary
+}
+
+struct MovementSimplifier {
+    creeps: HashMap<SafeID<Creep>, MoveCreep>,
+    result: HashMap<SafeID<Creep>, SimpleMoveCreep>
+}
+
+/* 
+    All trains have a single target
+    All trains are connected
+    All creeps not marked as stationary can move
+    No creeps are removed
+*/
+impl MovementSimplifier {
+    pub fn new(creeps: HashMap<SafeID<Creep>, MoveCreep>) -> Self {
+        Self {
+            creeps,
+            result: HashMap::new()
+        }
+    }
+
+    pub fn simplify(mut self) -> HashMap<SafeID<Creep>, SimpleMoveCreep> {
+        for (creep, mcreep) in self.creeps.iter().map(|(a, b)| (a.clone(), b.clone())).collect_vec() {
+            match mcreep {
+                MoveCreep::Free => {
+                    if creep.fatigue() == 0 {
+                        self.result.insert(creep.clone(), SimpleMoveCreep::Free);
+                    } else {
+                        self.result.insert(creep.clone(), SimpleMoveCreep::Stationary);
+                    }
+                }
+                MoveCreep::Head { .. } => (),
+                MoveCreep::Follower { prev, .. } => {
+                    if prev.is_none() {
+                        let new_tail = self.split_train(&creep);
+                        self.simplify_train(&new_tail);
+                    }
+                },
+            }
+        }
+
+        for (creep, mcreep) in self.result.iter().map(|(a, b)| (a.clone(), b.clone())).collect_vec() {
+            let SimpleMoveCreep::Head { .. } = mcreep else { continue; };
+            self.handle_train_fatigue(creep);
+        }
+
+        self.result
+    }
+
+    // Splits disconnected trains into smaller connected trains
+    // Returns new tail (tail of frontmost train)
+    fn split_train(&mut self, tail: &SafeID<Creep>) -> SafeID<Creep> {
+        let mut train: VecDeque<SafeID<Creep>> = VecDeque::new();
+
+        let mut segment = tail.clone();
+        while let MoveCreep::Follower { prev, next, .. } = self.creeps.get(&segment).unwrap() {
+            if !next.pos().is_near_to(segment.pos()) {
+                self.result.insert(
+                    segment.clone(), 
+                    SimpleMoveCreep::Head { 
+                        prev: prev.clone(), 
+                        target: MoveTarget { target: next.pos(), range: 1 },
+                        must_move: false
+                    }
+                );
+
+                let mut follower_next = segment.clone();
+                while let Some(follower) = train.pop_front() {
+                    self.result.insert(
+                        follower.clone(), 
+                        SimpleMoveCreep::Follower { prev: train.front().cloned(), next: follower_next.clone() }
+                    );
+                    follower_next = follower;
+                }
+            } else {
+                train.push_front(segment.clone());
+            }
+
+            segment = next.clone();
+        }
+
+        train.pop_back().unwrap_or_else(|| segment.clone())
+    }
+
+    fn simplify_train(&mut self, tail: &SafeID<Creep>) {
+        let (target, must_move) = if let Some(prev) = self.creeps.get(tail).unwrap().prev() {
+            // The train was split
+            (MoveTarget { target: prev.pos(), range: 1 }, false)
+        } else {
+            let mut targets = VecDeque::new();
+            let mut final_target = None;
+
+            let mut segment = Some(tail.clone());
+            while let Some(seg) = segment {
+                let target = self.creeps.get(&seg).unwrap().target().unwrap();
+                final_target = Some(target.clone());
+
+                targets.push_front(target.clone());
+                while targets.back().is_some_and(|target| target.in_range(&seg)) {
+                    // We don't consider targets which will be achieved just by moving the snake
+                    targets.pop_back();
+                }
+
+                segment = self.creeps.get(&seg).unwrap().next().cloned();
+            }
+
+            if let Some(target) = targets.pop_back() {
+                (target, false)
+            } else {
+                (final_target.unwrap(), true)
+            }
+        };
+
+        let mut segment = tail.clone();
+        let mut prev_segment = None;
+        while let MoveCreep::Follower { next, .. } = self.creeps.get(&segment).unwrap() {
+            self.result.insert(
+                segment.clone(), 
+                SimpleMoveCreep::Follower { 
+                    prev: prev_segment.clone(), 
+                    next: segment.clone() 
+                }
+            );
+
+            prev_segment = Some(segment);
+            segment = next.clone();
+        }
+
+        self.result.insert(
+            segment, 
+            SimpleMoveCreep::Head { 
+                prev: prev_segment, 
+                target,
+                must_move
+            }
+        );
+    }
+
+    fn handle_train_fatigue(&mut self, head: SafeID<Creep>) {
+        todo!()
+    }
+}
+
+struct MovementSolver<'m> {
     curr: HashMap<Position, SafeID<Creep>>,
     next: HashMap<Position, SafeID<Creep>>,
-    creeps: HashMap<SafeID<Creep>, VirtualCreep>,
 
-    solution: HashMap<SafeID<Creep>, Option<Direction>>
+    creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>,
+    solution: HashMap<SafeID<Creep>, Option<Direction>>,
+
+    mem: &'m mut Memory 
 }
 
-impl MovementSolver {
-    fn new(creeps: HashMap<SafeID<Creep>, VirtualCreep>) -> Self {
+impl<'m> MovementSolver<'m> {
+    fn new(creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>, mem: &'m mut Memory) -> Self {
         MovementSolver { 
             curr: creeps.keys().cloned().map(|creep| (creep.pos(), creep)).collect(), 
             next: HashMap::new(), 
             creeps,
-            solution: HashMap::new()
+            solution: HashMap::new(),
+            mem,
         }
     }
 
@@ -279,7 +421,7 @@ impl MovementSolver {
         self.is_clear_at(creep.pos())
     }
 
-    fn vcreep(&self, creep: SafeID<Creep>) -> &VirtualCreep {
+    fn mcreep(&self, creep: SafeID<Creep>) -> &SimpleMoveCreep {
         self.creeps.get(&creep).unwrap()
     }
 
