@@ -1,7 +1,5 @@
-#![feature(map_try_insert)]
 #![feature(variant_count)]
 #![feature(trait_alias)]
-#![feature(type_changing_struct_update)]
 #![feature(int_roundings)]
 #![feature(min_specialization)]
 #![feature(auto_traits)]

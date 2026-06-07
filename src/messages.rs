@@ -8,7 +8,7 @@ use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeI
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage<I: IDKind = SafeIDs> {
-    AssignedTugBoat(I::ID<Creep>),
+    AssignedTugBoat(I::ID<Creep>), // TODO: Remove
     TruckTarget
 }
 
