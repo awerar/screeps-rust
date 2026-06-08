@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}, assert_matches};
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use screeps::{Creep, Direction, HasPosition, Position, RoomTerrain, Spawning, StructureSpawn, Terrain, game, look};
+use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Part, Path, Position, RoomName, RoomTerrain, RoomXY, Spawning, StructureSpawn, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult}};
 use serde::{Deserialize, Serialize};
 use bimap::BiHashMap;
 
-use crate::{memory::Memory, safeid::{SafeID, deserialize_prune_hashmap_keys}};
+use crate::{memory::Memory, messages::{Messages, SpawnMessage}, pathfinding, safeid::{SafeID, deserialize_prune_hashmap_keys}, spawn::Body};
 
 /* 
 ===== Movement Solver Specification =====
@@ -22,7 +22,7 @@ Chains are simplified so that just the head has a target
 TODO: Force heads to move if they have any unsatisfied segments
 */
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct MoveTarget {
     pub target: Position, 
     pub range: u32
@@ -106,12 +106,12 @@ impl Movement {
     pub fn perform(mut self, mem: &mut Memory) {
         self.remove_invalid_sessions();
         self.handle_unpaired_tugboats();
-        self.handle_unpaired_tuggeds();
+        self.handle_unpaired_tuggeds(&mut mem.messages);
 
         let creeps = self.collect_creeps();
         let creeps = MovementSimplifier::new(creeps).simplify();
 
-        MovementSolver::new(creeps, mem).solve();
+        MovementSolver::new(creeps, &mut mem.movement).solve();
     }
 
     fn remove_invalid_sessions(&mut self) {
@@ -138,7 +138,7 @@ impl Movement {
             });
     }
 
-    fn handle_unpaired_tuggeds(&mut self) {
+    fn handle_unpaired_tuggeds(&mut self, messages: &mut Messages) {
         self.tuggeds.keys()
             .cloned()
             .collect::<HashSet<_>>()
@@ -148,6 +148,8 @@ impl Movement {
             .for_each(|tugged| {
                 let target = self.tuggeds.remove(tugged).unwrap();
                 self.singles.insert(tugged.0.clone(), target);
+
+                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.0.clone()));
             });
     }
 
@@ -201,7 +203,7 @@ impl MoveCreep {
         }
     }
 
-    fn target(&self) -> Option<&MoveTarget> {
+    fn target(&mut self) -> Option<&MoveTarget> {
         match self {
             Self::Head { target, .. }
             | Self::Follower { target, .. } => Some(target),
@@ -226,6 +228,13 @@ impl SimpleMoveCreep {
             Self::Free | Self::Stationary => None
         }
     }
+
+    fn target(&self) -> Option<&MoveTarget> {
+        match self {
+            Self::Head { target, .. }  => Some(target),
+            Self::Free | Self::Follower { .. } | Self::Stationary => None
+        }
+    }
 }
 
 struct MovementSimplifier {
@@ -238,6 +247,7 @@ struct MovementSimplifier {
     All trains are connected
     All creeps not marked as stationary can move
     No creeps are removed
+    TODO: Handle train room boundaries
 */
 impl MovementSimplifier {
     pub fn new(creeps: HashMap<SafeID<Creep>, MoveCreep>) -> Self {
@@ -269,7 +279,7 @@ impl MovementSimplifier {
 
         for (creep, mcreep) in self.result.iter().map(|(a, b)| (a.clone(), b.clone())).collect_vec() {
             let SimpleMoveCreep::Head { .. } = mcreep else { continue; };
-            self.handle_train_fatigue(&creep);
+            self.handle_train_moveability(&creep);
         }
 
         self.result
@@ -315,31 +325,33 @@ impl MovementSimplifier {
     }
 
     fn simplify_train(&mut self, tail: &SafeID<Creep>) {
-        let (target, must_move) = if let Some(prev) = self.creeps.get(tail).unwrap().prev() {
-            // The train was split
-            (MoveTarget { target: prev.pos(), range: 1 }, false)
-        } else {
-            let mut targets = VecDeque::new();
-            let mut final_target = None;
+        let (target, must_move) = {
+            if let Some(prev) = self.creeps.get(tail).unwrap().prev() {
+                // The train was split
+                (MoveTarget { target: prev.pos(), range: 1 }, false)
+            } else {
+                let mut targets = VecDeque::new();
+                let mut final_target = None;
 
-            let mut segment = Some(tail.clone());
-            while let Some(seg) = segment {
-                let target = self.creeps.get(&seg).unwrap().target().unwrap();
-                final_target = Some(target.clone());
+                let mut segment = Some(tail.clone());
+                while let Some(seg) = segment {
+                    let target = self.creeps.get(&seg).unwrap().target().unwrap();
+                    final_target = Some(target.clone());
 
-                targets.push_front(target.clone());
-                while targets.back().is_some_and(|target| target.in_range(&seg)) {
-                    // We don't consider targets which will be achieved just by moving the snake
-                    targets.pop_back();
+                    targets.push_front(target.clone());
+                    while targets.back().is_some_and(|target| target.in_range(&seg)) {
+                        // We don't consider targets which will be achieved just by moving the snake
+                        targets.pop_back();
+                    }
+
+                    segment = self.creeps.get(&seg).unwrap().next().cloned();
                 }
 
-                segment = self.creeps.get(&seg).unwrap().next().cloned();
-            }
-
-            if let Some(target) = targets.pop_back() {
-                (target, false)
-            } else {
-                (final_target.unwrap(), true)
+                if let Some(target) = targets.pop_back() {
+                    (target, false)
+                } else {
+                    (final_target.unwrap(), true)
+                }
             }
         };
 
@@ -368,8 +380,8 @@ impl MovementSimplifier {
         );
     }
 
-    fn handle_train_fatigue(&mut self, head: &SafeID<Creep>) {
-        if self.pull_backwards_rec(head) {
+    fn handle_train_moveability(&mut self, head: &SafeID<Creep>) {
+        if Body::from(&**head).num(Part::Move) == 0 || self.pull_backwards_rec(head) {
             self.make_train_stationary(head);
         }
     }
@@ -398,75 +410,225 @@ impl MovementSimplifier {
     }
 }
 
+/*
+We solve each creep one by one, and it must decide where to go just by looking at the partial solution
+This assumes we can force any moveable creep to move elsewhere
+If this assumption proves false we undo invalid moves and mark the creeps as stationary
+- Head 
+
+We need to decide which order to solve creeps in
+*/
+
+#[derive(Debug)]
+enum MoveAction {
+    Move { dir: Direction },
+    Pulled { next: SafeID<Creep> },
+    Stay
+}
+
+impl MoveAction {
+    fn apply(&self, pos: Position) -> Position {
+        match self {
+            MoveAction::Move { dir } => pos + *dir,
+            MoveAction::Pulled { next } => next.pos(),
+            MoveAction::Stay => pos,
+        }
+    }
+}
+
 struct MovementSolver<'m> {
-    curr: HashMap<Position, SafeID<Creep>>,
-    next: HashMap<Position, SafeID<Creep>>,
-
     creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>,
-    solution: HashMap<SafeID<Creep>, Option<Direction>>,
+    mem: &'m mut MovementMemory,
+    solution: MovementSolution,
+}
 
-    mem: &'m mut Memory 
+struct MovementSolution {
+    next: HashMap<Position, SafeID<Creep>>,
+    actions: HashMap<SafeID<Creep>, MoveAction>,
+    room_blocks: HashMap<RoomName, HashSet<RoomXY>>
+}
+
+impl MovementSolution {
+    fn new() -> Self {
+        Self {
+            actions: HashMap::new(),
+            next: HashMap::new(),
+            room_blocks: HashMap::new()
+        }
+    }
+
+    fn give_action_for(&mut self, creep: &SafeID<Creep>, action: MoveAction) {
+        let pos = action.apply(creep.pos());
+
+        if let Some(other) = self.next.get(&pos).cloned() {
+            if !matches!(action, MoveAction::Stay) {
+                self.give_action_for(creep, MoveAction::Stay);
+                return;
+            }
+
+            self.cancel_action_for(&other);
+        }
+
+        assert!(self.next.get(&pos).is_none());
+
+        self.room_blocks.entry(pos.room_name()).or_default().insert(pos.xy());
+        self.next.insert(pos, creep.clone());
+        self.actions.insert(creep.clone(), action);
+    }
+
+    fn cancel_action_for(&mut self, creep: &SafeID<Creep>) {
+        let action = self.actions.remove(creep).unwrap();
+        assert_matches!(&action, MoveAction::Move { .. } | MoveAction::Pulled { .. });
+
+        let pos = action.apply(creep.pos());
+        self.next.remove(&pos);
+        self.room_blocks.get_mut(&pos.room_name()).unwrap().remove(&pos.xy());
+
+        self.give_action_for(creep, MoveAction::Stay);
+    }
+
+    fn is_free_at(&self, pos: &Position) -> bool {
+        self.next.get(pos).is_none()
+    }
+
+    fn execute(self) {
+        todo!()
+    }
+}
+
+impl MovementMemory {
+    fn pop_path_direction_for(&mut self, creep: &SafeID<Creep>, target: &MoveTarget) -> Option<Direction> {
+        let (old_target, path) = self.paths.get_mut(creep)?;
+        if old_target == target {
+            Some(path.pop_back().unwrap())
+        } else {
+            self.paths.remove(creep);
+            None
+        }
+    }
+
+    fn store_path(&mut self, creep: &SafeID<Creep>, target: &MoveTarget, path: VecDeque<Direction>) {
+        self.paths.insert(creep.clone(), (target.clone(), path));
+    }
 }
 
 impl<'m> MovementSolver<'m> {
-    fn new(creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>, mem: &'m mut Memory) -> Self {
+    fn new(creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>, mem: &'m mut MovementMemory) -> Self {
         MovementSolver { 
-            curr: creeps.keys().cloned().map(|creep| (creep.pos(), creep)).collect(), 
-            next: HashMap::new(), 
             creeps,
-            solution: HashMap::new(),
             mem,
+            solution: MovementSolution::new()
         }
     }
 
     fn solve(mut self) {
-        let spawning = game::spawns().values()
+        self.solve_stationary();
+        self.solve_pathing_heads();
+        self.solve_spawning();
+        self.solve_non_pathing_heads();
+        self.solve_free();
+        self.solution.execute();
+    }
+
+    fn solve_stationary(&mut self) {
+        for (creep, mcreep) in &self.creeps {
+            let SimpleMoveCreep::Stationary = mcreep else { continue; };
+            self.solution.give_action_for(creep, MoveAction::Stay);
+        }
+    }
+
+    fn solve_pathing_heads(&mut self) {
+        self.creeps.iter()
+            .filter_map(|(creep, mcreep)| {
+                let SimpleMoveCreep::Head { target, .. } = mcreep else { return None };
+                Some((creep, target))
+            }).filter(|(creep, target)| !target.in_range(creep))
+            .sorted_by_cached_key(|(creep, _)| Reverse(self.train_length(creep)))
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect_vec().into_iter()
+            .for_each(|(head, target)| self.solve_pathing_head(&head, &target));
+    }
+
+    fn solve_pathing_head(&mut self, head: &SafeID<Creep>, target: &MoveTarget) {
+        if self.try_move_train_by_path(head, target) { return }
+
+        let options = FindPathOptions::<fn(_, CostMatrix) -> MultiRoomCostResult, MultiRoomCostResult>::default()
+            .range(target.range)
+            .ignore_creeps(true)
+            .cost_callback(|room, mut cost_matrix| {
+                for xy in self.solution.room_blocks.entry(room).or_default() {
+                    cost_matrix.set_xy(*xy, 255);
+                }
+
+                MultiRoomCostResult::CostMatrix(cost_matrix)
+            });
+
+        let path = head.pos().find_path_to(&target.target, Some(options));
+        let Path::Vectorized(path) = path else { unreachable!() };
+        let path = path.into_iter().map(|step| step.direction).collect();
+
+        self.mem.store_path(head, target, path);
+        if !self.try_move_train_by_path(head, target) {
+            self.make_train_stay(head);
+        }
+    }
+
+    fn train_length(&self, creep: &SafeID<Creep>) -> usize {
+        self.creeps.get(&creep).unwrap().prev().map_or(1, |prev| self.train_length(prev) + 1)
+    }
+
+    fn try_move_train_by_path(&mut self, head: &SafeID<Creep>, target: &MoveTarget) -> bool {
+        let path_dir = self.mem.pop_path_direction_for(head, target);
+        if let Some(path_dir) = path_dir {
+            if self.solution.is_free_at(&(head.pos() + path_dir)) {
+                self.make_train_move(head, path_dir);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn make_train_stay(&mut self, creep: &SafeID<Creep>) {
+        self.solution.give_action_for(creep, MoveAction::Stay);
+        if let Some(prev) = self.creeps.get(creep).unwrap().prev() {
+            self.make_train_stay(&prev.clone());
+        }
+    }
+
+    fn make_train_move(&mut self, head: &SafeID<Creep>, dir: Direction) {
+        self.solution.give_action_for(head, MoveAction::Move { dir });
+
+        let mut next = head.clone();
+        while let Some(curr) = self.creeps.get(&next).unwrap().prev() {
+            self.solution.give_action_for(curr, MoveAction::Pulled { next });
+            next = curr.clone();
+        }
+    }
+
+    fn solve_non_pathing_heads(&mut self) {
+
+    }
+
+    fn solve_spawning(&mut self) {
+        game::spawns().values()
             .filter_map(|spawn| spawn.spawning())
             .filter(|spawning| spawning.remaining_time() == 0)
-            .collect_vec();
-
-        /*let unsatisfied = self.creeps.iter().filter(|(creep, vcreep)| {
-                vcreep.is_single()
-                && vcreep.target().is_some_and(|target| target.in_range(*creep))
-            }).map(|(creep, _)| creep.clone())
-            .collect_vec();
-
-        let tails = self.creeps.iter().filter(|(_, vcreep)| vcreep.is_tail())
-            .map(|(creep, _)| creep.clone())
-            .collect_vec();
-
-        for creep in tails.into_iter().chain(unsatisfied.into_iter()) {
-            self.poke(creep, &mut HashSet::new());
-        }*/
-
-        for creep in spawning {
-            self.poke_spawning(&creep);
-        }
+            .for_each(|spawning| {
+                self.poke_spawning(&spawning);
+            });
     }
 
     fn poke_spawning(&mut self, creep: &Spawning) {
 
     }
 
-    fn poke(&mut self, creep: SafeID<Creep>, visited: &mut HashSet<SafeID<Creep>>) -> bool {
-        if self.next.get(&creep.pos()).is_some() { return false }
-        //if self.creeps.get(&creep).is_none_or(|vcreep| vcreep.is_head()) { return false }
-        if visited.contains(&creep) { return true }
-        visited.insert(creep.clone());
+    fn solve_free(&mut self) {
 
-        
-
-        visited.remove(&creep);
-        self.is_clear_at(creep.pos())
     }
 
     fn mcreep(&self, creep: SafeID<Creep>) -> &SimpleMoveCreep {
         self.creeps.get(&creep).unwrap()
-    }
-
-    fn is_clear_at(&self, pos: Position) -> bool {
-        self.next.get(&pos).is_none() &&
-        self.curr.get(&pos).is_none_or(|creep| self.solution.get(creep).is_some_and(|dir| dir.is_some()))
     }
 
     fn walkable_at(&self, pos: Position) -> bool {

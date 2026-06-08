@@ -6,7 +6,7 @@ use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, p
 use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, messages::SpawnMessage, names::get_new_creep_name, safeid::{GetSafeID, SafeID, ToSafeID}};
 
 #[derive(Clone)]
-struct Body(Vec<Part>);
+pub struct Body(Vec<Part>);
 
 impl Body {
     fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Body {
@@ -37,7 +37,7 @@ impl Body {
         self.0.iter().map(|part| part.cost()).sum()
     }
 
-    fn num(&self, part: Part) -> usize {
+    pub fn num(&self, part: Part) -> usize {
         self.0.iter().filter(|p| **p == part).count()
     }
 }

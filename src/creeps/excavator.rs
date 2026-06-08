@@ -31,7 +31,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for ExcavatorCreep {
         use ExcavatorCreep::*;
         use Transition::*;
 
-        let (ref source, home, movement) = args;
+        let (source, home, movement) = args;
 
         let plan = home.plan.sources.source_plans.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 
