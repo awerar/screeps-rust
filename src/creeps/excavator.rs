@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, movement::Movement, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, movement::requests::MovementRequests, safeid::{IDKind, SafeID, SafeIDs, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep<I: IDKind = SafeIDs> {
@@ -25,7 +25,7 @@ impl<'de> Deserialize<'de> for ExcavatorCreep {
     }
 }
 
-type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut Movement);
+type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut MovementRequests);
 impl StateMachine<SafeID<Creep>, Args<'_>> for ExcavatorCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;

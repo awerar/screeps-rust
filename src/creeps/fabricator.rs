@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, 
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -83,7 +83,7 @@ const STORAGE_UPGRADE_CONTROLLER_THRESHOLD: StorageFillPercentage = StorageFillP
 const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
-type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut FabricatorCoordinator, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, &'a mut MovementRequests, &'a mut FabricatorCoordinator, &'a mut Messages);
 impl StateMachine<SafeID<Creep>, Args<'_>> for FabricatorCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;

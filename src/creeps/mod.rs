@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::Movement, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -109,7 +109,7 @@ impl CreepRole {
     }
 }
 
-fn do_recycle(creep: &SafeID<Creep>, movement: &mut Movement, spawn: &SafeID<StructureSpawn>) {
+fn do_recycle(creep: &SafeID<Creep>, movement: &mut MovementRequests, spawn: &SafeID<StructureSpawn>) {
     movement.move_creep_to(creep, spawn.pos(), 1);
     if creep.pos().is_near_to(spawn.pos()) {
         spawn.recycle_creep(creep).ok();
@@ -134,7 +134,7 @@ pub fn do_creeps(mem: &mut Memory) {
             true
         }).collect();
 
-    let mut movement = Movement::new();
+    let mut movement = MovementRequests::new();
     for creep in &update_creeps {
         let creep_data = mem.creeps.get_mut(creep).unwrap();
         let Some(home) = mem.colonies.view(creep_data.home) else { continue; };

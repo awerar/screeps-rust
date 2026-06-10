@@ -6,7 +6,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::Movement, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -110,7 +110,7 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Args<'a> = (ColonyView<'a>, &'a mut Movement, &'a mut TruckCoordinator, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, &'a mut MovementRequests, &'a mut TruckCoordinator, &'a mut Messages);
 impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
