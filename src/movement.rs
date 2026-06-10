@@ -2,11 +2,11 @@ use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}, assert_matche
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Part, Path, Position, RoomName, RoomTerrain, RoomXY, Spawning, StructureSpawn, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult}};
+use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Part, Path, Position, RoomName, RoomTerrain, RoomXY, Spawning, StructureSpawn, Terrain, game, look, pathfinder::MultiRoomCostResult};
 use serde::{Deserialize, Serialize};
 use bimap::BiHashMap;
 
-use crate::{memory::Memory, messages::{Messages, SpawnMessage}, pathfinding, safeid::{SafeID, deserialize_prune_hashmap_keys}, spawn::Body};
+use crate::{memory::Memory, messages::{Messages, SpawnMessage}, safeid::{SafeID, TryGetSafeID, deserialize_prune_hashmap_keys}, spawn::Body, utils::adjacent_positions};
 
 /* 
 ===== Movement Solver Specification =====
@@ -29,8 +29,8 @@ struct MoveTarget {
 }
 
 impl MoveTarget {
-    pub fn in_range(&self, creep: &SafeID<Creep>) -> bool {
-        creep.pos().get_range_to(self.target) <= self.range
+    pub fn in_range(&self, pos: Position) -> bool {
+        pos.get_range_to(self.target) <= self.range
     }
 }
 
@@ -76,7 +76,7 @@ impl Movement {
 
     pub fn move_creep_to(&mut self, creep: &SafeID<Creep>, target: Position, range: u32) -> MoveToResult {
         let target = MoveTarget { target, range };
-        let in_range = target.in_range(creep);
+        let in_range = target.in_range(creep.pos());
 
         self.singles.insert(creep.clone(), target);
         if in_range { 
@@ -93,7 +93,7 @@ impl Movement {
 
     pub fn move_tugged_to(&mut self, creep: &SafeID<Creep>, target: Position, range: u32) -> MoveToResult {
         let target = MoveTarget { target, range };
-        let in_range = target.in_range(creep);
+        let in_range = target.in_range(creep.pos());
 
         self.tuggeds.insert(Tugged(creep.clone()), target);
         if in_range { 
@@ -171,8 +171,10 @@ impl Movement {
                     }
                 } else {
                     self.singles.get(&creep)
-                        .map(|target| MoveCreep::Head { prev: None, target: target.clone() })
-                        .unwrap_or(MoveCreep::Free)
+                        .map_or(
+                            MoveCreep::Free, 
+                            |target| MoveCreep::Head { prev: None, target: target.clone() }
+                        )
                 };
 
                 (creep, move_creep)
@@ -203,7 +205,7 @@ impl MoveCreep {
         }
     }
 
-    fn target(&mut self) -> Option<&MoveTarget> {
+    fn target(&self) -> Option<&MoveTarget> {
         match self {
             Self::Head { target, .. }
             | Self::Follower { target, .. } => Some(target),
@@ -226,13 +228,6 @@ impl SimpleMoveCreep {
             Self::Head { prev, .. }
             | Self::Follower { prev, .. } => prev.as_ref(),
             Self::Free | Self::Stationary => None
-        }
-    }
-
-    fn target(&self) -> Option<&MoveTarget> {
-        match self {
-            Self::Head { target, .. }  => Some(target),
-            Self::Free | Self::Follower { .. } | Self::Stationary => None
         }
     }
 }
@@ -294,7 +289,7 @@ impl MovementSimplifier {
         let mut segment = tail.clone();
         while let MoveCreep::Follower { prev, next, target } = self.creeps.get(&segment).unwrap() {
             let disconnected = !next.pos().is_near_to(segment.pos());
-            let detachable = target.in_range(&segment) && train.is_empty();
+            let detachable = target.in_range(segment.pos()) && train.is_empty();
 
             if disconnected || detachable {
                 self.result.insert(
@@ -339,7 +334,7 @@ impl MovementSimplifier {
                     final_target = Some(target.clone());
 
                     targets.push_front(target.clone());
-                    while targets.back().is_some_and(|target| target.in_range(&seg)) {
+                    while targets.back().is_some_and(|target| target.in_range(seg.pos())) {
                         // We don't consider targets which will be achieved just by moving the snake
                         targets.pop_back();
                     }
@@ -393,8 +388,8 @@ impl MovementSimplifier {
 
         let Some(prev) = self.result.get(segment).unwrap().prev().cloned() else { return false };
         if self.pull_backwards_rec(&prev) {
-            prev.pull(segment);
-            segment.move_pulled_by(&prev);
+            prev.pull(segment).ok();
+            segment.move_pulled_by(&prev).ok();
 
             true
         } else {
@@ -435,13 +430,6 @@ impl MoveAction {
         }
     }
 }
-
-struct MovementSolver<'m> {
-    creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>,
-    mem: &'m mut MovementMemory,
-    solution: MovementSolution,
-}
-
 struct MovementSolution {
     next: HashMap<Position, SafeID<Creep>>,
     actions: HashMap<SafeID<Creep>, MoveAction>,
@@ -469,7 +457,7 @@ impl MovementSolution {
             self.cancel_action_for(&other);
         }
 
-        assert!(self.next.get(&pos).is_none());
+        assert!(!self.next.contains_key(&pos));
 
         self.room_blocks.entry(pos.room_name()).or_default().insert(pos.xy());
         self.next.insert(pos, creep.clone());
@@ -487,8 +475,8 @@ impl MovementSolution {
         self.give_action_for(creep, MoveAction::Stay);
     }
 
-    fn is_free_at(&self, pos: &Position) -> bool {
-        self.next.get(pos).is_none()
+    fn is_free_at(&self, pos: Position) -> bool {
+        !self.next.contains_key(&pos)
     }
 
     fn execute(self) {
@@ -512,9 +500,19 @@ impl MovementMemory {
     }
 }
 
+struct MovementSolver<'m> {
+    creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>,
+    curr: HashMap<Position, SafeID<Creep>>,
+    
+    mem: &'m mut MovementMemory,
+    solution: MovementSolution,
+}
+
+
 impl<'m> MovementSolver<'m> {
     fn new(creeps: HashMap<SafeID<Creep>, SimpleMoveCreep>, mem: &'m mut MovementMemory) -> Self {
         MovementSolver { 
+            curr: creeps.keys().cloned().map(|creep| (creep.pos(), creep)).collect(),
             creeps,
             mem,
             solution: MovementSolution::new()
@@ -524,7 +522,7 @@ impl<'m> MovementSolver<'m> {
     fn solve(mut self) {
         self.solve_stationary();
         self.solve_pathing_heads();
-        self.solve_spawning();
+        self.solve_spawnings();
         self.solve_non_pathing_heads();
         self.solve_free();
         self.solution.execute();
@@ -542,7 +540,7 @@ impl<'m> MovementSolver<'m> {
             .filter_map(|(creep, mcreep)| {
                 let SimpleMoveCreep::Head { target, .. } = mcreep else { return None };
                 Some((creep, target))
-            }).filter(|(creep, target)| !target.in_range(creep))
+            }).filter(|(creep, target)| !target.in_range(creep.pos()))
             .sorted_by_cached_key(|(creep, _)| Reverse(self.train_length(creep)))
             .map(|(a, b)| (a.clone(), b.clone()))
             .collect_vec().into_iter()
@@ -556,7 +554,7 @@ impl<'m> MovementSolver<'m> {
             .range(target.range)
             .ignore_creeps(true)
             .cost_callback(|room, mut cost_matrix| {
-                for xy in self.solution.room_blocks.entry(room).or_default() {
+                for xy in self.solution.room_blocks.entry(room).or_default().iter() {
                     cost_matrix.set_xy(*xy, 255);
                 }
 
@@ -574,17 +572,16 @@ impl<'m> MovementSolver<'m> {
     }
 
     fn train_length(&self, creep: &SafeID<Creep>) -> usize {
-        self.creeps.get(&creep).unwrap().prev().map_or(1, |prev| self.train_length(prev) + 1)
+        self.creeps.get(creep).unwrap().prev().map_or(1, |prev| self.train_length(prev) + 1)
     }
 
     fn try_move_train_by_path(&mut self, head: &SafeID<Creep>, target: &MoveTarget) -> bool {
         let path_dir = self.mem.pop_path_direction_for(head, target);
-        if let Some(path_dir) = path_dir {
-            if self.solution.is_free_at(&(head.pos() + path_dir)) {
+        if let Some(path_dir) = path_dir
+            && self.solution.is_free_at(head.pos() + path_dir) {
                 self.make_train_move(head, path_dir);
                 return true;
             }
-        }
 
         false
     }
@@ -607,31 +604,77 @@ impl<'m> MovementSolver<'m> {
     }
 
     fn solve_non_pathing_heads(&mut self) {
-
+        self.creeps.iter()
+            .filter_map(|(creep, mcreep)| {
+                let SimpleMoveCreep::Head { target, must_move, .. } = mcreep else { return None };
+                Some((creep, target, must_move))
+            }).filter(|(creep, target, _)| target.in_range(creep.pos()))
+            .sorted_by_cached_key(|(creep, _, _)| Reverse(self.train_length(creep)))
+            .map(|(a, b, c)| (a.clone(), b.clone(), c.clone()))
+            .collect_vec().into_iter()
+            .for_each(|(head, target, must_move)| self.solve_non_pathing_head(&head, &target, must_move));
     }
 
-    fn solve_spawning(&mut self) {
+    fn solve_non_pathing_head(&mut self, head: &SafeID<Creep>, target: &MoveTarget, must_move: bool) {
+        if !must_move && self.solution.is_free_at(head.pos()) {
+            self.make_train_stay(head);
+            return;
+        }
+
+        let mut possible = adjacent_positions(head.pos()).collect_vec();
+        if !must_move { possible.push(head.pos()); }
+
+        let next_pos = possible.into_iter()
+            .filter_map(|pos| {
+                let prio = self.position_priority(pos)?;
+                let bias = if target.in_range(pos) { 10 } else { 0 };
+                Some((prio + bias, pos))
+            }).max_by_key(|(prio, _)| Reverse(*prio))
+            .map(|(_, pos)| pos);
+
+        let next_pos = next_pos.unwrap_or(head.pos());
+        let dir = head.pos().get_direction_to(next_pos);
+
+        if let Some(dir) = dir {
+            self.make_train_move(head, dir);
+        } else {
+            self.make_train_stay(head);
+        }
+    }
+
+    fn position_priority(&self, pos: Position) -> Option<usize> {
+        if !Self::walkable_at(pos) { return None }
+        if !self.solution.is_free_at(pos) { return None }
+        let Some(other) = self.curr.get(&pos) else { return Some(3) };
+
+        match self.creeps.get(other).unwrap() {
+            SimpleMoveCreep::Head { prev, .. } 
+            | SimpleMoveCreep::Follower { prev, .. } if prev.is_some() => None,
+            SimpleMoveCreep::Head { must_move, .. } => if *must_move { Some(2) } else { Some(0) },
+            SimpleMoveCreep::Follower { .. } => Some(2),
+            SimpleMoveCreep::Free => Some(1),
+            SimpleMoveCreep::Stationary => None,
+        }
+    }
+
+    fn solve_spawnings(&mut self) {
         game::spawns().values()
             .filter_map(|spawn| spawn.spawning())
             .filter(|spawning| spawning.remaining_time() == 0)
             .for_each(|spawning| {
-                self.poke_spawning(&spawning);
+                self.solve_spawning(&spawning);
             });
     }
 
-    fn poke_spawning(&mut self, creep: &Spawning) {
-
+    fn solve_spawning(&mut self, spawning: &Spawning) {
+        
     }
 
     fn solve_free(&mut self) {
 
     }
 
-    fn mcreep(&self, creep: SafeID<Creep>) -> &SimpleMoveCreep {
-        self.creeps.get(&creep).unwrap()
-    }
-
-    fn walkable_at(&self, pos: Position) -> bool {
+    fn walkable_at(pos: Position) -> bool {
         RoomTerrain::new(pos.room_name()).unwrap().get_xy(pos.xy()) != Terrain::Wall
         && pos.look_for(look::STRUCTURES).ok().is_none_or(|structures| {
             structures.into_iter().all(|structure| !structure.structure_type().is_obstacle())
