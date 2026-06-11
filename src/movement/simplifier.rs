@@ -1,63 +1,29 @@
-use std::collections::{HashMap, VecDeque};
+use std::{collections::VecDeque, mem};
 
 use itertools::Itertools;
-use screeps::{Creep, HasPosition, Part};
+use nonempty::NonEmpty;
+use screeps::{Creep, Direction, HasPosition, Part, Spawning};
 
 use crate::{movement::MoveTarget, safeid::SafeID, spawn::Body};
 
-#[derive(Clone)]
-pub enum MoveCreep {
-    Head { prev: Option<SafeID<Creep>>, target: MoveTarget },
-    Follower { prev: Option<SafeID<Creep>>, next: SafeID<Creep>, target: MoveTarget },
-    Free
+pub struct RawTrain(pub NonEmpty<(SafeID<Creep>, MoveTarget)>);
+pub struct RawMoveCreeps {
+    pub trains: Vec<RawTrain>,
+    pub free: Vec<SafeID<Creep>>,
+    pub spawning: Vec<Spawning>
 }
 
-impl MoveCreep {
-    fn prev(&self) -> Option<&SafeID<Creep>> {
-        match self {
-            Self::Head { prev, .. }
-            | Self::Follower { prev, .. } => prev.as_ref(),
-            Self::Free => None
-        }
-    }
-
-    fn next(&self) -> Option<&SafeID<Creep>> {
-        match self {
-            MoveCreep::Follower { next, ..} => Some(next),
-            MoveCreep::Head { .. } | MoveCreep::Free => None,
-        }
-    }
-
-    fn target(&self) -> Option<&MoveTarget> {
-        match self {
-            Self::Head { target, .. }
-            | Self::Follower { target, .. } => Some(target),
-            Self::Free => None
-        }
-    }
+pub struct SimpleTrain {
+    pub segments: NonEmpty<SafeID<Creep>>,
+    pub target: MoveTarget,
+    pub must_move: bool
 }
 
-#[derive(Clone)]
-pub enum SimpleMoveCreep {
-    Head { prev: Option<SafeID<Creep>>, target: MoveTarget, must_move: bool },
-    Follower { prev: Option<SafeID<Creep>>, next: SafeID<Creep> },
-    Free,
-    Stationary
-}
-
-impl SimpleMoveCreep {
-    pub fn prev(&self) -> Option<&SafeID<Creep>> {
-        match self {
-            Self::Head { prev, .. }
-            | Self::Follower { prev, .. } => prev.as_ref(),
-            Self::Free | Self::Stationary => None
-        }
-    }
-}
-
-pub struct MovementSimplifier {
-    creeps: HashMap<SafeID<Creep>, MoveCreep>,
-    result: HashMap<SafeID<Creep>, SimpleMoveCreep>
+pub struct SimpleMoveCreeps {
+    pub trains: Vec<SimpleTrain>,
+    pub free: Vec<SafeID<Creep>>,
+    pub stationary: Vec<SafeID<Creep>>,
+    pub spawning: Vec<Spawning>
 }
 
 /* 
@@ -67,163 +33,121 @@ pub struct MovementSimplifier {
     No creeps are removed
     TODO: Handle train room boundaries
 */
-impl MovementSimplifier {
-    pub fn new(creeps: HashMap<SafeID<Creep>, MoveCreep>) -> Self {
-        Self {
-            creeps,
-            result: HashMap::new()
+impl RawMoveCreeps {
+    pub fn simplify(self) -> SimpleMoveCreeps {
+        let mut trains = Vec::new();
+        for train in self.trains {
+            let (new_raw_train, extra_trains) = train.split();
+            trains.extend(extra_trains);
+            trains.push(new_raw_train.simplify());
+        }
+
+        let (trains, stationary_trains): (Vec<_>, Vec<_>) = 
+            trains.into_iter().partition(|train| {
+                !train.pull_fatigue_backwards() && has_move_parts(train.segments.first())
+            });
+
+        let (free, stationary_free): (Vec<_>, Vec<_>) = 
+            self.free.into_iter().partition(|creep| {
+                creep.fatigue() == 0 && has_move_parts(creep)
+            });
+
+        let mut stationary = Vec::new();
+        stationary.extend(stationary_trains.into_iter().flat_map(|train| train.segments));
+        stationary.extend(stationary_free);
+
+        let spawning = self.spawning.into_iter()
+            .filter(|spawning| spawning.remaining_time() == 0)
+            .collect_vec();
+
+        SimpleMoveCreeps { 
+            trains, 
+            free, 
+            stationary, 
+            spawning 
         }
     }
+}
 
-    pub fn simplify(mut self) -> HashMap<SafeID<Creep>, SimpleMoveCreep> {
-        for (creep, mcreep) in self.creeps.iter().map(|(a, b)| (a.clone(), b.clone())).collect_vec() {
-            match mcreep {
-                MoveCreep::Free => {
-                    if creep.fatigue() == 0 {
-                        self.result.insert(creep.clone(), SimpleMoveCreep::Free);
-                    } else {
-                        self.result.insert(creep.clone(), SimpleMoveCreep::Stationary);
-                    }
-                }
-                MoveCreep::Head { .. } => (),
-                MoveCreep::Follower { prev, .. } => {
-                    if prev.is_none() {
-                        let new_tail = self.split_train(&creep);
-                        self.simplify_train(&new_tail);
-                    }
-                },
+fn has_move_parts(creep: &SafeID<Creep>) -> bool {
+    Body::from(&**creep).num(Part::Move) == 0
+}
+
+impl RawTrain {
+    // Split into disconnected trains and peel of end segments
+    fn split(self) -> (RawTrain, Vec<SimpleTrain>) {
+        let mut result = Vec::new();
+
+        let mut iter = self.0.into_iter().rev();
+        let mut train = VecDeque::from(vec![ iter.next().unwrap() ]);
+
+        for (segment, target) in iter {
+            let (head, head_target) = train.front().unwrap();
+
+            if train.len() == 1 && head_target.in_range(head.pos()) {
+                let mut old_train = mem::take(&mut train);
+                let (head, head_target) = old_train.pop_front().unwrap();
+
+                result.push(SimpleTrain { 
+                    segments: NonEmpty::new(head),
+                    target: head_target,
+                    must_move: false
+                });
+            } else if !segment.pos().is_near_to(head.pos()) {
+                let old_train = mem::take(&mut train);
+
+                result.push(SimpleTrain { 
+                    segments: NonEmpty::collect(old_train).unwrap().map(|(a, _)| a), 
+                    target: MoveTarget { target: segment.pos(), range: 1 }, 
+                    must_move: false 
+                });
+            }
+
+            train.push_front((segment, target));
+        }
+
+        (RawTrain(NonEmpty::collect(train).unwrap()), result)
+    }
+
+    // Figure out which target to move towards
+    fn simplify(self) -> SimpleTrain {
+        let mut targets = VecDeque::new();
+        let mut must_move = false;
+
+        for (segment, target) in self.0.iter() {
+            targets.push_front(target.clone());
+            while targets.back().is_some_and(|prev_target| prev_target.in_range(segment.pos())) {
+                targets.pop_back();
+            }
+
+            if targets.len() > 0 {
+                must_move = true
             }
         }
 
-        for (creep, mcreep) in self.result.iter().map(|(a, b)| (a.clone(), b.clone())).collect_vec() {
-            let SimpleMoveCreep::Head { .. } = mcreep else { continue; };
-            self.handle_train_moveability(&creep);
-        }
-
-        self.result
-    }
-
-    // Splits disconnected trains into smaller connected trains
-    // Also peels away tail segments which satisfy their target
-    // Returns new tail (tail of frontmost train)
-    fn split_train(&mut self, tail: &SafeID<Creep>) -> SafeID<Creep> {
-        let mut train: VecDeque<SafeID<Creep>> = VecDeque::new();
-
-        let mut segment = tail.clone();
-        while let MoveCreep::Follower { prev, next, target } = self.creeps.get(&segment).unwrap() {
-            let disconnected = !next.pos().is_near_to(segment.pos());
-            let detachable = target.in_range(segment.pos()) && train.is_empty();
-
-            if disconnected || detachable {
-                self.result.insert(
-                    segment.clone(), 
-                    SimpleMoveCreep::Head { 
-                        prev: prev.clone(), 
-                        target: MoveTarget { target: next.pos(), range: 1 },
-                        must_move: false
-                    }
-                );
-
-                let mut follower_next = segment.clone();
-                while let Some(follower) = train.pop_front() {
-                    self.result.insert(
-                        follower.clone(), 
-                        SimpleMoveCreep::Follower { prev: train.front().cloned(), next: follower_next.clone() }
-                    );
-                    follower_next = follower;
-                }
-            } else {
-                train.push_front(segment.clone());
-            }
-
-            segment = next.clone();
-        }
-
-        train.pop_back().unwrap_or_else(|| segment.clone())
-    }
-
-    fn simplify_train(&mut self, tail: &SafeID<Creep>) {
-        let (target, must_move) = {
-            if let Some(prev) = self.creeps.get(tail).unwrap().prev() {
-                // The train was split
-                (MoveTarget { target: prev.pos(), range: 1 }, false)
-            } else {
-                let mut targets = VecDeque::new();
-                let mut final_target = None;
-
-                let mut segment = Some(tail.clone());
-                while let Some(seg) = segment {
-                    let target = self.creeps.get(&seg).unwrap().target().unwrap();
-                    final_target = Some(target.clone());
-
-                    targets.push_front(target.clone());
-                    while targets.back().is_some_and(|target| target.in_range(seg.pos())) {
-                        // We don't consider targets which will be achieved just by moving the snake
-                        targets.pop_back();
-                    }
-
-                    segment = self.creeps.get(&seg).unwrap().next().cloned();
-                }
-
-                if let Some(target) = targets.pop_back() {
-                    (target, false)
-                } else {
-                    (final_target.unwrap(), true)
-                }
-            }
-        };
-
-        let mut segment = tail.clone();
-        let mut prev_segment = None;
-        while let MoveCreep::Follower { next, .. } = self.creeps.get(&segment).unwrap() {
-            self.result.insert(
-                segment.clone(), 
-                SimpleMoveCreep::Follower { 
-                    prev: prev_segment.clone(), 
-                    next: segment.clone() 
-                }
-            );
-
-            prev_segment = Some(segment);
-            segment = next.clone();
-        }
-
-        self.result.insert(
-            segment, 
-            SimpleMoveCreep::Head { 
-                prev: prev_segment, 
-                target,
-                must_move
-            }
-        );
-    }
-
-    fn handle_train_moveability(&mut self, head: &SafeID<Creep>) {
-        if Body::from(&**head).num(Part::Move) == 0 || self.pull_backwards_rec(head) {
-            self.make_train_stationary(head);
+        let target = targets.pop_back().unwrap_or_else(|| self.0.first().1.clone());
+        SimpleTrain { 
+            segments: self.0.map(|(a, _)| a), 
+            target, 
+            must_move 
         }
     }
+}
 
-    // Pulls the train backwards from any fatigued creep
-    // This makes it recieve negative fatigue from the head
-    fn pull_backwards_rec(&mut self, segment: &SafeID<Creep>) -> bool {
-        if segment.fatigue() > 0 { return true; }
+impl SimpleTrain {
+    fn pull_fatigue_backwards(&self) -> bool {
+        let Some((i, fatigued)) = self.segments.iter().find_position(|segment| segment.fatigue() > 0) else { return false };
+        
+        let mut last_dir = None;
+        for (ahead, behind) in self.segments.iter().take(i + 1).tuple_windows() {
+            behind.pull(ahead);
+            ahead.move_pulled_by(behind);
 
-        let Some(prev) = self.result.get(segment).unwrap().prev().cloned() else { return false };
-        if self.pull_backwards_rec(&prev) {
-            prev.pull(segment).ok();
-            segment.move_pulled_by(&prev).ok();
-
-            true
-        } else {
-            false
+            last_dir = Some(ahead.pos().get_direction_to(behind.pos()).unwrap());
         }
-    }
 
-    fn make_train_stationary(&mut self, head: &SafeID<Creep>) {
-        let mut segment = Some(head.clone());
-        while let Some(seg) = &segment {
-            segment = self.result.insert(seg.clone(), SimpleMoveCreep::Stationary).unwrap().prev().cloned();
-        }
+        fatigued.move_direction(last_dir.unwrap_or(Direction::Right));
+
+        true
     }
 }

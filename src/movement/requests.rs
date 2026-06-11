@@ -2,9 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use bimap::BiHashMap;
 use derive_deref::Deref;
-use screeps::{Creep, HasPosition, Position, StructureSpawn};
+use itertools::Itertools;
+use nonempty::{NonEmpty, nonempty};
+use screeps::{Creep, HasPosition, Position, StructureSpawn, game};
 
-use crate::{memory::Memory, messages::{Messages, SpawnMessage}, movement::{MoveTarget, simplifier::{MoveCreep, MovementSimplifier}, solver::MovementSolver}, safeid::SafeID};
+use crate::{memory::Memory, messages::{Messages, SpawnMessage}, movement::{MoveTarget, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(SafeID<Creep>);
@@ -61,10 +63,10 @@ impl MovementRequests {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep.pos());
 
-        self.tuggeds.insert(Tugged(creep.clone()), target);
         if in_range { 
             MoveToResult::InRange 
         } else { 
+            self.tuggeds.insert(Tugged(creep.clone()), target);
             MoveToResult::OutOfRange 
         }
     }
@@ -74,15 +76,16 @@ impl MovementRequests {
         self.handle_unpaired_tugboats();
         self.handle_unpaired_tuggeds(&mut mem.messages);
 
-        let creeps = self.collect_creeps();
-        let creeps = MovementSimplifier::new(creeps).simplify();
+        let creeps = self.collect_creeps().simplify();
 
         MovementSolver::new(creeps, &mut mem.movement).solve();
     }
 
     fn remove_invalid_sessions(&mut self) {
+        // Tuggeds that didn't request to move
         self.sessions.right_values().cloned().collect::<HashSet<_>>()
-            .difference(&self.tuggeds.keys().cloned().collect()).for_each(|tugged| {
+            .difference(&self.tuggeds.keys().cloned().collect())
+            .for_each(|tugged| {
                 self.sessions.remove_by_right(tugged);
             });
     }
@@ -119,31 +122,35 @@ impl MovementRequests {
             });
     }
 
-    fn collect_creeps(self) -> HashMap<SafeID<Creep>, MoveCreep> {
-        SafeID::creeps().map(|creep| {
-                let move_creep = if let Some(tugged) = self.sessions.get_by_left(&Tugboat(creep.clone())) {
-                    MoveCreep::Head { 
-                        prev: Some(tugged.0.clone()), 
-                        target: MoveTarget { 
-                            target: self.tugboats.get(&Tugboat(creep.clone())).unwrap().pos(), 
-                            range: 1
-                        } 
-                    }
-                } else if let Some(tugboat) = self.sessions.get_by_right(&Tugged(creep.clone())) {
-                    MoveCreep::Follower { 
-                        prev: None, 
-                        next: tugboat.0.clone(), 
-                        target: self.tuggeds.get(&Tugged(creep.clone())).unwrap().clone()
-                    }
-                } else {
-                    self.singles.get(&creep)
-                        .map_or(
-                            MoveCreep::Free, 
-                            |target| MoveCreep::Head { prev: None, target: target.clone() }
-                        )
-                };
+    fn collect_creeps(self) -> RawMoveCreeps {
+        let free = SafeID::creeps()
+            .filter(|creep| {
+                !self.sessions.contains_left(&Tugboat(creep.clone())) &&
+                !self.sessions.contains_right(&Tugged(creep.clone())) &&
+                !self.singles.contains_key(creep) &&
+                !creep.spawning()
+            }).collect_vec();
 
-                (creep, move_creep)
-            }).collect()
+        let tug_trains = self.sessions.into_iter()
+            .map(|(tugboat, tugged)| {
+                let tugboat_target = MoveTarget { range: 1, target: self.tugboats.get(&tugboat).unwrap().pos() };
+                let tugged_target = self.tuggeds.get(&tugged).unwrap().clone();
+
+                RawTrain(nonempty![ 
+                    (tugboat.0, tugboat_target),
+                    (tugged.0, tugged_target)
+                ])
+            });
+
+        let single_trains = self.singles.into_iter()
+            .map(|(creep, target)| {
+                RawTrain(NonEmpty::new((creep, target)))
+            });
+
+        RawMoveCreeps {
+            trains: tug_trains.chain(single_trains).collect(),
+            free,
+            spawning: game::spawns().values().filter_map(|spawn| spawn.spawning()).collect(),
+        }
     }
 }

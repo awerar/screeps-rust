@@ -1,95 +1,15 @@
-use std::{assert_matches, cmp::Reverse, collections::{HashMap, HashSet, VecDeque}};
+use std::{cmp::Reverse, collections::{HashMap, VecDeque}};
 
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Path, Position, RoomName, RoomTerrain, RoomXY, Spawning, Terrain, game, look, pathfinder::MultiRoomCostResult};
+use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Path, Position, RoomTerrain, Spawning, Terrain, game, look, pathfinder::MultiRoomCostResult};
 use serde::{Deserialize, Serialize};
 
-use crate::{movement::{MoveTarget, simplifier::SimpleMoveCreep}, safeid::{SafeID, deserialize_prune_hashmap_keys}, utils::adjacent_positions};
+use crate::{movement::{MoveTarget, solution::MovementSolution}, safeid::{SafeID, deserialize_prune_hashmap_keys}, utils::adjacent_positions};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
     #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
     paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Direction>)>
-}
-
-/*
-We solve each creep one by one, and it must decide where to go just by looking at the partial solution
-This assumes we can force any moveable creep to move elsewhere
-If this assumption proves false we undo invalid moves and mark the creeps as stationary
-- Head 
-
-We need to decide which order to solve creeps in
-*/
-
-#[derive(Debug)]
-enum MoveAction {
-    Move { dir: Direction },
-    Pulled { next: SafeID<Creep> },
-    Stay
-}
-
-impl MoveAction {
-    fn apply(&self, pos: Position) -> Position {
-        match self {
-            MoveAction::Move { dir } => pos + *dir,
-            MoveAction::Pulled { next } => next.pos(),
-            MoveAction::Stay => pos,
-        }
-    }
-}
-
-struct MovementSolution {
-    next: HashMap<Position, SafeID<Creep>>,
-    actions: HashMap<SafeID<Creep>, MoveAction>,
-    room_blocks: HashMap<RoomName, HashSet<RoomXY>>
-}
-
-impl MovementSolution {
-    fn new() -> Self {
-        Self {
-            actions: HashMap::new(),
-            next: HashMap::new(),
-            room_blocks: HashMap::new()
-        }
-    }
-
-    fn give_action_for(&mut self, creep: &SafeID<Creep>, action: MoveAction) {
-        let pos = action.apply(creep.pos());
-
-        if let Some(other) = self.next.get(&pos).cloned() {
-            if !matches!(action, MoveAction::Stay) {
-                self.give_action_for(creep, MoveAction::Stay);
-                return;
-            }
-
-            self.cancel_action_for(&other);
-        }
-
-        assert!(!self.next.contains_key(&pos));
-
-        self.room_blocks.entry(pos.room_name()).or_default().insert(pos.xy());
-        self.next.insert(pos, creep.clone());
-        self.actions.insert(creep.clone(), action);
-    }
-
-    fn cancel_action_for(&mut self, creep: &SafeID<Creep>) {
-        let action = self.actions.remove(creep).unwrap();
-        assert_matches!(&action, MoveAction::Move { .. } | MoveAction::Pulled { .. });
-
-        let pos = action.apply(creep.pos());
-        self.next.remove(&pos);
-        self.room_blocks.get_mut(&pos.room_name()).unwrap().remove(&pos.xy());
-
-        self.give_action_for(creep, MoveAction::Stay);
-    }
-
-    fn is_free_at(&self, pos: Position) -> bool {
-        !self.next.contains_key(&pos)
-    }
-
-    fn execute(self) {
-        todo!()
-    }
 }
 
 impl MovementMemory {
@@ -162,7 +82,7 @@ impl<'m> MovementSolver<'m> {
             .range(target.range)
             .ignore_creeps(true)
             .cost_callback(|room, mut cost_matrix| {
-                for xy in self.solution.room_blocks.entry(room).or_default().iter() {
+                for xy in self.solution.blocked_positions.entry(room).or_default().iter() {
                     cost_matrix.set_xy(*xy, 255);
                 }
 
