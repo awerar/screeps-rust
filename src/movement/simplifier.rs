@@ -2,15 +2,15 @@ use std::{collections::VecDeque, mem};
 
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use screeps::{Creep, Direction, HasPosition, Part, Spawning};
+use screeps::{Creep, Direction, HasPosition, Part};
 
-use crate::{movement::MoveTarget, safeid::SafeID, spawn::Body};
+use crate::{movement::{MoveTarget, SpawningID}, safeid::SafeID, spawn::Body};
 
 pub struct RawTrain(pub NonEmpty<(SafeID<Creep>, MoveTarget)>);
 pub struct RawMoveCreeps {
     pub trains: Vec<RawTrain>,
     pub free: Vec<SafeID<Creep>>,
-    pub spawning: Vec<Spawning>
+    pub spawning: Vec<SpawningID>
 }
 
 pub struct SimpleTrain {
@@ -20,10 +20,10 @@ pub struct SimpleTrain {
 }
 
 pub struct SimpleMoveCreeps {
-    pub trains: Vec<SimpleTrain>,
     pub free: Vec<SafeID<Creep>>,
     pub stationary: Vec<SafeID<Creep>>,
-    pub spawning: Vec<Spawning>
+    pub spawning: Vec<SpawningID>,
+    pub trains: Vec<SimpleTrain>,
 }
 
 /* 
