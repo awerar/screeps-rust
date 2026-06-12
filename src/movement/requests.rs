@@ -6,7 +6,7 @@ use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
 use screeps::{Creep, HasPosition, Position, StructureSpawn, game};
 
-use crate::{memory::Memory, messages::{Messages, SpawnMessage}, movement::{MoveTarget, SpawningID, simplifier::{RawMoveCreeps, RawTrain}, solver::solve}, safeid::SafeID};
+use crate::{memory::Memory, messages::{Messages, SpawnMessage}, movement::{MoveTarget, SpawningID, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(SafeID<Creep>);
@@ -76,7 +76,7 @@ impl MovementRequests {
         self.handle_unpaired_tugboats();
         self.handle_unpaired_tuggeds(&mut mem.messages);
 
-        solve(self.collect_creeps().simplify(), &mut mem.movement).execute();
+        MovementSolver::solve(self.collect_creeps().simplify(), &mut mem.movement);
     }
 
     fn remove_invalid_sessions(&mut self) {

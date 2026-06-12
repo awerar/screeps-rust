@@ -1,11 +1,9 @@
 use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}, assert_matches};
 
 use itertools::Itertools;
-use log::warn;
 use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Path, Position, RoomName, RoomTerrain, RoomXY, Spawning, Terrain, game, look, pathfinder::MultiRoomCostResult};
-use serde::{Deserialize, Serialize};
 
-use crate::{movement::{MoveTarget, SpawningID, simplifier::SimpleMoveCreeps}, safeid::{SafeID, deserialize_prune_hashmap_keys}, utils::adjacent_positions};
+use crate::{movement::{MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, safeid::SafeID, utils::adjacent_positions};
 
 #[derive(Debug)]
 pub enum CreepAction {
@@ -25,12 +23,15 @@ impl CreepAction {
 }
 
 #[derive(Clone)]
-pub enum Entity {
+enum Entity {
     Spawning(SpawningID),
     Creep(SafeID<Creep>)
 }
 
-pub struct MovementSolution {
+pub struct MovementSolver<'m> {
+    creeps: SimpleMoveCreeps,
+    mem: &'m mut MovementMemory,
+
     blocked_positions: HashMap<Position, Entity>,
     room_blocked_xy: HashMap<RoomName, HashSet<RoomXY>>,
 
@@ -38,26 +39,61 @@ pub struct MovementSolution {
     creep_actions: HashMap<SafeID<Creep>, CreepAction>
 }
 
-impl MovementSolution {
-    pub fn new() -> Self {
-        Self {
+impl SimpleMoveCreeps {
+    fn solve_order(&self) -> Vec<Entity> {
+        self.creeps.keys().map(|creep| Entity::Creep(creep.clone()))
+            .chain(self.spawning.iter().map(|spawning| Entity::Spawning(spawning.clone())))
+            .sorted_by_cached_key(|entity| self.solve_priority(entity))
+            .collect()
+    }
+
+    fn solve_priority(&self, entity: &Entity) -> usize {
+        match entity {
+            Entity::Spawning(_) => 3,
+            Entity::Creep(creep) => {
+                match self.creeps.get(creep).unwrap() {
+                    CreepConstraint::Stay => 5,
+                    CreepConstraint::Follow(_) => 4,
+                    CreepConstraint::Move { target, must_move } => 
+                        if *must_move || !target.in_range(creep.pos()) { 2 } else { 1 },
+                    CreepConstraint::Free => 0,
+                }
+            },
+        }
+    }
+}
+
+impl<'m> MovementSolver<'m> {
+    pub fn solve(creeps: SimpleMoveCreeps, mem: &'m mut MovementMemory) {
+        let mut solver = Self {
+            creeps,
+            mem,
             blocked_positions: HashMap::new(),
             room_blocked_xy: HashMap::new(),
             spawning_actions: HashMap::new(),
-            creep_actions: HashMap::new()
+            creep_actions: HashMap::new(),
+        };
+
+        for entity in solver.creeps.solve_order() {
+            solver.solve_entity(&entity);
         }
+
+        solver.execute();
     }
 
-    pub fn give_creep_action(&mut self, creep: &SafeID<Creep>, action: CreepAction) {
+    fn try_clear(&mut self, pos: Position) -> Option<Entity> {
+        let other = self.blocked_positions.get(&pos)?.clone();
+        self.cancel_action_for(&other);
+        Some(other)
+    }
+
+    fn give_creep_action(&mut self, creep: &SafeID<Creep>, action: CreepAction) {
         let pos = action.apply(creep.pos());
 
-        if let Some(other) = self.blocked_positions.get(&pos).cloned() {
-            if !matches!(action, CreepAction::Stay) {
-                self.give_creep_action(creep, CreepAction::Stay);
-                return;
-            }
-
-            self.cancel_action_for(&other);
+        let other = self.blocked_positions.get(&pos).cloned();
+        if let Some(other) = &other  {
+            assert_matches!(action, CreepAction::Stay, "Tried to schedule invalid move");
+            self.cancel_action_for(other);
         }
 
         assert!(!self.blocked_positions.contains_key(&pos));
@@ -65,39 +101,84 @@ impl MovementSolution {
         self.room_blocked_xy.entry(pos.room_name()).or_default().insert(pos.xy());
         self.blocked_positions.insert(pos, Entity::Creep(creep.clone()));
         self.creep_actions.insert(creep.clone(), action);
+
+        if let Some(other) = &other {
+            self.solve_entity(other);
+        }
     }
 
-    pub fn cancel_action_for(&mut self, entity: &Entity) {
-        match entity {
+    fn give_spawning_action(&mut self, spawning: &SpawningID, direction: Direction) {
+        let pos = spawning.pos() + direction;
+
+        assert!(!self.blocked_positions.contains_key(&pos), "Tried to schedule invalid move");
+
+        self.room_blocked_xy.entry(pos.room_name()).or_default().insert(pos.xy());
+        self.blocked_positions.insert(pos, Entity::Spawning(spawning.clone()));
+        self.spawning_actions.insert(spawning.clone(), direction);
+    }
+
+    fn cancel_action_for(&mut self, entity: &Entity) {
+        let pos = match entity {
             Entity::Spawning(spawning) => {
-                self.spawning_actions.remove(spawning);
+                let direction = self.spawning_actions.remove(spawning).unwrap();
+                spawning.pos() + direction
             },
             Entity::Creep(creep) => {
                 let action = self.creep_actions.remove(creep).unwrap();
                 assert_matches!(&action, CreepAction::Move { .. } | CreepAction::Pulled { .. });
-
-                let pos = action.apply(creep.pos());
-                self.next.remove(&pos);
-                self.room_blocked_xy.get_mut(&pos.room_name()).unwrap().remove(&pos.xy());
-
-                self.give_creep_action(creep, CreepAction::Stay);
+                action.apply(creep.pos())
             },
+        };
+
+        self.blocked_positions.remove(&pos);
+        self.room_blocked_xy.get_mut(&pos.room_name()).unwrap().remove(&pos.xy());
+    }
+
+    fn solve_entity(&mut self, entity: &Entity) {
+        match entity {
+            Entity::Spawning(spawning) => 
+                self.solve_spawning(spawning),
+            Entity::Creep(creep) => 
+                match self.creeps.creeps.get(creep).unwrap() {
+                    CreepConstraint::Stay => 
+                        self.give_creep_action(creep, CreepAction::Stay),
+                    CreepConstraint::Follow(next) => 
+                        self.give_creep_action(creep, CreepAction::Pulled { next: next.clone() }),
+                    CreepConstraint::Move { target, must_move } => 
+                        if target.in_range(creep.pos()) {
+                            self.solve_local_move(creep, &target.clone(), *must_move);
+                        } else {
+                            self.solve_distant_move(creep, &target.clone())
+                        },
+                    CreepConstraint::Free => 
+                        self.solve_free(creep),
+                }
         }
     }
 
-    pub fn is_free_at(&self, pos: Position) -> bool {
+    fn solve_spawning(&mut self, spawning: &SpawningID) {
+        todo!()
+    }
+
+    fn solve_distant_move(&mut self, creep: &SafeID<Creep>, target: &MoveTarget) {
+        todo!()
+    }
+
+    fn solve_local_move(&mut self, creep: &SafeID<Creep>, target: &MoveTarget, must_move: bool) {
+        todo!()
+    }
+
+    fn solve_free(&mut self, creep: &SafeID<Creep>) {
+        todo!()
+    }
+
+    fn is_free_at(&self, pos: Position) -> bool {
         !self.next.contains_key(&pos)
     }
 
-    pub fn execute(self) {
+    fn execute(self) {
         todo!()
     }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct MovementMemory {
-    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
-    paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Direction>)>
 }
 
 impl MovementMemory {
@@ -114,37 +195,6 @@ impl MovementMemory {
     fn store_path(&mut self, creep: &SafeID<Creep>, target: &MoveTarget, path: VecDeque<Direction>) {
         self.paths.insert(creep.clone(), (target.clone(), path));
     }
-}
-
-pub fn solve(creeps: SimpleMoveCreeps, mem: &mut MovementMemory) -> MovementSolution {
-    let solution = MovementSolution::new();
-
-    self.solve_stationary();
-    self.solve_pathing_heads();
-    self.solve_spawnings();
-    self.solve_non_pathing_heads();
-    self.solve_free();
-    
-    solution
-}
-
-fn solve_stationary(&mut self) {
-    for (creep, mcreep) in &self.creeps {
-        let SimpleMoveCreep::Stationary = mcreep else { continue; };
-        self.solution.give_action_for(creep, MoveAction::Stay);
-    }
-}
-
-fn solve_pathing_heads(&mut self) {
-    self.creeps.iter()
-        .filter_map(|(creep, mcreep)| {
-            let SimpleMoveCreep::Head { target, .. } = mcreep else { return None };
-            Some((creep, target))
-        }).filter(|(creep, target)| !target.in_range(creep.pos()))
-        .sorted_by_cached_key(|(creep, _)| Reverse(self.train_length(creep)))
-        .map(|(a, b)| (a.clone(), b.clone()))
-        .collect_vec().into_iter()
-        .for_each(|(head, target)| self.solve_pathing_head(&head, &target));
 }
 
 fn solve_pathing_head(&mut self, head: &SafeID<Creep>, target: &MoveTarget) {

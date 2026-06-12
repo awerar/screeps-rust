@@ -1,11 +1,18 @@
-use std::{hash::Hash, ops::Deref};
+use std::{collections::{HashMap, VecDeque}, hash::Hash, ops::Deref};
 
-use screeps::{HasId, ObjectId, Position, Spawning, StructureSpawn};
+use screeps::{Creep, Direction, HasPosition, Position, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
+use crate::safeid::{GetSafeID, SafeID, deserialize_prune_hashmap_keys};
 
 pub mod requests;
 mod simplifier;
 mod solver;
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct MovementMemory {
+    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
+    paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Direction>)>
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct MoveTarget {
@@ -20,14 +27,14 @@ impl MoveTarget {
 }
 
 struct SpawningID {
-    spawn: ObjectId<StructureSpawn>,
+    spawn: SafeID<StructureSpawn>,
     spawning: Spawning
 }
 
 impl SpawningID {
     fn new(spawn: &StructureSpawn) -> Option<Self> {
         Some(Self {
-            spawn: spawn.id(),
+            spawn: spawn.safe_id(),
             spawning: spawn.spawning()?,
         })
     }
@@ -51,7 +58,7 @@ impl Clone for SpawningID {
     fn clone(&self) -> Self {
         Self { 
             spawn: self.spawn.clone(), 
-            spawning: self.spawn.resolve().unwrap().spawning().unwrap() 
+            spawning: self.spawn.spawning().unwrap() 
         }
     }
 }
@@ -61,5 +68,11 @@ impl Deref for SpawningID {
 
     fn deref(&self) -> &Self::Target {
         &self.spawning
+    }
+}
+
+impl HasPosition for SpawningID {
+    fn pos(&self) -> Position {
+        self.spawn.pos()
     }
 }

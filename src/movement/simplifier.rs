@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, mem};
+use std::{collections::{HashMap, VecDeque}, mem};
 
 use itertools::Itertools;
 use nonempty::NonEmpty;
@@ -13,17 +13,22 @@ pub struct RawMoveCreeps {
     pub spawning: Vec<SpawningID>
 }
 
-pub struct SimpleTrain {
+struct SimpleTrain {
     pub segments: NonEmpty<SafeID<Creep>>,
     pub target: MoveTarget,
     pub must_move: bool
 }
 
+pub enum CreepConstraint {
+    Stay,
+    Move { target: MoveTarget, must_move: bool },
+    Follow(SafeID<Creep>),
+    Free,
+}
+
 pub struct SimpleMoveCreeps {
-    pub free: Vec<SafeID<Creep>>,
-    pub stationary: Vec<SafeID<Creep>>,
     pub spawning: Vec<SpawningID>,
-    pub trains: Vec<SimpleTrain>,
+    pub creeps: HashMap<SafeID<Creep>, CreepConstraint>
 }
 
 /* 
@@ -56,15 +61,18 @@ impl RawMoveCreeps {
         stationary.extend(stationary_trains.into_iter().flat_map(|train| train.segments));
         stationary.extend(stationary_free);
 
+        let mut creeps = HashMap::new();
+        creeps.extend(trains.into_iter().flat_map(|train| train.collect_constraints()));
+        creeps.extend(free.into_iter().map(|creep| (creep, CreepConstraint::Free)));
+        creeps.extend(stationary.into_iter().map(|creep| (creep, CreepConstraint::Stay)));
+
         let spawning = self.spawning.into_iter()
             .filter(|spawning| spawning.remaining_time() == 0)
             .collect_vec();
 
         SimpleMoveCreeps { 
-            trains, 
-            free, 
-            stationary, 
-            spawning 
+            spawning,
+            creeps
         }
     }
 }
@@ -149,5 +157,26 @@ impl SimpleTrain {
         fatigued.move_direction(last_dir.unwrap_or(Direction::Right));
 
         true
+    }
+
+    fn collect_constraints(self) -> Vec<(SafeID<Creep>, CreepConstraint)> {
+        let mut constraints = Vec::new();
+        constraints.push((
+            self.segments.first().clone(),
+            CreepConstraint::Move { 
+                target: self.target, 
+                must_move: self.must_move 
+            }
+        ));
+
+        constraints.extend(
+            self.segments.iter()
+                .tuple_windows()
+                .map(|(ahead, behind)| {
+                    (behind.clone(), CreepConstraint::Follow(ahead.clone()))
+                })
+        );
+
+        constraints
     }
 }
