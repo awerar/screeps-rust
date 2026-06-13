@@ -2,11 +2,11 @@ use std::{assert_matches, cmp::Reverse, collections::{HashMap, VecDeque}};
 
 use itertools::Itertools;
 use js_sys::Array;
-use log::{debug, warn};
+use log::warn;
 use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, HasPosition, Position, RoomName, RoomTerrain, StructureType, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult, SearchOptions}};
 use wasm_bindgen::JsValue;
 
-use crate::{movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, safeid::{SafeID, TryGetSafeID}, statemachine::UnderlyingName, utils::adjacent_positions};
+use crate::{movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, safeid::{SafeID, TryGetSafeID}, utils::adjacent_positions};
 
 #[derive(Debug)]
 pub enum CreepAction {
@@ -138,17 +138,14 @@ impl<'m> MovementSolver<'m> {
                         self.give_creep_action(creep, CreepAction::Stay),
                     CreepConstraint::Follow(next) => 
                         if self.position_priority(next.pos()).is_some() {
-                            debug!("{} will be pulled", creep.name());
                             self.give_creep_action(creep, CreepAction::Pulled { next: next.clone() });
                         } else {
                             self.give_creep_action(creep, CreepAction::Stay);
                         },
                     CreepConstraint::Move { target, must_move } => 
                         if target.in_range(creep.pos()) {
-                            debug!("{} moves locally", creep.name());
                             self.solve_local_move(creep, &target.clone(), *must_move);
                         } else {
-                            debug!("{} moves by path", creep.name());
                             self.solve_distant_move(creep, &target.clone());
                         },
                     CreepConstraint::Free => 
@@ -307,7 +304,6 @@ impl<'m> MovementSolver<'m> {
 
     fn execute(self) {
         for (creep, action) in self.creep_actions {
-            debug!("{} doing {:?}", creep.name(), action);
             match action {
                 CreepAction::Move { dir } => {
                     creep.move_direction(dir).unwrap();

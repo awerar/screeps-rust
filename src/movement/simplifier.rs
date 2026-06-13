@@ -1,11 +1,10 @@
 use std::{collections::{HashMap, VecDeque}, mem};
 
 use itertools::Itertools;
-use log::debug;
 use nonempty::NonEmpty;
 use screeps::{Creep, Direction, HasPosition, Part};
 
-use crate::{movement::{MoveTarget, SpawningID}, safeid::SafeID, spawn::Body, statemachine::UnderlyingName};
+use crate::{movement::{MoveTarget, SpawningID}, safeid::SafeID, spawn::Body};
 
 pub struct RawTrain(pub NonEmpty<(SafeID<Creep>, MoveTarget)>);
 pub struct RawMoveCreeps {
@@ -99,15 +98,12 @@ impl RawTrain {
                 let mut old_train = mem::take(&mut train);
                 let (head, head_target) = old_train.pop_front().unwrap();
 
-                debug!("Peeling [{}] from [{}]", head.name(), segment.name());
-
                 result.push(SimpleTrain { 
                     segments: NonEmpty::new(head),
                     target: head_target,
                     must_move: false
                 });
             } else if !segment.pos().is_near_to(head.pos()) {
-                debug!("Splitting [{}] from [{}]", head.name(), segment.name());
                 pickup_creep = Some(head.clone());
                 let old_train = mem::take(&mut train);
 
@@ -139,7 +135,6 @@ impl RawTrain {
 
         for (segment, target) in self.0.iter().rev() {
             targets.push_front(target.clone());
-            debug!("[{}] wants to move to {}", segment.name(), target.target);
             while targets.back().is_some_and(|prev_target| prev_target.in_range(segment.pos())) {
                 targets.pop_back();
             }
@@ -150,7 +145,6 @@ impl RawTrain {
         }
 
         let target = targets.pop_back().unwrap_or_else(|| self.0.first().1.clone());
-        debug!("Train [{}] goes to {}", self.0.first().0.name(), target.target);
         SimpleTrain { 
             segments: self.0.map(|(a, _)| a), 
             target, 
