@@ -223,5 +223,5 @@ where
     V::Unsafe: Deserialize<'de>,
 {
     let raw = HashMap::<K::Unsafe, V::Unsafe>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| K::try_from_unsafe(k).and_then(|k| V::try_from_unsafe(v).map(|v| (k, v)))).collect())
+    Ok(raw.into_iter().filter_map(|(k, v)| K::try_from_unsafe(k).zip(V::try_from_unsafe(v))).collect())
 }

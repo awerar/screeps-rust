@@ -11,7 +11,14 @@ mod solver;
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
     #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
-    paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Position>)>
+    paths: HashMap<SafeID<Creep>, CachedPath>
+}
+
+#[derive(Serialize, Deserialize)]
+struct CachedPath {
+    path: VecDeque<Position>,
+    target: MoveTarget,
+    cache_time: u32
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]

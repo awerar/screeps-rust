@@ -1,10 +1,11 @@
 use std::{collections::{HashMap, VecDeque}, mem};
 
 use itertools::Itertools;
+use log::debug;
 use nonempty::NonEmpty;
 use screeps::{Creep, Direction, HasPosition, Part};
 
-use crate::{movement::{MoveTarget, SpawningID}, safeid::SafeID, spawn::Body};
+use crate::{movement::{MoveTarget, SpawningID}, safeid::SafeID, spawn::Body, statemachine::UnderlyingName};
 
 pub struct RawTrain(pub NonEmpty<(SafeID<Creep>, MoveTarget)>);
 pub struct RawMoveCreeps {
@@ -78,7 +79,7 @@ impl RawMoveCreeps {
 }
 
 fn has_move_parts(creep: &SafeID<Creep>) -> bool {
-    Body::from(&**creep).num(Part::Move) == 0
+    Body::from(&**creep).num(Part::Move) > 0
 }
 
 impl RawTrain {
@@ -89,6 +90,8 @@ impl RawTrain {
         let mut iter = self.0.into_iter().rev();
         let mut train = VecDeque::from(vec![ iter.next().unwrap() ]);
 
+        let mut pickup_creep = None;
+
         for (segment, target) in iter {
             let (head, head_target) = train.front().unwrap();
 
@@ -96,12 +99,16 @@ impl RawTrain {
                 let mut old_train = mem::take(&mut train);
                 let (head, head_target) = old_train.pop_front().unwrap();
 
+                debug!("Peeling [{}] from [{}]", head.name(), segment.name());
+
                 result.push(SimpleTrain { 
                     segments: NonEmpty::new(head),
                     target: head_target,
                     must_move: false
                 });
             } else if !segment.pos().is_near_to(head.pos()) {
+                debug!("Splitting [{}] from [{}]", head.name(), segment.name());
+                pickup_creep = Some(head.clone());
                 let old_train = mem::take(&mut train);
 
                 result.push(SimpleTrain { 
@@ -114,7 +121,15 @@ impl RawTrain {
             train.push_front((segment, target));
         }
 
-        (RawTrain(NonEmpty::collect(train).unwrap()), result)
+        let mut train = RawTrain(NonEmpty::collect(train).unwrap());
+        if let Some(pickup_creep) = pickup_creep {
+            train.0.last_mut().1 = MoveTarget { 
+                target: pickup_creep.pos(), 
+                range: 1
+            }
+        }
+
+        (train, result)
     }
 
     // Figure out which target to move towards
@@ -122,8 +137,9 @@ impl RawTrain {
         let mut targets = VecDeque::new();
         let mut must_move = false;
 
-        for (segment, target) in self.0.iter() {
+        for (segment, target) in self.0.iter().rev() {
             targets.push_front(target.clone());
+            debug!("[{}] wants to move to {}", segment.name(), target.target);
             while targets.back().is_some_and(|prev_target| prev_target.in_range(segment.pos())) {
                 targets.pop_back();
             }
@@ -134,6 +150,7 @@ impl RawTrain {
         }
 
         let target = targets.pop_back().unwrap_or_else(|| self.0.first().1.clone());
+        debug!("Train [{}] goes to {}", self.0.first().0.name(), target.target);
         SimpleTrain { 
             segments: self.0.map(|(a, _)| a), 
             target, 
@@ -145,7 +162,8 @@ impl RawTrain {
 impl SimpleTrain {
     fn pull_fatigue_backwards(&self) -> bool {
         let Some((i, fatigued)) = self.segments.iter().find_position(|segment| segment.fatigue() > 0) else { return false };
-        
+        if i == 0 { return true; }
+
         let mut last_dir = None;
         for (ahead, behind) in self.segments.iter().take(i + 1).tuple_windows() {
             behind.pull(ahead).unwrap();
@@ -154,7 +172,7 @@ impl SimpleTrain {
             last_dir = Some(ahead.pos().get_direction_to(behind.pos()).unwrap());
         }
 
-        fatigued.move_direction(last_dir.unwrap_or(Direction::Right)).unwrap();
+        fatigued.move_direction(last_dir.unwrap_or(Direction::Right)).unwrap_err();
 
         true
     }
