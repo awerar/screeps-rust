@@ -62,7 +62,7 @@ impl RawMoveCreeps {
         stationary.extend(stationary_free);
 
         let mut creeps = HashMap::new();
-        creeps.extend(trains.into_iter().flat_map(|train| train.collect_constraints()));
+        creeps.extend(trains.into_iter().flat_map(SimpleTrain::collect_constraints));
         creeps.extend(free.into_iter().map(|creep| (creep, CreepConstraint::Free)));
         creeps.extend(stationary.into_iter().map(|creep| (creep, CreepConstraint::Stay)));
 
@@ -128,8 +128,8 @@ impl RawTrain {
                 targets.pop_back();
             }
 
-            if targets.len() > 0 {
-                must_move = true
+            if !targets.is_empty() {
+                must_move = true;
             }
         }
 
@@ -148,13 +148,13 @@ impl SimpleTrain {
         
         let mut last_dir = None;
         for (ahead, behind) in self.segments.iter().take(i + 1).tuple_windows() {
-            behind.pull(ahead);
-            ahead.move_pulled_by(behind);
+            behind.pull(ahead).unwrap();
+            ahead.move_pulled_by(behind).unwrap();
 
             last_dir = Some(ahead.pos().get_direction_to(behind.pos()).unwrap());
         }
 
-        fatigued.move_direction(last_dir.unwrap_or(Direction::Right));
+        fatigued.move_direction(last_dir.unwrap_or(Direction::Right)).unwrap();
 
         true
     }

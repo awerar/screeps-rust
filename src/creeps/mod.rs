@@ -169,11 +169,10 @@ pub fn do_creeps(mem: &mut Memory) {
 }
 
 fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {
-    if creep.pos().room_name() == home.name {
-        if let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
+    if creep.pos().room_name() == home.name
+        && let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
             return spawn
         }
-    }
 
     if let Some(spawn) = home.plan.center.spawn.resolve() {
         return spawn

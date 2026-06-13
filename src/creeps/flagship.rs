@@ -43,11 +43,10 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
                 }
             },
             GoingTo(target) => {
-                if creep.pos().room_name() == target.room_name() {
-                    if let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
+                if creep.pos().room_name() == target.room_name()
+                    && let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
                         return Ok(Continue(Claiming(*target, controller.safe_id())))
                     }
-                }
 
                 movement.move_creep_to(creep, *target, 0);
                 Ok(Break(self))

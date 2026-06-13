@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, VecDeque}, hash::Hash, ops::Deref};
 
-use screeps::{Creep, Direction, HasPosition, Position, Spawning, StructureSpawn};
+use screeps::{Creep, HasPosition, Position, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
 use crate::safeid::{GetSafeID, SafeID, deserialize_prune_hashmap_keys};
 
@@ -11,7 +11,7 @@ mod solver;
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
     #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
-    paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Direction>)>
+    paths: HashMap<SafeID<Creep>, (MoveTarget, VecDeque<Position>)>
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]

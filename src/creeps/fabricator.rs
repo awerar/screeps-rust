@@ -234,11 +234,10 @@ impl FabricatorCoordinator {
 
         let controller = room.controller().unwrap();
         let mut downgrade_percentage = 0.0;
-        if let Some(downgrade_ticks_left) = controller.ticks_to_downgrade() {
-            if let Some(total_downgrade_ticks) = controller_downgrade(controller.level()) {
+        if let Some(downgrade_ticks_left) = controller.ticks_to_downgrade()
+            && let Some(total_downgrade_ticks) = controller_downgrade(controller.level()) {
                 downgrade_percentage = (total_downgrade_ticks - downgrade_ticks_left) as f32 / total_downgrade_ticks as f32;
             }
-        }
 
         let storage_fill_percentage = buffer.and_then(|buffer| {
             match buffer {

@@ -1,9 +1,12 @@
-use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}, assert_matches};
+use std::{collections::{HashMap, VecDeque}, assert_matches};
 
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, FindPathOptions, HasPosition, Path, Position, RoomName, RoomTerrain, RoomXY, Spawning, Terrain, game, look, pathfinder::MultiRoomCostResult};
+use js_sys::Array;
+use log::warn;
+use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, HasPosition, Position, RoomName, RoomTerrain, Terrain, game, look, pathfinder::{self, MultiRoomCostResult, SearchOptions}};
+use wasm_bindgen::JsValue;
 
-use crate::{movement::{MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, safeid::SafeID, utils::adjacent_positions};
+use crate::{movement::{MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, safeid::{SafeID, TryGetSafeID}, utils::adjacent_positions};
 
 #[derive(Debug)]
 pub enum CreepAction {
@@ -33,7 +36,7 @@ pub struct MovementSolver<'m> {
     mem: &'m mut MovementMemory,
 
     blocked_positions: HashMap<Position, Entity>,
-    room_blocked_xy: HashMap<RoomName, HashSet<RoomXY>>,
+    room_cost_matrix: HashMap<RoomName, CostMatrix>,
 
     spawning_actions: HashMap<SpawningID, Direction>,
     creep_actions: HashMap<SafeID<Creep>, CreepAction>
@@ -69,7 +72,7 @@ impl<'m> MovementSolver<'m> {
             creeps,
             mem,
             blocked_positions: HashMap::new(),
-            room_blocked_xy: HashMap::new(),
+            room_cost_matrix: HashMap::new(),
             spawning_actions: HashMap::new(),
             creep_actions: HashMap::new(),
         };
@@ -79,12 +82,6 @@ impl<'m> MovementSolver<'m> {
         }
 
         solver.execute();
-    }
-
-    fn try_clear(&mut self, pos: Position) -> Option<Entity> {
-        let other = self.blocked_positions.get(&pos)?.clone();
-        self.cancel_action_for(&other);
-        Some(other)
     }
 
     fn give_creep_action(&mut self, creep: &SafeID<Creep>, action: CreepAction) {
@@ -98,7 +95,7 @@ impl<'m> MovementSolver<'m> {
 
         assert!(!self.blocked_positions.contains_key(&pos));
 
-        self.room_blocked_xy.entry(pos.room_name()).or_default().insert(pos.xy());
+        self.room_cost_matrix.entry(pos.room_name()).or_insert_with(CostMatrix::new).set_xy(pos.xy(), 255);
         self.blocked_positions.insert(pos, Entity::Creep(creep.clone()));
         self.creep_actions.insert(creep.clone(), action);
 
@@ -112,7 +109,7 @@ impl<'m> MovementSolver<'m> {
 
         assert!(!self.blocked_positions.contains_key(&pos), "Tried to schedule invalid move");
 
-        self.room_blocked_xy.entry(pos.room_name()).or_default().insert(pos.xy());
+        self.room_cost_matrix.entry(pos.room_name()).or_insert_with(CostMatrix::new).set_xy(pos.xy(), 255);
         self.blocked_positions.insert(pos, Entity::Spawning(spawning.clone()));
         self.spawning_actions.insert(spawning.clone(), direction);
     }
@@ -131,7 +128,7 @@ impl<'m> MovementSolver<'m> {
         };
 
         self.blocked_positions.remove(&pos);
-        self.room_blocked_xy.get_mut(&pos.room_name()).unwrap().remove(&pos.xy());
+        self.room_cost_matrix.get_mut(&pos.room_name()).unwrap().set_xy(pos.xy(), 0);
     }
 
     fn solve_entity(&mut self, entity: &Entity) {
@@ -143,12 +140,16 @@ impl<'m> MovementSolver<'m> {
                     CreepConstraint::Stay => 
                         self.give_creep_action(creep, CreepAction::Stay),
                     CreepConstraint::Follow(next) => 
-                        self.give_creep_action(creep, CreepAction::Pulled { next: next.clone() }),
+                        if self.position_priority(next.pos()).is_some() {
+                            self.give_creep_action(creep, CreepAction::Pulled { next: next.clone() });
+                        } else {
+                            self.give_creep_action(creep, CreepAction::Stay);
+                        },
                     CreepConstraint::Move { target, must_move } => 
                         if target.in_range(creep.pos()) {
                             self.solve_local_move(creep, &target.clone(), *must_move);
                         } else {
-                            self.solve_distant_move(creep, &target.clone())
+                            self.solve_distant_move(creep, &target.clone());
                         },
                     CreepConstraint::Free => 
                         self.solve_free(creep),
@@ -157,179 +158,146 @@ impl<'m> MovementSolver<'m> {
     }
 
     fn solve_spawning(&mut self, spawning: &SpawningID) {
-        todo!()
+        let dirs = Direction::iter().copied();
+        let dir = Self::best_by_priority(dirs, |dir| self.position_priority(spawning.pos() + *dir));
+        if let Some(dir) = dir {
+            self.give_spawning_action(spawning, dir);
+        } else {
+            warn!("Unable to find spawning direction");
+        }
     }
 
     fn solve_distant_move(&mut self, creep: &SafeID<Creep>, target: &MoveTarget) {
-        todo!()
+        if self.try_move_by_path(creep, target) { return }
+
+        let options = SearchOptions::default()
+            .room_callback(|room|
+                self.room_cost_matrix.get(&room).map_or(
+                    MultiRoomCostResult::Default, 
+                    |cm| MultiRoomCostResult::CostMatrix(cm.clone())
+                )
+            );
+
+        let path = pathfinder::search(creep.pos(), target.target, target.range, Some(options)).path();
+        let path = VecDeque::from_iter(path);
+
+        self.mem.store_path(creep, target, path);
+        if !self.try_move_by_path(creep, target) {
+            self.give_creep_action(creep, CreepAction::Stay);
+        }
+    }
+
+    fn try_move_by_path(&mut self, creep: &SafeID<Creep>, target: &MoveTarget) -> bool {
+        let dir = self.mem.get_path_direction(creep, target);
+        if let Some(dir) = dir && self.position_priority(creep.pos() + dir).is_some() {
+            self.give_creep_action(creep, CreepAction::Move { dir });
+            return true;
+        }
+
+        false
     }
 
     fn solve_local_move(&mut self, creep: &SafeID<Creep>, target: &MoveTarget, must_move: bool) {
-        todo!()
+        if !must_move && self.position_priority(creep.pos()).is_some() {
+            self.give_creep_action(creep, CreepAction::Stay);
+            return;
+        }
+
+        let next_pos = Self::best_by_priority(
+            adjacent_positions(creep.pos()),
+            |pos| {
+                let prio = self.position_priority(*pos)?;
+                let bias = if target.in_range(*pos) { 10 } else { 0 };
+                Some(prio + bias)
+            });
+
+        let next_pos = next_pos.unwrap_or(creep.pos());
+        let dir = creep.pos().get_direction_to(next_pos);
+
+        if let Some(dir) = dir {
+            self.give_creep_action(creep, CreepAction::Move { dir });
+        } else {
+            self.give_creep_action(creep, CreepAction::Stay);
+        }
     }
 
     fn solve_free(&mut self, creep: &SafeID<Creep>) {
-        todo!()
+        self.solve_local_move(
+            creep, 
+            &MoveTarget { target: creep.pos(), range: 1 }, 
+            false
+        );
     }
 
-    fn is_free_at(&self, pos: Position) -> bool {
-        !self.next.contains_key(&pos)
+    fn position_priority(&self, pos: Position) -> Option<usize> {
+        if self.blocked_positions.contains_key(&pos) { return None }
+        if RoomTerrain::new(pos.room_name()).unwrap().get_xy(pos.xy()) == Terrain::Wall { return None }
+
+        let structures = pos.look_for(look::STRUCTURES).unwrap_or_default();
+        if structures.iter().any(|structure| structure.structure_type().is_obstacle()) { return None }
+
+        let creeps = pos.look_for(look::CREEPS).unwrap_or_default();
+        let (my_creeps, enemy_creeps) = creeps.into_iter().partition::<Vec<_>, _>(Creep::my);
+        if !enemy_creeps.is_empty() { return None }
+
+        assert!(my_creeps.len() <= 1);
+        let Some(other) = my_creeps.first().and_then(TryGetSafeID::try_safe_id) else { 
+            return Some(2) 
+        };
+
+        match self.creeps.creeps.get(&other).unwrap() {
+            CreepConstraint::Stay => None,
+            CreepConstraint::Follow(_) 
+            | CreepConstraint::Move { .. } => Some(1),
+            CreepConstraint::Free => Some(0),
+        }
+    }
+
+    fn best_by_priority<A>(iter: impl Iterator<Item = A>, prio: impl Fn(&A) -> Option<usize>) -> Option<A> {
+        iter.filter_map(|x| prio(&x).map(|prio| (prio, x)))
+            .max_by_key(|(prio, _)| *prio)
+            .map(|(_, x)| x)
     }
 
     fn execute(self) {
-        todo!()
+        assert_eq!(self.creep_actions.len(), game::creeps().keys().try_len().unwrap());
+
+        for (creep, action) in self.creep_actions {
+            match action {
+                CreepAction::Move { dir } => {
+                    creep.move_direction(dir).unwrap();
+                },
+                CreepAction::Pulled { next } => {
+                    creep.move_pulled_by(&next).unwrap();
+                    next.pull(&creep).unwrap();
+                },
+                CreepAction::Stay => (),
+            }
+        }
+
+        for (spawning, dir) in self.spawning_actions {
+            spawning.set_directions(&Array::of1(&JsValue::from(dir as u8))).unwrap();
+        }
     }
 }
 
 impl MovementMemory {
-    fn pop_path_direction_for(&mut self, creep: &SafeID<Creep>, target: &MoveTarget) -> Option<Direction> {
+    fn get_path_direction(&mut self, creep: &SafeID<Creep>, target: &MoveTarget) -> Option<Direction> {
         let (old_target, path) = self.paths.get_mut(creep)?;
         if old_target == target {
-            Some(path.pop_back().unwrap())
+            while path.front().is_some_and(|pos| *pos != creep.pos()) {
+                path.pop_front();
+            }
+
+            let next_pos = *path.get(1)?;
+            Some(creep.pos().get_direction_to(next_pos).unwrap())
         } else {
             self.paths.remove(creep);
             None
         }
     }
 
-    fn store_path(&mut self, creep: &SafeID<Creep>, target: &MoveTarget, path: VecDeque<Direction>) {
+    fn store_path(&mut self, creep: &SafeID<Creep>, target: &MoveTarget, path: VecDeque<Position>) {
         self.paths.insert(creep.clone(), (target.clone(), path));
     }
-}
-
-fn solve_pathing_head(&mut self, head: &SafeID<Creep>, target: &MoveTarget) {
-    if self.try_move_train_by_path(head, target) { return }
-
-    let options = FindPathOptions::<fn(_, CostMatrix) -> MultiRoomCostResult, MultiRoomCostResult>::default()
-        .range(target.range)
-        .ignore_creeps(true)
-        .cost_callback(|room, mut cost_matrix| {
-            for xy in self.solution.blocked_positions.entry(room).or_default().iter() {
-                cost_matrix.set_xy(*xy, 255);
-            }
-
-            MultiRoomCostResult::CostMatrix(cost_matrix)
-        });
-
-    let path = head.pos().find_path_to(&target.target, Some(options));
-    let Path::Vectorized(path) = path else { unreachable!() };
-    let path = path.into_iter().map(|step| step.direction).collect();
-
-    self.mem.store_path(head, target, path);
-    if !self.try_move_train_by_path(head, target) {
-        self.make_train_stay(head);
-    }
-}
-
-fn train_length(&self, creep: &SafeID<Creep>) -> usize {
-    self.creeps.get(creep).unwrap().prev().map_or(1, |prev| self.train_length(prev) + 1)
-}
-
-fn try_move_train_by_path(&mut self, head: &SafeID<Creep>, target: &MoveTarget) -> bool {
-    let path_dir = self.mem.pop_path_direction_for(head, target);
-    if let Some(path_dir) = path_dir
-        && self.solution.is_free_at(head.pos() + path_dir) {
-            self.make_train_move(head, path_dir);
-            return true;
-        }
-
-    false
-}
-
-fn make_train_stay(&mut self, creep: &SafeID<Creep>) {
-    self.solution.give_action_for(creep, MoveAction::Stay);
-    if let Some(prev) = self.creeps.get(creep).unwrap().prev() {
-        self.make_train_stay(&prev.clone());
-    }
-}
-
-fn make_train_move(&mut self, head: &SafeID<Creep>, dir: Direction) {
-    self.solution.give_action_for(head, MoveAction::Move { dir });
-
-    let mut next = head.clone();
-    while let Some(curr) = self.creeps.get(&next).unwrap().prev() {
-        self.solution.give_action_for(curr, MoveAction::Pulled { next });
-        next = curr.clone();
-    }
-}
-
-fn solve_non_pathing_heads(&mut self) {
-    self.creeps.iter()
-        .filter_map(|(creep, mcreep)| {
-            let SimpleMoveCreep::Head { target, must_move, .. } = mcreep else { return None };
-            Some((creep, target, must_move))
-        }).filter(|(creep, target, _)| target.in_range(creep.pos()))
-        .sorted_by_cached_key(|(creep, _, _)| Reverse(self.train_length(creep)))
-        .map(|(a, b, c)| (a.clone(), b.clone(), c.clone()))
-        .collect_vec().into_iter()
-        .for_each(|(head, target, must_move)| self.solve_non_pathing_head(&head, &target, must_move));
-}
-
-fn solve_non_pathing_head(&mut self, head: &SafeID<Creep>, target: &MoveTarget, must_move: bool) {
-    if !must_move && self.solution.is_free_at(head.pos()) {
-        self.make_train_stay(head);
-        return;
-    }
-
-    let mut possible = adjacent_positions(head.pos()).collect_vec();
-    if !must_move { possible.push(head.pos()); }
-
-    let next_pos = possible.into_iter()
-        .filter_map(|pos| {
-            let prio = self.position_priority(pos)?;
-            let bias = if target.in_range(pos) { 10 } else { 0 };
-            Some((prio + bias, pos))
-        }).max_by_key(|(prio, _)| Reverse(*prio))
-        .map(|(_, pos)| pos);
-
-    let next_pos = next_pos.unwrap_or(head.pos());
-    let dir = head.pos().get_direction_to(next_pos);
-
-    if let Some(dir) = dir {
-        self.make_train_move(head, dir);
-    } else {
-        self.make_train_stay(head);
-    }
-}
-
-fn position_priority(&self, pos: Position) -> Option<usize> {
-    if !Self::walkable_at(pos) { return None }
-    if !self.solution.is_free_at(pos) { return None }
-    let Some(other) = self.curr.get(&pos) else { return Some(3) };
-
-    match self.creeps.get(other).unwrap() {
-        SimpleMoveCreep::Head { prev, .. } 
-        | SimpleMoveCreep::Follower { prev, .. } if prev.is_some() => None,
-        SimpleMoveCreep::Head { must_move, .. } => if *must_move { Some(2) } else { Some(0) },
-        SimpleMoveCreep::Follower { .. } => Some(2),
-        SimpleMoveCreep::Free => Some(1),
-        SimpleMoveCreep::Stationary => None,
-    }
-}
-
-fn solve_spawnings(&mut self) {
-    game::spawns().values()
-        .filter_map(|spawn| spawn.spawning())
-        .filter(|spawning| spawning.remaining_time() == 0)
-        .for_each(|spawning| {
-            self.solve_spawning(&spawning);
-        });
-}
-
-fn solve_spawning(&mut self, spawning: &Spawning) {
-    
-}
-
-fn solve_free(&mut self) {
-
-}
-
-fn walkable_at(pos: Position) -> bool {
-    RoomTerrain::new(pos.room_name()).unwrap().get_xy(pos.xy()) != Terrain::Wall
-    && pos.look_for(look::STRUCTURES).ok().is_none_or(|structures| {
-        structures.into_iter().all(|structure| !structure.structure_type().is_obstacle())
-    })
-    && pos.look_for(look::CREEPS).ok().is_none_or(|creeps| {
-        creeps.into_iter().all(|creep| creep.my())
-    })
 }
