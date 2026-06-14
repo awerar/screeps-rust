@@ -6,7 +6,7 @@ use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
 use screeps::{Creep, HasPosition, Position, StructureSpawn, game};
 
-use crate::{memory::Memory, messages::{Messages, SpawnMessage}, movement::{MoveTarget, SpawningID, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID};
+use crate::{movement::{MoveTarget, MovementMemory, SpawningID, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID, spawn::TugboatRequests};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(SafeID<Creep>);
@@ -71,12 +71,14 @@ impl MovementRequests {
         }
     }
 
-    pub fn perform(mut self, mem: &mut Memory) {
+    pub fn perform(mut self, mem: &mut MovementMemory) -> TugboatRequests {
         self.remove_invalid_sessions();
         self.handle_unpaired_tugboats();
-        self.handle_unpaired_tuggeds(&mut mem.messages);
+        let tugboat_requests = self.handle_unpaired_tuggeds();
 
-        MovementSolver::solve(self.collect_creeps().simplify(), &mut mem.movement);
+        MovementSolver::solve(self.collect_creeps().simplify(), mem);
+
+        tugboat_requests
     }
 
     fn remove_invalid_sessions(&mut self) {
@@ -105,7 +107,9 @@ impl MovementRequests {
             });
     }
 
-    fn handle_unpaired_tuggeds(&mut self, messages: &mut Messages) {
+    fn handle_unpaired_tuggeds(&mut self) -> TugboatRequests {
+        let mut tugboat_requests = TugboatRequests::new();
+
         self.tuggeds.keys()
             .cloned()
             .collect::<HashSet<_>>()
@@ -116,8 +120,10 @@ impl MovementRequests {
                 let target = self.tuggeds.remove(tugged).unwrap();
                 self.singles.insert(tugged.0.clone(), target);
 
-                messages.spawn.send(SpawnMessage::SpawnTugboatFor(tugged.0.clone()));
+                tugboat_requests.add_request_for(tugged.0.clone());
             });
+
+        tugboat_requests
     }
 
     fn collect_creeps(self) -> RawMoveCreeps {

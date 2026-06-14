@@ -65,11 +65,10 @@ pub fn game_loop() {
     handle_incoming_creeps(&mut mem);
 
     update_coordinators(&mut mem);
-    do_creeps(&mut mem);
+    let tugboat_requests = do_creeps(&mut mem);
 
     mem.messages.trucks.flush();
-    mem.messages.spawn.flush();
-    do_spawns(&mut mem);
+    do_spawns(&mut mem, tugboat_requests);
 
     do_towers();
     do_links(&mut mem);

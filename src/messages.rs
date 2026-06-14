@@ -19,21 +19,6 @@ impl TryFromUnsafe for CreepMessage {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub enum SpawnMessage<I: IDKind = SafeIDs> {
-    SpawnTugboatFor(I::ID<Creep>)
-}
-
-impl TryFromUnsafe for SpawnMessage {
-    type Unsafe = SpawnMessage<UnsafeIDs>;
-
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(match us {
-            Self::Unsafe::SpawnTugboatFor(id) => Self::SpawnTugboatFor(id.try_make_safe()?),
-        })
-    }
-}
-
 #[derive(Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
 pub enum TruckMessage<I: IDKind = SafeIDs> {
     Provider(I::ID<Creep>, RoomName),
@@ -95,7 +80,6 @@ impl<T: Eq + Hash + Clone> Mailbox<T> {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Messages {
-    pub spawn: Mailbox<SpawnMessage>,
     pub trucks: Mailbox<TruckMessage>,
 
     #[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 

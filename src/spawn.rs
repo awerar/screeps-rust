@@ -3,7 +3,7 @@ use std::{iter, mem, ops::{Add, Mul}, sync::LazyLock};
 use log::{error, info, warn};
 use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, messages::SpawnMessage, names::get_new_creep_name, safeid::{GetSafeID, SafeID, ToSafeID}};
+use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, names::get_new_creep_name, safeid::{GetSafeID, SafeID, ToSafeID}};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -365,10 +365,19 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (energy / 50) as usize)
 }
 
-fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
-    for msg in mem.messages.spawn.read_all() {
-        #[expect(irrefutable_let_patterns)]
-        let SpawnMessage::SpawnTugboatFor(tugged) = msg else { continue; };
+pub struct TugboatRequests(Vec<SafeID<Creep>>);
+impl TugboatRequests {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn add_request_for(&mut self, tugged: SafeID<Creep>) {
+        self.0.push(tugged);
+    }
+}
+
+fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_requests: TugboatRequests) {
+    for tugged in tugboat_requests.0 {
         let already_exists = schedule.all_creeps().0
             .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == tugged));
         if already_exists { continue; }
@@ -378,7 +387,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule) {
 
         spawner.schedule_or_block(CreepPrototype { 
             body: get_tugboat_body(spawner.energy_capacity, &tugged),
-            role: CreepRole::Tugboat(tugged, spawner.structure.safe_id()), 
+            role: CreepRole::Tugboat(tugged.clone(), spawner.structure.safe_id()), 
             home 
         });
     }
@@ -409,7 +418,7 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     }
 }
 
-fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule) {
+fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_requests: &TugboatRequests) {
     for colony in mem.colonies.view_all() {
         let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));
         let excavator_count = schedule.all_creeps().filter_home(colony.name).0
@@ -428,16 +437,14 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule) {
             });
         }
 
-        for msg in mem.messages.spawn.read_all() {
-            #[expect(irrefutable_let_patterns)]
-            let SpawnMessage::SpawnTugboatFor(creep) = msg else { continue; };
-            let Some(creep_data) = mem.creeps.get(&creep) else { continue; };
+        for creep in &tugboat_requests.0 {
+            let Some(creep_data) = mem.creeps.get(creep) else { continue; };
             if !matches!(creep_data.role, CreepRole::Excavator(_, _)) { continue; }
 
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
             spawn.schedule_or_block(CreepPrototype { 
-                body: get_tugboat_body(spawn.energy_avaliable.max(300), &creep), 
-                role: CreepRole::Tugboat(creep, spawn.structure.safe_id()), 
+                body: get_tugboat_body(spawn.energy_avaliable.max(300), creep), 
+                role: CreepRole::Tugboat(creep.clone(), spawn.structure.safe_id()), 
                 home: colony.name
             });
         }
@@ -454,12 +461,12 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     }
 }
 
-pub fn do_spawns(mem: &mut Memory) {
+pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut schedule = SpawnSchedule::new(mem);
 
-    schedule_recovery(mem, &mut schedule);
+    schedule_recovery(mem, &mut schedule, &tugboat_requests);
 
-    schedule_tugboats(mem, &mut schedule);
+    schedule_tugboats(mem, &mut schedule, tugboat_requests);
     schedule_excavators(mem, &mut schedule);
     schedule_trucks(mem, &mut schedule);
     schedule_fabricators(mem, &mut schedule);
