@@ -1,9 +1,9 @@
 use std::cmp::Reverse;
 
-use screeps::{Creep, HasPosition, Resource, ResourceType, Room, Ruin, Structure, StructureContainer, Tombstone, find};
+use screeps::{Creep, HasPosition, Room, StructureContainer};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{state::TruckTask, stop::{Consumer, ConsumerStructureReqs, ConsumerTruckStop, GetResourceAvaliable, GetResourceFree, Provider, ProviderStructureReqs, ProviderTruckStop, TruckStop, TruckStopPos}}, safeid::SafeID, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, safeid::SafeID, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -30,21 +30,21 @@ impl TruckCoordinator {
         self.providers.handle_timeouts();
 
         let mut providers = Vec::new();
-        providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(7, Some(0), None));
+        /*providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(7, Some(0), None));
         providers.extend(creep_stops.providers().tasks(6, Some(0),  None));
         providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
         providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
         providers.extend(plan.center.link.providers().tasks(3, Some(0), None));
         providers.extend(plan.unlinked_source_containers().providers().tasks(2, Some(500), None)); // TODO
-        providers.extend(plan.center.terminal.providers().tasks(1, None, Some(10_000)));
+        providers.extend(plan.center.terminal.providers().tasks(1, None, Some(10_000)));*/
         self.providers.set_tasks(providers);
 
         let mut consumers = Vec::new();
-        consumers.extend(plan.center.spawn.consumers().tasks(5, None));
+        /*consumers.extend(plan.center.spawn.consumers().tasks(5, None));
         consumers.extend(plan.center.extensions.consumers().tasks(4, None));
         consumers.extend(plan.center.towers.consumers().tasks(3, None));
         consumers.extend(creep_stops.consumers().tasks(2, None));
-        consumers.extend(plan.center.terminal.consumers().tasks(1, Some(2_000)));
+        consumers.extend(plan.center.terminal.consumers().tasks(1, Some(2_000)));*/
         self.consumers.set_tasks(consumers);
     }
 
@@ -105,7 +105,7 @@ impl ColonyPlan {
     }
 }
 
-trait IntoConsumers { fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop>; }
+/*trait IntoConsumers { fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop>; }
 impl<R, S: ConsumerStructureReqs> IntoConsumers for R where R : ResolvableStructureRef<Structure = S> {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
         self.resolve().map(TruckStop::<Consumer, Structure>::new).map(ConsumerTruckStop::Structure)
@@ -195,4 +195,4 @@ impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
             (consumer, consume, priority)
         })
     }
-}
+}*/

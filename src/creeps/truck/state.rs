@@ -2,7 +2,7 @@ use enum_display::EnumDisplay;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, ResourceType, SharedCreepProperties};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::truck::{coordinator::TruckCoordinator, stop::{ConsumerTruckStop, GetResourceAvaliable, GetResourceFree, ProviderTruckStop, Transfer, TruckStopPos, Withdraw}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
+use crate::{colony::ColonyView, creeps::truck::{coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -136,14 +136,14 @@ impl TruckTask {
                 provider.creep_withdraw(creep, ResourceType::Energy)?;
 
                 let creep_avaliable = creep.store().free_energy_capacity();
-                let provider_avaliable: i32 = provider.get_provide().get_resource_avaliable(ResourceType::Energy).try_into().unwrap();
+                let provider_avaliable: i32 = provider.get_resource_avaliable(ResourceType::Energy).try_into().unwrap();
                 Ok(provider_avaliable.min(creep_avaliable))
             },
             TruckTask::ProvidingTo(consumer) => {
                 consumer.creep_transfer(creep, ResourceType::Energy)?;
 
                 let creep_avaliable = creep.store().used_energy_capacity();
-                let consumer_avaliable = consumer.get_consume().get_resource_free(ResourceType::Energy);
+                let consumer_avaliable = consumer.get_resource_free(ResourceType::Energy);
                 Ok(-i32::try_from(consumer_avaliable.min(creep_avaliable)).unwrap())
             }
         }
