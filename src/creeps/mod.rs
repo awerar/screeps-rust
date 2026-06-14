@@ -149,7 +149,7 @@ pub fn do_creeps(mem: &mut Memory) {
                 state.transition(creep, &mut args);
             },
             Truck(state) => {
-                let mut args = (home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
+                let mut args = (home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages, false, 0);
                 state.transition(creep, &mut args);
             },
             Fabricator(state) => {

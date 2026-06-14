@@ -10,6 +10,7 @@ pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
 pub trait EnergyStore {
     #[expect(unused)]
     fn energy_capacity(&self) -> u32;
+    #[expect(unused)]
     fn used_energy_capacity(&self) -> u32;
     fn free_energy_capacity(&self) -> i32;
 }

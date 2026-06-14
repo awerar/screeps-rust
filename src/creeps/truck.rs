@@ -6,7 +6,7 @@ use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, StructureContainer, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -110,12 +110,12 @@ impl Consume for ConsumerTruckStop {}
 impl Consume for TruckStop<Consumer, Structure> {}
 impl Consume for TruckStop<Consumer, Creep> {}
 
-type Args<'a> = (ColonyView<'a>, &'a mut MovementRequests, &'a mut TruckCoordinator, &'a mut Messages);
+type Args<'a> = (ColonyView<'a>, &'a mut MovementRequests, &'a mut TruckCoordinator, &'a mut Messages, bool, i32);
 impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
     fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
-        let (home, movement, coordinator, messages) = args;
+        let (home, movement, coordinator, messages, already_transfered, delta) = args;
 
         let fail_task_transition = |task, coordinator: &mut TruckCoordinator| {
             coordinator.finish(creep, task, false);
@@ -138,23 +138,23 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
 
         match self {
             Self::Idle => {
-                if creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
-                    let consumer = coordinator.assign_consumer(creep);
+                if creep.store().used_energy_capacity().strict_add_signed(*delta) >  0 {
+                    let consumer = coordinator.assign_consumer(creep, *delta);
                     if let Some(consumer) = consumer { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))) }
 
                     if home.buffer.as_ref().is_some_and(|buffer| buffer.energy_capacity_left() > 0) { 
                         return Ok(Continue(Self::StoringAway)) 
                     }
                 } else {
-                    let push_provider = coordinator.assign_push_provider(creep);
+                    let push_provider = coordinator.assign_push_provider(creep, *delta);
                     if let Some(provider) = push_provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
 
                     if home.buffer.as_ref().is_some_and(|buffer| buffer.energy() > 0) {
-                        let consumer = coordinator.assign_consumer(creep);
+                        let consumer = coordinator.assign_consumer(creep, *delta);
                         if let Some(consumer) = consumer { return Ok(Continue(Self::FillingUpFor(consumer))) }
                     }
 
-                    let provider = coordinator.assign_provider(creep);
+                    let provider = coordinator.assign_provider(creep, *delta);
                     if let Some(provider) = provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
                 }
 
@@ -163,10 +163,11 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for TruckCreep {
             Self::Performing(ref task) => {
                 if !task.still_valid() || !coordinator.heartbeat(creep, task) { return fail_task_transition(task, coordinator) }
                 
-                if movement.move_creep_to(creep, task.pos(), 1).in_range() {
-                    task.creep_perform(creep)?;
+                if movement.move_creep_to(creep, task.pos(), 1).in_range() && !*already_transfered {
+                    *delta = task.creep_perform(creep)?;
                     coordinator.finish(creep, task, true);
-                    return Ok(Break(Self::Idle))
+                    *already_transfered = true;
+                    return Ok(Continue(Self::Idle))
                 }
                     
                 Ok(Break(self))
@@ -205,12 +206,22 @@ impl TruckTask {
         }
     }
 
-    fn creep_perform(&self, creep: &Creep) -> anyhow::Result<()> {
+    fn creep_perform(&self, creep: &Creep) -> anyhow::Result<i32> {
         match self {
-            TruckTask::CollectingFrom(provider) => 
-                provider.creep_withdraw(creep, ResourceType::Energy),
-            TruckTask::ProvidingTo(consumer) => 
-                consumer.creep_transfer(creep, ResourceType::Energy)
+            TruckTask::CollectingFrom(provider) => {
+                provider.creep_withdraw(creep, ResourceType::Energy)?;
+
+                let creep_avaliable = creep.store().free_energy_capacity();
+                let provider_avaliable: i32 = provider.get_provide().get_resource_avaliable(ResourceType::Energy).try_into().unwrap();
+                Ok(provider_avaliable.min(creep_avaliable))
+            },
+            TruckTask::ProvidingTo(consumer) => {
+                consumer.creep_transfer(creep, ResourceType::Energy)?;
+
+                let creep_avaliable = creep.store().used_energy_capacity();
+                let consumer_avaliable = consumer.get_consume().get_resource_free(ResourceType::Energy);
+                Ok(-i32::try_from(consumer_avaliable.min(creep_avaliable)).unwrap())
+            }
         }
     }
 
@@ -276,8 +287,8 @@ impl TruckCoordinator {
         }
     }
 
-    fn assign_push_provider(&mut self, creep: &Creep) -> Option<ProviderTruckStop> {
-        let creep_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy)) as u32;
+    fn assign_push_provider(&mut self, creep: &Creep, delta: i32) -> Option<ProviderTruckStop> {
+        let creep_capacity = (creep.store().free_energy_capacity() - delta) as u32;
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
@@ -285,16 +296,16 @@ impl TruckCoordinator {
         })
     }
 
-    fn assign_provider(&mut self, creep: &Creep) -> Option<ProviderTruckStop> {
-        let creep_capacity = creep.store().get_free_capacity(Some(ResourceType::Energy)) as u32;
+    fn assign_provider(&mut self, creep: &Creep, delta: i32) -> Option<ProviderTruckStop> {
+        let creep_capacity = (creep.store().free_energy_capacity() - delta) as u32;
         self.providers.assign_task(creep, creep_capacity, |tasks| {
             tasks.into_iter()
                 .max_by_key(|(provider, amount, data)| ((*amount).min(creep_capacity), data.priority, Reverse(provider.pos().get_range_to(creep.pos()))))
         })
     }
 
-    fn assign_consumer(&mut self, creep: &Creep) -> Option<ConsumerTruckStop> {
-        let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
+    fn assign_consumer(&mut self, creep: &Creep, delta: i32) -> Option<ConsumerTruckStop> {
+        let creep_energy = creep.store().used_energy_capacity().strict_add_signed(delta);
         self.consumers.assign_task(creep, creep_energy, |tasks| {
             tasks.into_iter()
                 .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(creep.pos()))))
