@@ -4,22 +4,18 @@ use itertools::Itertools;
 use screeps::{Creep, RoomName};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashset, deserialize_prune_hashmap_keys};
+use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap_keys, deserialize_prune_hashset};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
-pub enum CreepMessage<I: IDKind = SafeIDs> {
-    AssignedTugBoat(I::ID<Creep>), // TODO: Remove
+pub enum CreepMessage {
     TruckTarget
 }
 
 impl TryFromUnsafe for CreepMessage {
-    type Unsafe = CreepMessage<UnsafeIDs>;
+    type Unsafe = Self;
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(match us {
-            Self::Unsafe::AssignedTugBoat(tugboat) => Self::AssignedTugBoat(tugboat.try_make_safe()?),
-            Self::Unsafe::TruckTarget => Self::TruckTarget,
-        })
+        Some(us)
     }
 }
 

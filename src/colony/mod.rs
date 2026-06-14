@@ -6,7 +6,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
 
-use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::StateMachineTransition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 pub mod steps;
@@ -198,7 +198,7 @@ pub fn update_colonies(mem: &mut Memory) {
 
         let (plan, step) = mem.colonies.0.get_mut(&name).unwrap();
         let view = ColonyView::new(room.clone(), plan, *step);
-        step.transition(&room, &mut &view);
+        transition(step, |step| step.update(&room, &view));
 
         info!("{name} is at step {step:?}");
     }

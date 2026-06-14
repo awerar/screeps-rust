@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::requests::MovementRequests, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}};
+use crate::{memory::ClaimRequests, movement::requests::MovementRequests, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<I: IDKind = SafeIDs> {
@@ -26,13 +26,10 @@ impl<'de> Deserialize<'de> for FlagshipCreep {
     }
 }
 
-type Args<'a> = (&'a mut MovementRequests, &'a mut ClaimRequests);
-impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
-    fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
+impl FlagshipCreep {
+    pub fn update(self, creep: &SafeID<Creep>, movement: &mut MovementRequests, claim_requests: &mut ClaimRequests) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
-
-        let (movement, claim_requests) = args;
 
         match &self {
             Idle => {
@@ -61,7 +58,7 @@ impl StateMachine<SafeID<Creep>, Args<'_>> for FlagshipCreep {
                             return Ok(Continue(Idle))
                         },
                         Err(ClaimControllerErrorCode::InvalidTarget) => {
-                            creep.attack_controller(controller).ok();
+                            creep.attack_controller(controller)?;
                         },
                         Err(_) => {
                             warn!("Unable to claim controller!");

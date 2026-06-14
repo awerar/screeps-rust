@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::StateMachineTransition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -140,22 +140,14 @@ pub fn do_creeps(mem: &mut Memory) {
         let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
         match &mut creep_data.role {
-            Flagship(state) => {
-                let mut args  = (&mut movement, &mut mem.claim_requests);
-                state.transition(creep, &mut args);
-            },
-            Excavator(state, source) => {
-                let mut args = (source.clone(), home, &mut movement);
-                state.transition(creep, &mut args);
-            },
-            Truck(state) => {
-                let mut args = (home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages, false, 0);
-                state.transition(creep, &mut args);
-            },
-            Fabricator(state) => {
-                let mut args = (home, &mut movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages);
-                state.transition(creep, &mut args);
-            },
+            Flagship(state) => 
+                transition(state, |state| state.update(creep, &mut movement, &mut mem.claim_requests)),
+            Excavator(state, source) => 
+                transition(state, |state| state.update(creep, source, &home, &mut movement)),
+            Truck(state) => 
+                transition(state, |state| state.update(creep, &home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut mem.messages, &mut false, &mut 0)),
+            Fabricator(state) => 
+                transition(state, |state| state.update(creep, &home, &mut movement, mem.fabricator_coordinators.entry(creep_data.home).or_default(), &mut mem.messages)),
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged, spawn),
             Scrap(spawn) => do_recycle(creep, &mut movement, spawn),
         }

@@ -2,11 +2,11 @@ use std::{any::Any, collections::{HashMap, HashSet, hash_map}, fmt::Debug, hash:
 
 use itertools::Itertools;
 use log::warn;
-use screeps::{Creep, MaybeHasId, game};
+use screeps::{Creep, MaybeHasId, SharedCreepProperties, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::{safeid::{DO, TryFromUnsafe, TryMakeSafe, UnsafeID}, statemachine::UnderlyingName};
+use crate::safeid::{DO, TryFromUnsafe, TryMakeSafe, UnsafeID};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "D: Serialize + DeserializeOwned")]

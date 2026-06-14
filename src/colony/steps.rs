@@ -6,10 +6,10 @@ use screeps::Room;
 use serde::{Deserialize, Serialize};
 use strum::{EnumIter, FromRepr, IntoEnumIterator};
 
-use crate::{colony::ColonyView, statemachine::{StateMachine, Transition}};
+use crate::{colony::ColonyView, statemachine::Transition};
 
-impl StateMachine<Room, &ColonyView<'_>> for ColonyStep {
-    fn update(self, room: &Room, colony_data: &mut &ColonyView<'_>) -> anyhow::Result<Transition<Self>> {
+impl ColonyStep {
+    pub fn update(self, room: &Room, colony_data: &ColonyView<'_>) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         let controller_level = colony_data.controller.level();

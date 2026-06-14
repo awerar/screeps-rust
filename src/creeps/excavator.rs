@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn, Transferable};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, movement::requests::MovementRequests, safeid::SafeID, statemachine::{StateMachine, Transition}, utils::EnergyStore};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, movement::requests::MovementRequests, safeid::SafeID, statemachine::Transition, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -83,13 +83,10 @@ fn work_count(creep: &SafeID<Creep>) -> u32 {
     Should only build 
 */
 
-type Args<'a> = (SafeID<Source>, ColonyView<'a>, &'a mut MovementRequests);
-impl StateMachine<SafeID<Creep>, Args<'_>> for ExcavatorCreep {
-    fn update(self, creep: &SafeID<Creep>, args: &mut Args<'_>) -> anyhow::Result<Transition<Self>> {
+impl ExcavatorCreep {
+    pub fn update(self, creep: &SafeID<Creep>, source: &SafeID<Source>, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
-
-        let (source, home, movement) = args;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 
