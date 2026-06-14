@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, 
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages}, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyBuffer, ColonyView}, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -87,7 +87,7 @@ impl FabricatorCreep {
     pub fn is_consumer(&self) -> bool { matches!(self, Self::CollectingFor(_) | Self::Performing(_)) }
     pub fn is_provider(&self) -> bool { matches!(self, Self::Idle) }
 
-    pub fn update(self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         match self {
@@ -102,8 +102,7 @@ impl FabricatorCreep {
             Self::CollectingFor(ref task) => {
                 if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return Self::fail_task(creep, task, coordinator) }
 
-                if messages.creep(creep).read(CreepMessage::TruckTarget) 
-                    || creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
+                if creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
                         return Ok(Continue(Self::Performing(task.clone())))
                     }
 
@@ -121,7 +120,7 @@ impl FabricatorCreep {
                 if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return Self::fail_task(creep, task, coordinator) }
 
                 let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
-                if creep_energy == 0 && !messages.creep(creep).read(CreepMessage::TruckTarget) {
+                if creep_energy == 0 {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 

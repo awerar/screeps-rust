@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, StructureContainer, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -111,7 +111,7 @@ impl Consume for TruckStop<Consumer, Creep> {}
 
 impl TruckCreep {
     #[expect(clippy::too_many_arguments)]
-    pub fn update(self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator, messages: &mut Messages, already_transfered: &mut bool, delta: &mut i32) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator, already_transfered: &mut bool, delta: &mut i32) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         let fail_task_transition = |task, coordinator: &mut TruckCoordinator| {
@@ -124,14 +124,6 @@ impl TruckCreep {
             coordinator.consumers.finish_task(creep_id, task, false);
             anyhow::Ok(Transition::Continue(Self::Idle))
         };
-
-        match &self {
-            Self::FillingUpFor(ConsumerTruckStop::Creep(creep)) |
-            Self::Performing(TruckTask::ProvidingTo(ConsumerTruckStop::Creep(creep))) => {
-                messages.creep(&creep.id).send(CreepMessage::TruckTarget);
-            }
-            _ => ()
-        }
 
         match self {
             Self::Idle => {

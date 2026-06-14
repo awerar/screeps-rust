@@ -26,7 +26,6 @@ mod spawn;
 mod creeps;
 mod callbacks;
 mod utils;
-mod messages;
 mod colony;
 mod pathfinding;
 mod visuals;
