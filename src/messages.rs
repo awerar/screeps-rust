@@ -1,10 +1,10 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash, mem};
 
 use itertools::Itertools;
-use screeps::{Creep, RoomName};
+use screeps::Creep;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap_keys, deserialize_prune_hashset};
+use crate::safeid::{SafeID, TryFromUnsafe, deserialize_prune_hashmap_keys, deserialize_prune_hashset};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum CreepMessage {
@@ -18,33 +18,6 @@ impl TryFromUnsafe for CreepMessage {
         Some(us)
     }
 }
-
-#[derive(Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
-pub enum TruckMessage<I: IDKind = SafeIDs> {
-    Provider(I::ID<Creep>, RoomName),
-    Consumer(I::ID<Creep>, RoomName),
-}
-
-impl TryFromUnsafe for TruckMessage {
-    type Unsafe = TruckMessage<UnsafeIDs>;
-
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(match us {
-            Self::Unsafe::Provider(id, x) => Self::Provider(id.try_make_safe()?, x),
-            Self::Unsafe::Consumer(id, x) => Self::Consumer(id.try_make_safe()?, x),
-        })
-    }
-}
-
-impl TruckMessage {
-    pub fn room_name(&self) -> &RoomName {
-        match self {
-            TruckMessage::Provider(_, room_name) | 
-            TruckMessage::Consumer(_, room_name) => room_name,
-        }
-    }
-}
-
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "T: Serialize + TryFromUnsafe + Hash + Eq, T::Unsafe : DeserializeOwned")]
@@ -80,9 +53,7 @@ impl<T: Eq + Hash + Clone> Mailbox<T> {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Messages {
-    pub trucks: Mailbox<TruckMessage>,
-
-    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 
+#[serde(deserialize_with = "deserialize_prune_hashmap_keys")] 
     creeps: HashMap<SafeID<Creep>, Mailbox<CreepMessage>>,
 }
 

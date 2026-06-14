@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, 
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::{ColonyBuffer, ColonyView}, messages::{CreepMessage, Messages}, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -84,13 +84,11 @@ const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
 
 impl FabricatorCreep {
+    pub fn is_consumer(&self) -> bool { matches!(self, Self::CollectingFor(_) | Self::Performing(_)) }
+    pub fn is_provider(&self) -> bool { matches!(self, Self::Idle) }
+
     pub fn update(self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator, messages: &mut Messages) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
-
-        let fail_task_transition = |task, coordinator: &mut FabricatorCoordinator| {
-            coordinator.finish_task(creep, task, false);
-            Ok(Transition::Continue(FabricatorCreep::Idle))
-        };
 
         match self {
             Self::Idle => {
@@ -99,21 +97,18 @@ impl FabricatorCreep {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
-                messages.trucks.send(TruckMessage::Provider(creep.clone(), home.name));
                 Ok(Break(self))
             },
             Self::CollectingFor(ref task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return fail_task_transition(task, coordinator) }
+                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return Self::fail_task(creep, task, coordinator) }
 
                 if messages.creep(creep).read(CreepMessage::TruckTarget) 
                     || creep.store().get_used_capacity(Some(ResourceType::Energy)) > 0 {
                         return Ok(Continue(Self::Performing(task.clone())))
                     }
 
-                messages.trucks.send(TruckMessage::Consumer(creep.clone(), home.name));
-
-                let Some(buffer) = &home.buffer else { return fail_task_transition(task, coordinator) };
-                if buffer.store().get_used_capacity(Some(ResourceType::Energy)) == 0 { return fail_task_transition(task, coordinator) }
+                let Some(buffer) = &home.buffer else { return Self::fail_task(creep, task, coordinator) };
+                if buffer.store().get_used_capacity(Some(ResourceType::Energy)) == 0 { return Self::fail_task(creep, task, coordinator) }
 
                 if movement.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None)?;
@@ -123,14 +118,12 @@ impl FabricatorCreep {
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return fail_task_transition(task, coordinator) }
+                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return Self::fail_task(creep, task, coordinator) }
 
                 let creep_energy = creep.store().get_used_capacity(Some(ResourceType::Energy));
                 if creep_energy == 0 && !messages.creep(creep).read(CreepMessage::TruckTarget) {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
-
-                messages.trucks.send(TruckMessage::Consumer(creep.clone(), home.name));
 
                 if movement.move_creep_to(creep, task.pos, task.work_range()).in_range() && creep_energy > 0 {
                     task.creep_work(creep)?;
@@ -139,6 +132,12 @@ impl FabricatorCreep {
                 Ok(Break(self))
             }
         }
+    }
+
+    #[expect(clippy::unnecessary_wraps)]
+    fn fail_task(creep: &SafeID<Creep>, task: &FabricatorTask, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
+        coordinator.finish_task(creep, task, false);
+        Ok(Transition::Continue(FabricatorCreep::Idle))
     }
 }
 

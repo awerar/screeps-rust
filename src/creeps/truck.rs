@@ -2,11 +2,10 @@
 use std::cmp::Reverse;
 
 use enum_display::EnumDisplay;
-use itertools::Itertools;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, StructureContainer, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -241,18 +240,19 @@ pub struct TruckCoordinator {
     consumers: TaskServer<ConsumerTruckStop, u32>
 }
 
+pub struct CreepStops {
+    pub consumers: Vec<SafeID<Creep>>,
+    pub providers: Vec<SafeID<Creep>>
+}
+
 impl TruckCoordinator {
-    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, messages: Vec<TruckMessage>) {
+    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, creep_stops: &CreepStops) {
         self.consumers.handle_timeouts();
         self.providers.handle_timeouts();
 
-        let messages = messages.into_iter()
-            .filter(|message| *message.room_name() == room.name())
-            .collect_vec();
-
         let mut providers = Vec::new();
         providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(7, Some(0), None));
-        providers.extend(messages.providers().tasks(6, Some(0),  None));
+        providers.extend(creep_stops.providers().tasks(6, Some(0),  None));
         providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
         providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
         providers.extend(plan.center.link.providers().tasks(3, Some(0), None));
@@ -264,7 +264,7 @@ impl TruckCoordinator {
         consumers.extend(plan.center.spawn.consumers().tasks(5, None));
         consumers.extend(plan.center.extensions.consumers().tasks(4, None));
         consumers.extend(plan.center.towers.consumers().tasks(3, None));
-        consumers.extend(messages.consumers().tasks(2, None));
+        consumers.extend(creep_stops.consumers().tasks(2, None));
         consumers.extend(plan.center.terminal.consumers().tasks(1, Some(2_000)));
         self.consumers.set_tasks(consumers);
     }
@@ -402,12 +402,12 @@ impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStruct
     }
 }
 
-impl IntoConsumers for Vec<TruckMessage> {
+impl IntoConsumers for CreepStops {
     fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.iter().filter_map(|message| {
-            let TruckMessage::Consumer(consumer, _) = message else { return None };
-            Some(ConsumerTruckStop::Creep(TruckStop::<Consumer, Creep>::new(consumer.clone())))
-        })
+        self.consumers.iter()
+            .cloned()
+            .map(TruckStop::<Consumer, Creep>::new)
+            .map(ConsumerTruckStop::Creep)
     }
 }
 
@@ -424,12 +424,12 @@ impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStruct
     }
 }
 
-impl IntoProviders for Vec<TruckMessage> {
+impl IntoProviders for CreepStops {
     fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.iter().filter_map(|message| {
-            let TruckMessage::Provider(provider, _) = message else { return None };
-            Some(ProviderTruckStop::Creep(TruckStop::<Provider, Creep>::new(provider.clone())))
-        })
+        self.providers.iter()
+            .cloned()
+            .map(TruckStop::<Provider, Creep>::new)
+            .map(ProviderTruckStop::Creep)
     }
 }
 

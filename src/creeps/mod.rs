@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -158,6 +158,22 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
     }
 
     movement.perform(&mut mem.movement)
+}
+
+impl Memory {
+    pub fn get_creep_stops(&self, room: RoomName) -> CreepStops {
+        let mut result = CreepStops { consumers: Vec::new(), providers: Vec::new() };
+
+        for (creep, data) in &self.creeps.0 {
+            if creep.pos().room_name() != room { continue; }
+            let CreepRole::Fabricator(state) = &data.role else { continue; };
+
+            if state.is_consumer() { result.consumers.push(creep.clone()); }
+            if state.is_provider() { result.providers.push(creep.clone()); }
+        }
+
+        result
+    }
 }
 
 fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {

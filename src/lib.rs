@@ -67,7 +67,6 @@ pub fn game_loop() {
     update_coordinators(&mut mem);
     let tugboat_requests = do_creeps(&mut mem);
 
-    mem.messages.trucks.flush();
     do_spawns(&mut mem, tugboat_requests);
 
     do_towers();
@@ -92,7 +91,9 @@ register_custom_getrandom!(custom_getrandom);
 
 fn update_coordinators(mem: &mut Memory) {
     for colony in mem.colonies.view_all() {
-        mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, mem.messages.trucks.read_all());
+        let creep_stops = mem.get_creep_stops(colony.name);
+
+        mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, &creep_stops);
         mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room, colony.buffer);
     }
 }
