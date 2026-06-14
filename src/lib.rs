@@ -12,7 +12,7 @@
 use getrandom::register_custom_getrandom;
 use itertools::Itertools;
 use log::info;
-use rand::{RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom, thread_rng};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
@@ -103,11 +103,10 @@ fn do_links(mem: &mut Memory) {
         let central_link: Option<StructureLink> = colony.plan.center.link.resolve();
         let Some(central_link) = central_link else { continue };
 
-        let mut source_links: Vec<StructureLink> = colony.plan.sources.values()
+        let source_links: Vec<StructureLink> = colony.plan.sources.values()
             .filter_map(|plan| plan.link.resolve())
+            .sorted_by_key(|link| link.store().free_energy_capacity())
             .collect_vec();
-
-        source_links.shuffle(&mut thread_rng());
 
         for source_link in source_links {
             if source_link.store().used_energy_capacity() > 400
