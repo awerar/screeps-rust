@@ -9,11 +9,14 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 #![allow(clippy::cast_sign_loss, clippy::cast_precision_loss )]
 
+use getrandom::register_custom_getrandom;
+use itertools::Itertools;
 use log::info;
+use rand::{RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom, thread_rng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers, utils::EnergyStore};
 
 mod logging;
 mod names;
@@ -80,6 +83,14 @@ pub fn game_loop() {
     visuals::draw();
 }
 
+#[expect(clippy::unnecessary_wraps)]
+fn custom_getrandom(buf: &mut [u8]) -> Result<(), getrandom::Error> {
+    let mut rng = StdRng::seed_from_u64(js_sys::Math::random().to_bits());
+    rng.fill_bytes(buf);
+    Ok(())
+}
+register_custom_getrandom!(custom_getrandom);
+
 fn update_coordinators(mem: &mut Memory) {
     for colony in mem.colonies.view_all() {
         mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, mem.messages.trucks.read_all());
@@ -92,12 +103,15 @@ fn do_links(mem: &mut Memory) {
         let central_link: Option<StructureLink> = colony.plan.center.link.resolve();
         let Some(central_link) = central_link else { continue };
 
-        for source_plan in colony.plan.sources.values() {
-            let source_link: Option<StructureLink> = source_plan.link.resolve();
-            let Some(source_link) = source_link else { continue };
+        let mut source_links: Vec<StructureLink> = colony.plan.sources.values()
+            .filter_map(|plan| plan.link.resolve())
+            .collect_vec();
 
-            if source_link.store().get_used_capacity(Some(screeps::ResourceType::Energy)) > 400
-                && central_link.store().get_free_capacity(Some(screeps::ResourceType::Energy)) > 0 {
+        source_links.shuffle(&mut thread_rng());
+
+        for source_link in source_links {
+            if source_link.store().used_energy_capacity() > 400
+                && central_link.store().free_energy_capacity() > 50 {
                     source_link.transfer_energy(&central_link, None).ok();
                     break;
                 }
