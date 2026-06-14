@@ -92,7 +92,7 @@ fn do_links(mem: &mut Memory) {
         let central_link: Option<StructureLink> = colony.plan.center.link.resolve();
         let Some(central_link) = central_link else { continue };
 
-        for source_plan in colony.plan.sources.source_plans.values() {
+        for source_plan in colony.plan.sources.values() {
             let source_link: Option<StructureLink> = source_plan.link.resolve();
             let Some(source_link) = source_link else { continue };
 

@@ -2,22 +2,23 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use log::warn;
 use itertools::Itertools;
-use screeps::{ConstructionSite, HasPosition, OwnedStructureProperties, Position, ResourceType, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, Transferable, find, look};
+use screeps::{HasPosition, OwnedStructureProperties, Position, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs, ResolvableSiteRef, ResolvableStructureRef}, steps::ColonyStep}, safeid::UnsafeID};
+use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}, safeid::UnsafeID};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
     #[serde(with = "any_key_map")]
     pub steps: HashMap<ColonyStep, ColonyPlanStep>,
 
+    #[serde(with = "any_key_map")] 
+    pub sources: SourcesPlan,
     pub center: CenterPlan,
     pub mineral: MineralPlan,
-    pub sources: SourcesPlan,
     pub controller: PlannedStructureBuiltRef<StructureController>
 }
 
@@ -35,12 +36,7 @@ pub struct CenterPlan {
     pub extensions: PlannedStructureRefs<StructureExtension>
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SourcesPlan {
-    #[serde(with = "any_key_map")] 
-    pub source_plans: HashMap<UnsafeID<Source>, SourcePlan>,
-    pub source_containers: PlannedStructureRefs<StructureContainer>
-}
+pub type SourcesPlan = HashMap<UnsafeID<Source>, SourcePlan>;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourcePlan {
@@ -65,34 +61,6 @@ pub struct ColonyPlanStep {
     pub new_roads: HashSet<RoomXY>,
     #[serde(with = "any_key_map")] 
     pub new_structures: HashMap<RoomXY, StructureType>
-}
-
-trait SourceFillable: Transferable + screeps::HasStore {}
-impl SourceFillable for StructureSpawn {}
-impl SourceFillable for StructureLink {}
-impl SourceFillable for StructureExtension {}
-impl SourceFillable for StructureContainer {}
-
-impl SourcePlan {
-    pub fn get_construction_site(&self) -> Option<ConstructionSite> {
-        if let site@Some(_) = self.container.resolve_site() { return site; }
-        if let site@Some(_) = self.link.resolve_site() { return site; }
-        if let site@Some(_) = self.spawn.resolve_site() { return site; }
-        self.extensions.iter().find_map(PlannedStructureRef::resolve_site)
-    }
-
-    pub fn get_fillable(&self) -> Option<Box<dyn Transferable>> {
-        let mut fillables = Vec::new();
-
-        fillables.extend(self.spawn.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>));
-        fillables.extend(self.extensions.resolve().into_iter().map(|x| Box::new(x) as Box<dyn SourceFillable>));
-        fillables.extend(self.link.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>));
-        fillables.extend(self.container.resolve().map(|x| Box::new(x) as Box<dyn SourceFillable>));
-
-        fillables.into_iter()
-            .find(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
-            .map(|fillable| fillable as Box<dyn Transferable>)
-    }
 }
 
 impl ColonyPlan {

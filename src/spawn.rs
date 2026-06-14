@@ -267,7 +267,7 @@ fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
 
 fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
     for colony in mem.colonies.view_all() {
-        for (source, source_plan) in &colony.plan.sources.source_plans {
+        for (source, source_plan) in &colony.plan.sources {
             let Some(source) = source.to_safe_id() else { continue; };
 
             let any_excavator_already = schedule.all_creeps()
@@ -315,7 +315,7 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule) {
     use Part::*;
 
     for colony in mem.colonies.view_all() {
-        let total_carry_for_sources = colony.plan.sources.source_plans.values()
+        let total_carry_for_sources = colony.plan.sources.values()
             .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
             .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
             .sum::<f32>();
@@ -418,7 +418,7 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule) {
 
         if buffered_energy == 0 && excavator_count == 0 {
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
-            let Some((source, source_plan)) = colony.plan.sources.source_plans.iter().next() else { continue; };
+            let Some((source, source_plan)) = colony.plan.sources.iter().next() else { continue; };
             let Some(source) = source.to_safe_id() else { continue; };
 
             spawn.schedule_or_block(CreepPrototype { 

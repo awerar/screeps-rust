@@ -178,29 +178,21 @@ impl ColonyPlanner {
     fn compile_sources(&self, center: RoomXY) -> anyhow::Result<SourcesPlan> {
         use PlannedStructure::*;
 
-        Ok(SourcesPlan{
-            source_plans: self.room.find(find::SOURCES, None).into_iter()
-                .map(|source| source.id())
-                .map(|source| {
-                    let container = self.get_structure_ref(SourceContainer(source))?;
+        self.room.find(find::SOURCES, None).into_iter()
+            .map(|source| source.id())
+            .map(|source| {
+                let container = self.get_structure_ref(SourceContainer(source))?;
 
-                    let plan = SourcePlan {
-                        distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
-                        spawn: /*self.get_structure_ref(SourceSpawn(source))?.into() /* TODO: FIX*/*/ OptionalPlannedStructureRef(None),
-                        container: container.into(),
-                        link: self.get_structure_ref(SourceLink(source))?.into(),
-                        extensions: self.get_structure_refs(SourceExtension(source)),
-                    };
+                let plan = SourcePlan {
+                    distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
+                    spawn: /*self.get_structure_ref(SourceSpawn(source))?.into() /* TODO: FIX*/*/ OptionalPlannedStructureRef(None),
+                    container: container.into(),
+                    link: self.get_structure_ref(SourceLink(source))?.into(),
+                    extensions: self.get_structure_refs(SourceExtension(source)),
+                };
 
-                    Ok((source, plan))
-                }).collect::<anyhow::Result<_>>()?,
-            source_containers: PlannedStructureRefs(
-                self.pos2structure.iter()
-                    .filter(|(_, structure)| matches!(structure, PlannedStructure::SourceContainer(_)))
-                    .map(|(pos, _)| PlannedStructureRef::new(*pos, &self.room))
-                    .collect()
-            )
-        })
+                Ok((source, plan))
+            }).collect::<anyhow::Result<_>>()
     }
 
     fn compile_mineral(&self, center: RoomXY) -> anyhow::Result<MineralPlan> {

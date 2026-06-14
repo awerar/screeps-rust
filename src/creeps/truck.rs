@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 
 use enum_display::EnumDisplay;
 use itertools::Itertools;
-use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, Tombstone, find};
+use screeps::{Creep, HasPosition, MaybeHasId, Position, Resource, ResourceType, Room, Ruin, SharedCreepProperties, Structure, StructureContainer, Tombstone, find};
 use serde::{Deserialize, Serialize};
 
 use crate::{colony::{ColonyView, planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}}, creeps::truck::truck_stop::{Consumer, ConsumerStructureReqs, Provider, ProviderStructureReqs, TruckStop}, messages::{CreepMessage, Messages, TruckMessage}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{StateMachine, Transition}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
@@ -247,7 +247,7 @@ impl TruckCoordinator {
         providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
         providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
         providers.extend(plan.center.link.providers().tasks(3, Some(0), None));
-        providers.extend(plan.sources.source_containers.providers().tasks(2, Some(500), None));
+        providers.extend(plan.unlinked_source_containers().providers().tasks(2, Some(500), None)); // TODO
         providers.extend(plan.center.terminal.providers().tasks(1, None, Some(10_000)));
         self.providers.set_tasks(providers);
 
@@ -299,6 +299,21 @@ impl TruckCoordinator {
             tasks.into_iter()
                 .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(creep.pos()))))
         })
+    }
+}
+
+impl ColonyPlan {
+    fn unlinked_source_containers(&self) -> PlannedStructureRefs<StructureContainer> {
+        let center_link_exists = self.center.link.resolve().is_some();
+
+        PlannedStructureRefs(
+            self.sources.values()
+                .filter(|source_plan| {
+                    let source_link_exists = source_plan.link.resolve().is_some();
+                    !center_link_exists || !source_link_exists
+                }).filter_map(|source_plan| source_plan.container.0.clone())
+                .collect()
+        )
     }
 }
 
