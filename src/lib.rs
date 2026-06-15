@@ -9,6 +9,8 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 #![allow(clippy::cast_sign_loss, clippy::cast_precision_loss )]
 
+use std::cmp::Reverse;
+
 use getrandom::register_custom_getrandom;
 use itertools::Itertools;
 use log::info;
@@ -103,8 +105,15 @@ fn do_links(mem: &mut Memory) {
         let Some(central_link) = central_link else { continue };
 
         let source_links: Vec<StructureLink> = colony.plan.sources.values()
-            .filter_map(|plan| plan.link.resolve())
-            .sorted_by_key(|link| link.store().free_energy_capacity())
+            .filter_map(|plan| {
+                let link = plan.link.resolve()?;
+
+                let link_energy = link.store().used_energy_capacity();
+                let container_energy = plan.container.resolve().map_or(0, |container| container.store().used_energy_capacity());
+
+                Some((link, link_energy + container_energy))
+            }).sorted_by_key(|(_, energy)| Reverse(*energy))
+            .map(|(link, _)| link)
             .collect_vec();
 
         for source_link in source_links {

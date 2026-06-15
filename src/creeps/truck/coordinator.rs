@@ -129,6 +129,8 @@ impl ColonyPlan {
     }
 }
 
+// TODO: VVVVVV Could probably simplified
+
 struct ProviderTasksBuilder {
     groups: Vec<(Vec<ProviderTruckStop>, ProviderTasksGroupConfig)>
 }
