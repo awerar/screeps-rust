@@ -85,5 +85,6 @@ pub enum Command {
     ResetColonyStep { room: String },
     ResetColony { room: String },
     MigrateColony { room: String },
-    DebugSpawn
+    DebugSpawn,
+    VisualizeMovement { creep: String }
 }

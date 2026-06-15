@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, HasPosition, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, safeid::{GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{VirtualTruck, state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, safeid::{GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -88,28 +88,25 @@ impl TruckCoordinator {
         }
     }
 
-    pub fn assign_push_provider(&mut self, creep: &Creep, delta: i32) -> Option<ProviderTruckStop> {
-        let creep_capacity = (creep.store().free_energy_capacity() - delta) as u32;
-        self.providers.assign_task(creep, creep_capacity, |tasks| {
+    pub fn assign_push_provider(&mut self, truck: &VirtualTruck) -> Option<ProviderTruckStop> {
+        self.providers.assign_task(&truck.creep, truck.free_energy_capacity(), |tasks| {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
-                .max_by_key(|(provider, _, data)| (data.priority, Reverse(provider.pos().get_range_to(creep.pos()))))
+                .max_by_key(|(provider, _, data)| (data.priority, Reverse(provider.pos().get_range_to(truck.creep.pos()))))
         })
     }
 
-    pub fn assign_provider(&mut self, creep: &Creep, delta: i32) -> Option<ProviderTruckStop> {
-        let creep_capacity = (creep.store().free_energy_capacity() - delta) as u32;
-        self.providers.assign_task(creep, creep_capacity, |tasks| {
+    pub fn assign_provider(&mut self, truck: &VirtualTruck) -> Option<ProviderTruckStop> {
+        self.providers.assign_task(&truck.creep, truck.free_energy_capacity(), |tasks| {
             tasks.into_iter()
-                .max_by_key(|(provider, amount, data)| ((*amount).min(creep_capacity), data.priority, Reverse(provider.pos().get_range_to(creep.pos()))))
+                .max_by_key(|(provider, amount, data)| ((*amount).min(truck.free_energy_capacity()), data.priority, Reverse(provider.pos().get_range_to(truck.creep.pos()))))
         })
     }
 
-    pub fn assign_consumer(&mut self, creep: &Creep, delta: i32) -> Option<ConsumerTruckStop> {
-        let creep_energy = creep.store().used_energy_capacity().strict_add_signed(delta);
-        self.consumers.assign_task(creep, creep_energy, |tasks| {
+    pub fn assign_consumer(&mut self, truck: &VirtualTruck) -> Option<ConsumerTruckStop> {
+        self.consumers.assign_task(&truck.creep, truck.used_energy_capacity(), |tasks| {
             tasks.into_iter()
-                .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(creep.pos()))))
+                .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(truck.creep.pos()))))
         })
     }
 }

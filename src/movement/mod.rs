@@ -1,12 +1,26 @@
-use std::{collections::{HashMap, VecDeque}, hash::Hash, ops::Deref};
+use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, ops::Deref};
 
-use screeps::{Creep, HasPosition, Position, Spawning, StructureSpawn};
+use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::safeid::{GetSafeID, SafeID, deserialize_prune_hashmap_keys};
+use crate::{commands::{Command, pop_command}, safeid::{GetSafeID, SafeID, deserialize_prune_hashmap_keys}};
 
 pub mod requests;
 mod simplifier;
 mod solver;
+
+thread_local! {
+    static SELECTED: RefCell<HashSet<ObjectId<Creep>>> = RefCell::new(HashSet::new());
+}
+
+fn has_selected(creep: &SafeID<Creep>) -> bool {
+    SELECTED.with_borrow_mut(|selected| {
+        if pop_command(Command::VisualizeMovement { creep: creep.name() }) {
+            selected.insert(creep.id);
+        }
+
+        selected.contains(&creep.id)
+    })
+}
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {

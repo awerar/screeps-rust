@@ -1,4 +1,5 @@
 use enum_display::EnumDisplay;
+use log::debug;
 use screeps::{Creep, HasPosition, MaybeHasId, Position, ResourceType, SharedCreepProperties};
 use serde::{Deserialize, Serialize};
 
@@ -45,52 +46,73 @@ impl TryFromUnsafe for TruckTask {
     }
 }
 
+pub struct VirtualTruck {
+    pub creep: SafeID<Creep>,
+    energy: u32,
+    pub has_transfered: bool
+}
+
+impl VirtualTruck {
+    pub fn new(creep: SafeID<Creep>) -> Self {
+        Self { energy: creep.store().used_energy_capacity(), creep, has_transfered: false }
+    }
+
+    pub fn used_energy_capacity(&self) -> u32 {
+        self.energy
+    }
+
+    pub fn free_energy_capacity(&self) -> u32 {
+        self.creep.store().energy_capacity() - self.energy
+    }
+}
+
 impl TruckCreep {
-    pub fn update(self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator, already_transfered: &mut bool, delta: &mut i32) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, truck: &mut VirtualTruck, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         let fail_task_transition = |task, coordinator: &mut TruckCoordinator| {
-            coordinator.finish(creep, task, false);
+            coordinator.finish(&truck.creep, task, false);
             Ok(Transition::Continue(Self::Idle))
         };
 
-        let creep_id = creep.try_id().unwrap();
+        let creep_id = truck.creep.try_id().unwrap();
         let fail_consumer_task_transition = |task, coordinator: &mut TruckCoordinator| {
             coordinator.consumers.finish_task(creep_id, task, false);
             anyhow::Ok(Transition::Continue(Self::Idle))
         };
 
+        debug!("{} energy: {}", truck.creep.name(), truck.used_energy_capacity());
+
         match self {
             Self::Idle => {
-                if creep.store().used_energy_capacity().strict_add_signed(*delta) >  0 {
-                    let consumer = coordinator.assign_consumer(creep, *delta);
+                if truck.used_energy_capacity() >  0 {
+                    let consumer = coordinator.assign_consumer(truck);
                     if let Some(consumer) = consumer { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))) }
 
                     if home.buffer.as_ref().is_some_and(|buffer| buffer.energy_capacity_left() > 0) { 
                         return Ok(Continue(Self::StoringAway)) 
                     }
                 } else {
-                    let push_provider = coordinator.assign_push_provider(creep, *delta);
+                    let push_provider = coordinator.assign_push_provider(truck);
                     if let Some(provider) = push_provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
 
                     if home.buffer.as_ref().is_some_and(|buffer| buffer.energy() > 0) {
-                        let consumer = coordinator.assign_consumer(creep, *delta);
+                        let consumer = coordinator.assign_consumer(truck);
                         if let Some(consumer) = consumer { return Ok(Continue(Self::FillingUpFor(consumer))) }
                     }
 
-                    let provider = coordinator.assign_provider(creep, *delta);
+                    let provider = coordinator.assign_provider(truck);
                     if let Some(provider) = provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
                 }
 
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                if !task.still_valid() || !coordinator.heartbeat(creep, task) { return fail_task_transition(task, coordinator) }
-                
-                if movement.move_creep_to(creep, task.pos(), 1).in_range() && !*already_transfered {
-                    *delta = task.creep_perform(creep)?;
-                    coordinator.finish(creep, task, true);
-                    *already_transfered = true;
+                if !task.still_valid() || !coordinator.heartbeat(&truck.creep, task) { return fail_task_transition(task, coordinator) }
+
+                if movement.move_creep_to(&truck.creep, task.pos(), 1).in_range() && !truck.has_transfered {
+                    task.creep_perform(truck)?;
+                    coordinator.finish(&truck.creep, task, true);
                     return Ok(Continue(Self::Idle))
                 }
                     
@@ -98,10 +120,11 @@ impl TruckCreep {
             },
             Self::FillingUpFor(ref consumer) => {
                 let Some(buffer) = &home.buffer else { return fail_consumer_task_transition(consumer, coordinator) };
-                if buffer.energy() == 0 || !coordinator.consumers.heartbeat_task(creep, consumer) { return fail_consumer_task_transition(consumer, coordinator) }
+                if buffer.energy() == 0 || !coordinator.consumers.heartbeat_task(&truck.creep, consumer) { return fail_consumer_task_transition(consumer, coordinator) }
 
-                if movement.move_creep_to(creep, buffer.pos(), 1).in_range() {
-                    creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
+                if movement.move_creep_to(&truck.creep, buffer.pos(), 1).in_range() {
+                    truck.creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
+                    truck.energy += buffer.energy().min(truck.free_energy_capacity());
                     return Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
                 }
                     
@@ -111,8 +134,9 @@ impl TruckCreep {
                 let Some(buffer) = &home.buffer else { return Ok(Continue(Self::Idle)) };
                 if buffer.energy_capacity_left() == 0 { return Ok(Continue(Self::Idle)) }
                 
-                if movement.move_creep_to(creep, buffer.pos(), 1).in_range() {
-                    creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
+                if movement.move_creep_to(&truck.creep, buffer.pos(), 1).in_range() {
+                    truck.creep.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
+                    truck.energy -= truck.used_energy_capacity().min(buffer.store().free_energy_capacity() as u32);
                     return Ok(Break(Self::Idle))
                 }
 
@@ -130,23 +154,29 @@ impl TruckTask {
         }
     }
 
-    fn creep_perform(&self, creep: &Creep) -> anyhow::Result<i32> {
+    fn creep_perform(&self, truck: &mut VirtualTruck) -> anyhow::Result<()> {
+        truck.has_transfered = true;
+
         match self {
             TruckTask::CollectingFrom(provider) => {
-                provider.creep_withdraw(creep, ResourceType::Energy)?;
+                provider.creep_withdraw(&truck.creep, ResourceType::Energy)?;
 
-                let creep_avaliable = creep.store().free_energy_capacity();
-                let provider_avaliable: i32 = provider.get_resource_avaliable(ResourceType::Energy).try_into().unwrap();
-                Ok(provider_avaliable.min(creep_avaliable))
+                let creep_avaliable = truck.free_energy_capacity();
+                let provider_avaliable = provider.get_resource_avaliable(ResourceType::Energy);
+                
+                truck.energy += creep_avaliable.min(provider_avaliable);
             },
             TruckTask::ProvidingTo(consumer) => {
-                consumer.creep_transfer(creep, ResourceType::Energy)?;
+                consumer.creep_transfer(&truck.creep, ResourceType::Energy)?;
 
-                let creep_avaliable = creep.store().used_energy_capacity();
+                let creep_avaliable = truck.used_energy_capacity();
                 let consumer_avaliable = consumer.get_resource_free(ResourceType::Energy);
-                Ok(-i32::try_from(consumer_avaliable.min(creep_avaliable)).unwrap())
+                
+                truck.energy -= creep_avaliable.min(consumer_avaliable);
             }
         }
+
+        Ok(())
     }
 
     fn still_valid(&self) -> bool {

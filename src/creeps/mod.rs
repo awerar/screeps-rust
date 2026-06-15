@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep, VirtualTruck}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -145,7 +145,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             Excavator(state, source) => 
                 transition(state, |state| state.update(creep, source, &home, &mut movement)),
             Truck(state) => 
-                transition(state, |state| state.update(creep, &home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default(), &mut false, &mut 0)),
+                transition(state, |state| state.update(&mut VirtualTruck::new(creep.clone()), &home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default())),
             Fabricator(state) => 
                 transition(state, |state| state.update(creep, &home, &mut movement, mem.fabricator_coordinators.entry(creep_data.home).or_default())),
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged, spawn),

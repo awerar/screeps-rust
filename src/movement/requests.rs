@@ -4,9 +4,9 @@ use bimap::BiHashMap;
 use derive_deref::Deref;
 use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
-use screeps::{Creep, HasPosition, Position, StructureSpawn, game};
+use screeps::{Creep, HasPosition, Position, RectStyle, RoomVisual, StructureSpawn, game};
 
-use crate::{movement::{MoveTarget, MovementMemory, SpawningID, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID, spawn::TugboatRequests};
+use crate::{movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID, spawn::TugboatRequests};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(SafeID<Creep>);
@@ -46,6 +46,8 @@ impl MovementRequests {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep.pos());
 
+        handle_target_visualization(creep, &target);
+
         self.singles.insert(creep.clone(), target);
         if in_range { 
             MoveToResult::InRange 
@@ -62,6 +64,8 @@ impl MovementRequests {
     pub fn move_tugged_to(&mut self, creep: &SafeID<Creep>, target: Position, range: u32) -> MoveToResult {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep.pos());
+
+        handle_target_visualization(creep, &target);
 
         if in_range { 
             MoveToResult::InRange 
@@ -156,5 +160,18 @@ impl MovementRequests {
             free,
             spawning: game::spawns().values().filter_map(|spawn| SpawningID::new(&spawn)).collect(),
         }
+    }
+}
+
+fn handle_target_visualization(creep: &SafeID<Creep>, target: &MoveTarget) {
+    if has_selected(creep) {
+        let visual = RoomVisual::new(Some(target.target.pos().room_name()));
+        visual.rect(
+            f32::from(target.target.x().u8() - target.range as u8), 
+            f32::from(target.target.y().u8() - target.range as u8), 
+            (2 * target.range) as f32, 
+            (2 * target.range) as f32, 
+            Some(RectStyle::default().fill("#2997ca"))
+        );
     }
 }
