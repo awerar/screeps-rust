@@ -112,7 +112,7 @@ impl ConsumerTruckStop {
 
 }
 
-mod safe_structure {
+pub mod safe_structure {
 #   ![allow(clippy::missing_panics_doc)]
 
     use std::marker::PhantomData;
@@ -152,8 +152,9 @@ mod safe_structure {
         }
     }
 
+    pub trait ConsumerStructureReqs = Into<Structure> + HasStore + Transferable;
     impl ConsumerStructure {
-        pub fn new<S: Into<Structure> + HasStore + Transferable>(structure: S) -> Self {
+        pub fn new<S: ConsumerStructureReqs>(structure: S) -> Self {
             Self(structure.into().safe_id(), PhantomData)
         }
 
@@ -162,8 +163,9 @@ mod safe_structure {
         }
     }
 
+    pub trait ProviderStructureReqs = Into<Structure> + HasStore + Withdrawable;
     impl ProviderStructure {
-        pub fn new<S: Into<Structure> + HasStore + Withdrawable>(structure: S) -> Self {
+        pub fn new<S: ProviderStructureReqs>(structure: S) -> Self {
             Self(structure.into().safe_id(), PhantomData)
         }
 

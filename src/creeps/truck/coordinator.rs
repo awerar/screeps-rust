@@ -1,9 +1,9 @@
 use std::cmp::Reverse;
 
-use screeps::{Creep, HasPosition, Room, StructureContainer};
+use screeps::{Creep, HasPosition, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, safeid::SafeID, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, safeid::{GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -25,27 +25,51 @@ pub struct CreepStops {
 }
 
 impl TruckCoordinator {
-    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, creep_stops: &CreepStops) {
+    pub fn update(&mut self, plan: &ColonyPlan, room: &Room, creep_stops: CreepStops) {
         self.consumers.handle_timeouts();
         self.providers.handle_timeouts();
 
-        let mut providers = Vec::new();
-        /*providers.extend(room.find(find::DROPPED_RESOURCES, None).providers().tasks(7, Some(0), None));
-        providers.extend(creep_stops.providers().tasks(6, Some(0),  None));
-        providers.extend(room.find(find::TOMBSTONES, None).providers().tasks(5, None, None));
-        providers.extend(room.find(find::RUINS, None).providers().tasks(4, None, None));
-        providers.extend(plan.center.link.providers().tasks(3, Some(0), None));
-        providers.extend(plan.unlinked_source_containers().providers().tasks(2, Some(500), None)); // TODO
-        providers.extend(plan.center.terminal.providers().tasks(1, None, Some(10_000)));*/
-        self.providers.set_tasks(providers);
+        self.update_providers(plan, room, creep_stops.providers);
+        self.update_consumers(plan, creep_stops.consumers);
+    }
 
-        let mut consumers = Vec::new();
-        /*consumers.extend(plan.center.spawn.consumers().tasks(5, None));
-        consumers.extend(plan.center.extensions.consumers().tasks(4, None));
-        consumers.extend(plan.center.towers.consumers().tasks(3, None));
-        consumers.extend(creep_stops.consumers().tasks(2, None));
-        consumers.extend(plan.center.terminal.consumers().tasks(1, Some(2_000)));*/
-        self.consumers.set_tasks(consumers);
+    fn update_providers(&mut self, plan: &ColonyPlan, room: &Room, provider_creeps: Vec<SafeID<Creep>>) {
+        let dropped_resources = room.find(find::DROPPED_RESOURCES, None).into_iter().map(|x| x.safe_id()).map(ProviderTruckStop::Resource);
+        let tombstones = room.find(find::TOMBSTONES, None).into_iter().map(|x| x.safe_id()).map(ProviderTruckStop::Tombstone);
+        let ruins = room.find(find::RUINS, None).into_iter().map(|x| x.safe_id()).map(ProviderTruckStop::Ruin);
+
+        let creep_providers = provider_creeps.into_iter().map(ProviderTruckStop::Creep);
+        let center_link = plan.center.link.resolve().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
+        let unlinked_source_containers = plan.unlinked_source_containers().0.into_iter().filter_map(|x| x.resolve()).map(ProviderStructure::new).map(ProviderTruckStop::Structure);
+        
+        let terminal = plan.center.terminal.resolve().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
+
+        let mut providers = ProviderTasksBuilder::new();
+        providers.add_next_priority_group(dropped_resources).push_amount(0);
+        providers.add_next_priority_group(creep_providers).push_amount(0);
+        providers.add_next_priority_group(tombstones);
+        providers.add_next_priority_group(ruins);
+        providers.add_next_priority_group(center_link).push_amount(0);
+        providers.add_next_priority_group(unlinked_source_containers).push_amount(500);
+        providers.add_next_priority_group(terminal).min_leave(10_000);
+        self.providers.set_tasks(providers.build());
+    }
+
+    fn update_consumers(&mut self, plan: &ColonyPlan, consumer_creeps: Vec<SafeID<Creep>>) {
+        let creep_consumers = consumer_creeps.into_iter().map(ConsumerTruckStop::Creep);
+
+        let center_spawn = plan.center.spawn.resolve().map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
+        let center_extensions = plan.center.extensions.iter().filter_map(ResolvableStructureRef::resolve).map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
+        let towers = plan.center.towers.iter().filter_map(ResolvableStructureRef::resolve).map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
+        let terminal = plan.center.terminal.resolve().map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
+
+        let mut consumers = ConsumerTasksBuilder::new();
+        consumers.add_next_priority_group(center_spawn);
+        consumers.add_next_priority_group(center_extensions);
+        consumers.add_next_priority_group(towers);
+        consumers.add_next_priority_group(creep_consumers);
+        consumers.add_next_priority_group(terminal).max_fill(2_000);
+        self.consumers.set_tasks(consumers.build());
     }
 
     pub fn heartbeat(&mut self, creep: &Creep, task: &TruckTask) -> bool {
@@ -105,94 +129,72 @@ impl ColonyPlan {
     }
 }
 
-/*trait IntoConsumers { fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop>; }
-impl<R, S: ConsumerStructureReqs> IntoConsumers for R where R : ResolvableStructureRef<Structure = S> {
-    fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.resolve().map(TruckStop::<Consumer, Structure>::new).map(ConsumerTruckStop::Structure)
+struct ProviderTasksBuilder {
+    groups: Vec<(Vec<ProviderTruckStop>, ProviderTasksGroupConfig)>
+}
+
+impl ProviderTasksBuilder {
+    fn new() -> Self {
+        ProviderTasksBuilder { groups: Vec::new() }
     }
-}
 
-impl<S: ConsumerStructureReqs + StructureRefReq> IntoConsumers for PlannedStructureRefs<S> {
-    fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.resolve().into_iter().map(TruckStop::<Consumer, Structure>::new).map(ConsumerTruckStop::Structure)
+    fn add_next_priority_group(&mut self, iter: impl IntoIterator<Item = ProviderTruckStop>) -> &mut ProviderTasksGroupConfig {
+        &mut self.groups.push_mut((iter.into_iter().collect(), ProviderTasksGroupConfig::default())).1
     }
-}
 
-impl IntoConsumers for CreepStops {
-    fn consumers(&self) -> impl IntoIterator<Item = ConsumerTruckStop> {
-        self.consumers.iter()
-            .cloned()
-            .map(TruckStop::<Consumer, Creep>::new)
-            .map(ConsumerTruckStop::Creep)
-    }
-}
+    fn build(self) -> impl Iterator<Item = (ProviderTruckStop, TaskAmount, ProviderTaskData)> {
+        self.groups.into_iter().rev().enumerate().flat_map(|(priority, (providers, config))| {
+            providers.into_iter().map(move |provider| {
+                let provide = provider.get_resource_avaliable(ResourceType::Energy).saturating_sub(config.min_leave.unwrap_or(0));
 
-trait IntoProviders { fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop>; }
-impl<R, S: ProviderStructureReqs> IntoProviders for R where R : ResolvableStructureRef<Structure = S> {
-    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.resolve().map(TruckStop::<Provider, Structure>::new).map(ProviderTruckStop::Structure)
-    }
-}
-
-impl<S: ProviderStructureReqs + StructureRefReq> IntoProviders for PlannedStructureRefs<S> {
-    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.resolve().into_iter().map(TruckStop::<Provider, Structure>::new).map(ProviderTruckStop::Structure)
-    }
-}
-
-impl IntoProviders for CreepStops {
-    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.providers.iter()
-            .cloned()
-            .map(TruckStop::<Provider, Creep>::new)
-            .map(ProviderTruckStop::Creep)
-    }
-}
-
-impl IntoProviders for Vec<Resource> {
-    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.iter().map(TruckStop::<Provider, Resource>::new).map(ProviderTruckStop::Resource)
-    }
-}
-
-impl IntoProviders for Vec<Ruin> {
-    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.iter().map(TruckStop::<Provider, Ruin>::new).map(ProviderTruckStop::Ruin)
-    }
-}
-
-impl IntoProviders for Vec<Tombstone> {
-    fn providers(&self) -> impl IntoIterator<Item = ProviderTruckStop> {
-        self.iter().map(TruckStop::<Provider, Tombstone>::new).map(ProviderTruckStop::Tombstone)
-    }
-}
-
-pub trait CreateProviderTasks { 
-    fn tasks(self, priority: u32, push_amount: Option<u32>, min_leave: Option<u32>) -> impl Iterator<Item = (ProviderTruckStop, TaskAmount, ProviderTaskData)>; 
-}
-
-impl<I : IntoIterator<Item = ProviderTruckStop>> CreateProviderTasks for I {
-    fn tasks(self, priority: u32, push_amount: Option<u32>, min_leave: Option<u32>) -> impl Iterator<Item = (ProviderTruckStop, TaskAmount, ProviderTaskData)> {
-        self.into_iter().map(move |provider| {
-            let provide = provider.get_resource_avaliable(ResourceType::Energy).saturating_sub(min_leave.unwrap_or(0));
-
-            (provider, provide, ProviderTaskData { priority, push_amount })
+                (provider, provide, ProviderTaskData { priority: priority as u32, push_amount: config.push_amount })
+            })
         })
     }
 }
 
-pub trait CreateConsumerTasks { 
-    fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (ConsumerTruckStop, TaskAmount, u32)>; 
+#[derive(Default)]
+struct ProviderTasksGroupConfig {
+    push_amount: Option<u32>, 
+    min_leave: Option<u32>
 }
 
-impl<I : IntoIterator<Item = ConsumerTruckStop>> CreateConsumerTasks for I {
-    fn tasks(self, priority: u32, max_fill: Option<u32>) -> impl Iterator<Item = (ConsumerTruckStop, TaskAmount, u32)> {
-        self.into_iter().map(move |consumer| {
-            let used = consumer.get_resource_avaliable(ResourceType::Energy);
-            let capacity_left = consumer.get_resource_free(ResourceType::Energy);
-            let consume = max_fill.map_or(capacity_left, |max_fill| max_fill.saturating_sub(used));
+impl ProviderTasksGroupConfig {
+    fn push_amount(&mut self, x: u32) -> &mut Self { self.push_amount = Some(x); self }
+    fn min_leave(&mut self, x: u32) -> &mut Self { self.min_leave = Some(x); self }
+}
 
-            (consumer, consume, priority)
+struct ConsumerTasksBuilder {
+    groups: Vec<(Vec<ConsumerTruckStop>, ConsumerTasksGroupConfig)>
+}
+
+impl ConsumerTasksBuilder {
+    fn new() -> Self {
+        ConsumerTasksBuilder { groups: Vec::new() }
+    }
+
+    fn add_next_priority_group(&mut self, iter: impl IntoIterator<Item = ConsumerTruckStop>) -> &mut ConsumerTasksGroupConfig {
+        &mut self.groups.push_mut((iter.into_iter().collect(), ConsumerTasksGroupConfig::default())).1
+    }
+
+    fn build(self) -> impl Iterator<Item = (ConsumerTruckStop, TaskAmount, u32)> {
+        self.groups.into_iter().rev().enumerate().flat_map(|(priority, (consumers, config))| {
+            consumers.into_iter().map(move |consumer| {
+                let used = consumer.get_resource_avaliable(ResourceType::Energy);
+                let capacity_left = consumer.get_resource_free(ResourceType::Energy);
+                let consume = config.max_fill.map_or(capacity_left, |max_fill| max_fill.saturating_sub(used));
+
+                (consumer, consume, priority as u32)
+            })
         })
     }
-}*/
+}
+
+#[derive(Default)]
+struct ConsumerTasksGroupConfig {
+    max_fill: Option<u32>
+}
+
+impl ConsumerTasksGroupConfig {
+    fn max_fill(&mut self, x: u32) -> &mut Self { self.max_fill = Some(x); self }
+}
