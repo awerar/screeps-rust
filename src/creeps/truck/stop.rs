@@ -3,7 +3,7 @@ use std::hash::Hash;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Store, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{StoreTarget, VirtualCreep}}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
+use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, StoreTarget, VirtualCreep}}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "I::ID<Ruin> : DO, I::ID<Resource> : DO, I::ID<Tombstone> : DO, ProviderStructure<I> : DO, I::ID<Creep> : DO"))]
@@ -50,7 +50,7 @@ impl ProviderTruckStop {
         }
     }
 
-    pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<()> { 
+    pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<(), IntentError> { 
         match self {
             Self::Ruin(id) => Ok(creep.withdraw(id.as_ref(), ty, None)?),
             Self::Tombstone(id) => Ok(creep.withdraw(id.as_ref(), ty, None)?),
@@ -103,7 +103,7 @@ impl ConsumerTruckStop {
         self.store().get_free_capacity(Some(ty)) as u32
     }
 
-    pub fn creep_transfer(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<()> {
+    pub fn creep_transfer(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<(), IntentError> {
         match self {
             Self::Structure(structure) => creep.transfer(structure, ty, None),
             Self::Creep(id) => Ok(creep.transfer(&**id, ty, None)?),

@@ -1,8 +1,10 @@
 use enum_display::EnumDisplay;
+use log::debug;
 use screeps::{HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
-use crate::{colony::ColonyView, creeps::{truck::{coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentType, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
+use crate::{colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{DeferrableExt, IntentError, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -46,22 +48,14 @@ impl TryFromUnsafe for TruckTask {
 }
 
 impl TruckCreep {
-    pub fn update(self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Result<Transition<Self>> {
         use Transition::*;
 
-        let fail_task_transition = |task, coordinator: &mut TruckCoordinator| {
-            coordinator.finish(&truck.id(), task, false);
-            Ok(Transition::Continue(Self::Idle))
-        };
-
-        let fail_consumer_task_transition = |task, coordinator: &mut TruckCoordinator| {
-            coordinator.consumers.finish_task(&truck.id(), task, false);
-            anyhow::Ok(Transition::Continue(Self::Idle))
-        };
+        debug!("Energy: {}", truck.next_used_energy_capacity());
 
         match self {
             Self::Idle => {
-                if truck.next_used_energy_capacity() >  0 {
+                if truck.next_used_energy_capacity() > 0 {
                     let consumer = coordinator.assign_consumer(truck);
                     if let Some(consumer) = consumer { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))) }
 
@@ -84,39 +78,77 @@ impl TruckCreep {
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                if !task.still_valid() || !coordinator.heartbeat(&truck.id(), task) { return fail_task_transition(task, coordinator) }
+                if !task.still_valid() || !coordinator.heartbeat(&truck.id(), task) { return Self::fail_task(truck, task, coordinator) }
 
-                if movement.move_vcreep_to(truck, task.pos(), 1)?.in_range() && truck.can_do(IntentType::Transfer) {
-                    task.creep_perform(truck)?;
-                    coordinator.finish(&truck.id(), task, true);
-                    return Ok(Continue(Self::Idle))
+                match task {
+                    TruckTask::CollectingFrom(_) => 
+                        if truck.next_free_capacity() == 0 { return Self::fail_task(truck, task, coordinator) },
+                    TruckTask::ProvidingTo(task) => 
+                        if truck.next_used_energy_capacity() == 0 { return Ok(Continue(FillingUpFor(task.clone()))) },
                 }
-                    
-                Ok(Break(self))
+
+                let Some(result) = movement.move_vcreep_to(truck, task.pos(), 1).ok_or_deferred()?.result() else {
+                    return Ok(Break(self))
+                };
+
+                if !result.in_range() || truck.has_incoming_energy() { return Ok(Break(self)) }
+
+                if task.creep_perform(truck).ok_or_deferred()?.is_deferred() {
+                    return Ok(Break(self))
+                }
+
+                coordinator.finish(&truck.id(), task, true);
+                Ok(Continue(Self::Idle))
             },
             Self::FillingUpFor(ref consumer) => {
-                let Some(buffer) = &home.buffer else { return fail_consumer_task_transition(consumer, coordinator) };
-                if buffer.store().used_energy_capacity() == 0 || !coordinator.consumers.heartbeat_task(&truck.id(), consumer) { return fail_consumer_task_transition(consumer, coordinator) }
+                let Some(buffer) = &home.buffer else { return Self::fail_consumer_task(truck, consumer, coordinator) };
+                if buffer.store().used_energy_capacity() == 0 || !coordinator.consumers.heartbeat_task(&truck.id(), consumer) { return Self::fail_consumer_task(truck, consumer, coordinator) }
 
-                if movement.move_vcreep_to(truck, buffer.pos(), 1)?.in_range() {
-                    truck.withdraw(buffer, ResourceType::Energy, None).ok();
-                    return Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
+                if truck.next_used_energy_capacity() > 0 { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone())))) }
+
+                let Some(result) = movement.move_vcreep_to(truck, buffer.pos(), 1).ok_or_deferred()?.result() else {
+                    return Ok(Break(self))
+                };
+
+                if !result.in_range() { return Ok(Break(self)) }
+
+                if truck.withdraw(buffer, ResourceType::Energy, None).ok_or_deferred()?.is_deferred() {
+                    return Ok(Break(self))
                 }
-                    
-                Ok(Break(self))
+
+                Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
             Self::StoringAway => {
                 let Some(buffer) = &home.buffer else { return Ok(Continue(Self::Idle)) };
                 if buffer.store().free_energy_capacity() == 0 { return Ok(Continue(Self::Idle)) }
                 
-                if movement.move_vcreep_to(truck, buffer.pos(), 1)?.in_range() {
-                    truck.transfer(buffer, ResourceType::Energy, None).ok();
-                    return Ok(Break(Self::Idle))
+                if truck.next_used_energy_capacity() == 0 { return Ok(Continue(Self::Idle)); }
+
+                let Some(result) = movement.move_vcreep_to(truck, buffer.pos(), 1).ok_or_deferred()?.result() else {
+                    return Ok(Break(self))
+                };
+
+                if !result.in_range() { return Ok(Break(self)) }
+
+                if truck.transfer(buffer, ResourceType::Energy, None).ok_or_deferred()?.is_deferred() {
+                    return Ok(Break(self))
                 }
 
-                Ok(Break(self))
+                Ok(Continue(Self::Idle))
             },
         }
+    }
+
+    #[expect(clippy::unnecessary_wraps)]
+    fn fail_task(truck: &VirtualCreep, task: &TruckTask, coordinator: &mut TruckCoordinator) -> Result<Transition<Self>> {
+        coordinator.finish(&truck.id(), task, false);
+        Ok(Transition::Continue(Self::Idle))
+    }
+
+    #[expect(clippy::unnecessary_wraps)]
+    fn fail_consumer_task(truck: &VirtualCreep, task: &ConsumerTruckStop, coordinator: &mut TruckCoordinator) -> Result<Transition<Self>> {
+        coordinator.consumers.finish_task(&truck.id(), task, false);
+        Ok(Transition::Continue(Self::Idle))
     }
 }
 
@@ -128,7 +160,7 @@ impl TruckTask {
         }
     }
 
-    fn creep_perform(&self, truck: &mut VirtualCreep) -> anyhow::Result<()> {
+    fn creep_perform(&self, truck: &mut VirtualCreep) -> anyhow::Result<(), IntentError> {
         match self {
             TruckTask::CollectingFrom(provider) => 
                 provider.creep_withdraw(truck, ResourceType::Energy),
