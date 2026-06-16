@@ -76,17 +76,6 @@ pub enum ActionOutcome<T> {
     Deferred
 }
 
-impl<T> ActionOutcome<T> {
-    pub fn is_deferred(&self) -> bool { matches!(self, ActionOutcome::Deferred) }
-    #[expect(unused)] pub fn is_executed(&self) -> bool { matches!(self, ActionOutcome::Executed(_)) }
-    pub fn result(self) -> Option<T> {
-        match self {
-            ActionOutcome::Executed(val) => Some(val),
-            ActionOutcome::Deferred => None,
-        }
-    }
-}
-
 pub trait DeferrableExt<T> {
     fn ok_or_deferred(self) -> Result<ActionOutcome<T>>;
 }
@@ -99,6 +88,16 @@ impl<T> DeferrableExt<T> for Result<T, IntentError> {
             Err(err) => Err(err.into())
         }
     }
+}
+
+#[macro_export]
+macro_rules! defer {
+    ($expr:expr, $next:expr) => {
+        match $expr.ok_or_deferred()? {
+            $crate::creeps::virtual_creep::ActionOutcome::Executed(val) => val,
+            $crate::creeps::virtual_creep::ActionOutcome::Deferred => return Ok(Transition::Break($next))
+        }
+    };
 }
 
 /*

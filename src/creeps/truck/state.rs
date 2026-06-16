@@ -1,10 +1,9 @@
 use enum_display::EnumDisplay;
-use log::debug;
 use screeps::{HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{DeferrableExt, IntentError, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
+use crate::{colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{DeferrableExt, IntentError, StoreTarget, VirtualCreep}}, defer, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -51,8 +50,6 @@ impl TruckCreep {
     pub fn update(self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Result<Transition<Self>> {
         use Transition::*;
 
-        debug!("Energy: {}", truck.next_used_energy_capacity());
-
         match self {
             Self::Idle => {
                 if truck.next_used_energy_capacity() > 0 {
@@ -87,15 +84,10 @@ impl TruckCreep {
                         if truck.next_used_energy_capacity() == 0 { return Ok(Continue(FillingUpFor(task.clone()))) },
                 }
 
-                let Some(result) = movement.move_vcreep_to(truck, task.pos(), 1).ok_or_deferred()?.result() else {
-                    return Ok(Break(self))
-                };
-
+                let result = defer!(movement.move_vcreep_to(truck, task.pos(), 1), self);
                 if !result.in_range() || truck.has_incoming_energy() { return Ok(Break(self)) }
 
-                if task.creep_perform(truck).ok_or_deferred()?.is_deferred() {
-                    return Ok(Break(self))
-                }
+                defer!(task.creep_perform(truck), self);
 
                 coordinator.finish(&truck.id(), task, true);
                 Ok(Continue(Self::Idle))
@@ -106,15 +98,10 @@ impl TruckCreep {
 
                 if truck.next_used_energy_capacity() > 0 { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone())))) }
 
-                let Some(result) = movement.move_vcreep_to(truck, buffer.pos(), 1).ok_or_deferred()?.result() else {
-                    return Ok(Break(self))
-                };
-
+                let result = defer!(movement.move_vcreep_to(truck, buffer.pos(), 1), self);
                 if !result.in_range() { return Ok(Break(self)) }
 
-                if truck.withdraw(buffer, ResourceType::Energy, None).ok_or_deferred()?.is_deferred() {
-                    return Ok(Break(self))
-                }
+                defer!(truck.withdraw(buffer, ResourceType::Energy, None), self);
 
                 Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
@@ -124,15 +111,10 @@ impl TruckCreep {
                 
                 if truck.next_used_energy_capacity() == 0 { return Ok(Continue(Self::Idle)); }
 
-                let Some(result) = movement.move_vcreep_to(truck, buffer.pos(), 1).ok_or_deferred()?.result() else {
-                    return Ok(Break(self))
-                };
-
+                let result = defer!(movement.move_vcreep_to(truck, buffer.pos(), 1), self);
                 if !result.in_range() || truck.has_incoming_energy() { return Ok(Break(self)) }
 
-                if truck.transfer(buffer, ResourceType::Energy, None).ok_or_deferred()?.is_deferred() {
-                    return Ok(Break(self))
-                }
+                defer!(truck.transfer(buffer, ResourceType::Energy, None), self);
 
                 Ok(Continue(Self::Idle))
             },
