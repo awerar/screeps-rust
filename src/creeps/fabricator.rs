@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, movement::requests::MovementRequests, safeid::{DO, DumbID, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::{StoreTarget, WithdrawTarget}, movement::requests::MovementRequests, safeid::{DO, DumbID, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]

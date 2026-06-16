@@ -2,7 +2,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::{truck::{coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentType, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition};
+use crate::{colony::ColonyView, creeps::{truck::{coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentType, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::Transition, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -65,14 +65,14 @@ impl TruckCreep {
                     let consumer = coordinator.assign_consumer(truck);
                     if let Some(consumer) = consumer { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))) }
 
-                    if home.buffer.as_ref().is_some_and(|buffer| buffer.energy_capacity_left() > 0) { 
+                    if home.buffer.as_ref().is_some_and(|buffer| buffer.store().free_energy_capacity() > 0) { 
                         return Ok(Continue(Self::StoringAway)) 
                     }
                 } else {
                     let push_provider = coordinator.assign_push_provider(truck);
                     if let Some(provider) = push_provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
 
-                    if home.buffer.as_ref().is_some_and(|buffer| buffer.energy() > 0) {
+                    if home.buffer.as_ref().is_some_and(|buffer| buffer.store().used_energy_capacity() > 0) {
                         let consumer = coordinator.assign_consumer(truck);
                         if let Some(consumer) = consumer { return Ok(Continue(Self::FillingUpFor(consumer))) }
                     }
@@ -96,10 +96,10 @@ impl TruckCreep {
             },
             Self::FillingUpFor(ref consumer) => {
                 let Some(buffer) = &home.buffer else { return fail_consumer_task_transition(consumer, coordinator) };
-                if buffer.energy() == 0 || !coordinator.consumers.heartbeat_task(&truck.id(), consumer) { return fail_consumer_task_transition(consumer, coordinator) }
+                if buffer.store().used_energy_capacity() == 0 || !coordinator.consumers.heartbeat_task(&truck.id(), consumer) { return fail_consumer_task_transition(consumer, coordinator) }
 
                 if movement.move_vcreep_to(truck, buffer.pos(), 1)?.in_range() {
-                    truck.withdraw(buffer.withdrawable(), ResourceType::Energy, None).ok();
+                    truck.withdraw(buffer, ResourceType::Energy, None).ok();
                     return Ok(Break(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
                 }
                     
@@ -107,10 +107,10 @@ impl TruckCreep {
             },
             Self::StoringAway => {
                 let Some(buffer) = &home.buffer else { return Ok(Continue(Self::Idle)) };
-                if buffer.energy_capacity_left() == 0 { return Ok(Continue(Self::Idle)) }
+                if buffer.store().free_energy_capacity() == 0 { return Ok(Continue(Self::Idle)) }
                 
                 if movement.move_vcreep_to(truck, buffer.pos(), 1)?.in_range() {
-                    truck.transfer(buffer.transferable(), ResourceType::Energy, None).ok();
+                    truck.transfer(buffer, ResourceType::Energy, None).ok();
                     return Ok(Break(Self::Idle))
                 }
 

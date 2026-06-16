@@ -3,7 +3,7 @@ use std::hash::Hash;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Store, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::VirtualCreep}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
+use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{StoreTarget, VirtualCreep}}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "I::ID<Ruin> : DO, I::ID<Resource> : DO, I::ID<Tombstone> : DO, ProviderStructure<I> : DO, I::ID<Creep> : DO"))]
@@ -55,7 +55,7 @@ impl ProviderTruckStop {
             Self::Ruin(id) => Ok(creep.withdraw(id.as_ref(), ty, None)?),
             Self::Tombstone(id) => Ok(creep.withdraw(id.as_ref(), ty, None)?),
             Self::Creep(id) => Ok(creep.transfer_from(id, ty, None)?),
-            Self::Structure(id) => id.creep_withdraw(creep, ty),
+            Self::Structure(id) => creep.withdraw(id, ty, None),
             Self::Resource(id) => Ok(creep.pickup(id)?),
         }
     }
@@ -105,7 +105,7 @@ impl ConsumerTruckStop {
 
     pub fn creep_transfer(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<()> {
         match self {
-            Self::Structure(structure) => structure.creep_transfer(creep, ty),
+            Self::Structure(structure) => creep.transfer(structure, ty, None),
             Self::Creep(id) => Ok(creep.transfer(&**id, ty, None)?),
         }
     }
@@ -117,14 +117,14 @@ pub mod safe_structure {
 
     use std::marker::PhantomData;
 
-    use anyhow::Ok;
-    use screeps::{HasPosition, HasStore, Position, ResourceType, Store, Structure, StructureObject, Transferable, Withdrawable};
+    use screeps::{HasPosition, HasStore, Position, Store, Structure, Transferable, Withdrawable};
     use serde::{Deserialize, Serialize};
 
-    use crate::{creeps::virtual_creep::VirtualCreep, safeid::{GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
+    use crate::{creeps::virtual_creep::{StoreTarget, TransferTarget, WithdrawTarget}, safeid::{GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, DO}, utils::EasyStructure};
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-    pub struct SafeStructure<T, I: IDKind = SafeIDs>(I::ID<Structure>, PhantomData<T>);
+    #[serde(bound(deserialize = "EasyStructure<I> : DO"))]
+    pub struct SafeStructure<T, I: IDKind = SafeIDs>(EasyStructure<I>, PhantomData<T>);
 
     impl<T> TryFromUnsafe for SafeStructure<T> {
         type Unsafe = SafeStructure<T, UnsafeIDs>;
@@ -141,36 +141,32 @@ pub mod safe_structure {
     pub type ProviderStructure<I = SafeIDs> = SafeStructure<Provider, I>;
 
     impl<T> SafeStructure<T> {
-        fn structure_object(&self) -> StructureObject {
-            StructureObject::from(self.0.as_ref().clone())
-        }
-
         pub fn pos(&self) -> Position { self.0.pos() }
+    }
 
-        pub fn store(&self) -> Store { 
-            self.structure_object().as_has_store().map(HasStore::store).unwrap()
-        }
+    impl<T> StoreTarget for SafeStructure<T> {
+        fn store(&self) -> Store { self.0.structure_object().as_has_store().unwrap().store() }
     }
 
     pub trait ConsumerStructureReqs = Into<Structure> + HasStore + Transferable;
     impl ConsumerStructure {
         pub fn new<S: ConsumerStructureReqs>(structure: S) -> Self {
-            Self(structure.into().safe_id(), PhantomData)
+            Self(EasyStructure::new(structure.into().safe_id()), PhantomData)
         }
+    }
 
-        pub fn creep_transfer(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<()> {
-            Ok(creep.transfer(self.structure_object().as_transferable().unwrap(), ty, None)?)
-        }
+    impl TransferTarget for ConsumerStructure {
+        fn transferable(&self) -> &dyn Transferable { self.0.structure_object().as_transferable().unwrap() }
     }
 
     pub trait ProviderStructureReqs = Into<Structure> + HasStore + Withdrawable;
     impl ProviderStructure {
         pub fn new<S: ProviderStructureReqs>(structure: S) -> Self {
-            Self(structure.into().safe_id(), PhantomData)
+            Self(EasyStructure::new(structure.into().safe_id()), PhantomData)
         }
+    }
 
-        pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<()> {
-            Ok(creep.withdraw(self.structure_object().as_withdrawable().unwrap(), ty, None)?)
-        }
+    impl WithdrawTarget for ProviderStructure {
+        fn withdrawable(&self) -> &dyn Withdrawable { self.0.structure_object().as_withdrawable().unwrap() }
     }
 }

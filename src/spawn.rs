@@ -1,9 +1,9 @@
 use std::{iter, mem, ops::{Add, Mul}, sync::LazyLock};
 
 use log::{error, info, warn};
-use screeps::{Creep, Part, ResourceType, RoomName, StructureSpawn, find, game, prelude::*};
+use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, memory::Memory, names::get_new_creep_name, safeid::{GetSafeID, SafeID, ToSafeID}};
+use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep, virtual_creep::StoreTarget}, memory::Memory, names::get_new_creep_name, safeid::{GetSafeID, SafeID, ToSafeID}, utils::EnergyStore};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -399,7 +399,7 @@ const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
 fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
     for colony in mem.colonies.view_all() {
-        let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));
+        let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.store().used_energy_capacity());
         let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
         loop {
@@ -420,7 +420,7 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule) {
 
 fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_requests: &TugboatRequests) {
     for colony in mem.colonies.view_all() {
-        let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.store().get_used_capacity(Some(ResourceType::Energy)));
+        let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.store().used_energy_capacity());
         let excavator_count = schedule.all_creeps().filter_home(colony.name).0
             .filter(|proto| matches!(proto.role, CreepRole::Excavator(_, _)))
             .count();

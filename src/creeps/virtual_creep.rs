@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 use itertools::Itertools;
-use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, Transferable, Withdrawable};
+use screeps::{ConstructionSite, Creep, HasPosition, HasStore, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, Store, Transferable, Withdrawable};
 
 use crate::{movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, SafeID}};
 
@@ -263,17 +263,6 @@ impl VirtualCreep {
         Ok(())
     }
 
-    // TODO: Fix commented out code
-    pub fn transfer(&mut self, target: &(impl Transferable + ?Sized), ty: ResourceType, amount: Option<u32>) -> Result<()> {
-        self.register_intent(IntentType::Transfer)?;
-
-        // let target_free_capacity = target.store().get_free_capacity(Some(ty)).try_into().unwrap_or(0);
-        let amount = amount.unwrap_or(self.get_resource(ty))/*.min(target_free_capacity)*/;
-        self.remove_resource(ty, amount)?;
-        self.creep.transfer(target, ty, Some(amount))?;
-        Ok(())
-    }
-
     // Transfer from other creep into this creep
     pub fn transfer_from(&mut self, target: &SafeID<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<()> {
         let amount = amount.unwrap_or(self.free_capacity)/*.min(target.store().get_used_capacity(Some(ty)))*/;
@@ -281,14 +270,51 @@ impl VirtualCreep {
         target.transfer(&*self.creep, ty, Some(amount))?;
         Ok(())
     }
+}
+
+pub trait StoreTarget {
+    fn store(&self) -> Store;
+}
+
+impl<T : HasStore> StoreTarget for T {
+    fn store(&self) -> Store { self.store() }
+}
+
+pub trait TransferTarget: StoreTarget {
+    fn transferable(&self) -> &dyn Transferable;
+}
+
+impl<T : Transferable + HasStore> TransferTarget for T {
+    fn transferable(&self) -> &dyn Transferable { self }
+}
+
+pub trait WithdrawTarget: StoreTarget {
+    fn withdrawable(&self) -> &dyn Withdrawable;
+}
+
+impl<T : Withdrawable + HasStore> WithdrawTarget for T {
+    fn withdrawable(&self) -> &dyn Withdrawable { self }
+}
+
+impl VirtualCreep {
+    // TODO: Fix commented out code
+    pub fn transfer(&mut self, target: &impl TransferTarget, ty: ResourceType, amount: Option<u32>) -> Result<()> {
+        self.register_intent(IntentType::Transfer)?;
+
+        let target_free_capacity = target.store().get_free_capacity(Some(ty)).try_into().unwrap_or(0);
+        let amount = amount.unwrap_or(self.get_resource(ty)).min(target_free_capacity);
+        self.remove_resource(ty, amount)?;
+        self.creep.transfer(target.transferable(), ty, Some(amount))?;
+        Ok(())
+    }
 
     // TODO: Fix commented out code
-    pub fn withdraw(&mut self, target: &(impl Withdrawable + ?Sized), ty: ResourceType, amount: Option<u32>) -> Result<()> {
+    pub fn withdraw(&mut self, target: &impl WithdrawTarget, ty: ResourceType, amount: Option<u32>) -> Result<()> {
         self.register_intent(IntentType::Withdraw)?;
 
-        let amount = amount.unwrap_or(self.free_capacity)/*.min(target.store().get_used_capacity(Some(ty)))*/;
+        let amount = amount.unwrap_or(self.free_capacity).min(target.store().get_used_capacity(Some(ty)));
         self.add_resource(ty, amount)?;
-        self.creep.withdraw(target, ty, Some(amount))?;
+        self.creep.withdraw(target.withdrawable(), ty, Some(amount))?;
         Ok(())
     }
 }

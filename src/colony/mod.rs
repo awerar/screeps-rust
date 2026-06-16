@@ -1,12 +1,12 @@
 use std::{collections::{HashMap, HashSet, hash_map}, fmt::Display};
 
 use js_sys::JsString;
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, ResourceType, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
+use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
 
-use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, creeps::virtual_creep::{StoreTarget, TransferTarget, WithdrawTarget}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 pub mod steps;
@@ -61,34 +61,30 @@ pub enum ColonyBuffer {
     Storage(StructureStorage)
 }
 
-impl ColonyBuffer {
-    pub fn withdrawable(&self) -> &dyn Withdrawable {
-        match self {
-            ColonyBuffer::Container(container) => container,
-            ColonyBuffer::Storage(storage) => storage,
-        }
-    }
-
-    pub fn transferable(&self) -> &dyn Transferable {
-        match self {
-            ColonyBuffer::Container(container) => container,
-            ColonyBuffer::Storage(storage) => storage,
-        }
-    }
-
-    pub fn store(&self) -> Store {
+impl StoreTarget for ColonyBuffer {
+    fn store(&self) -> Store {
         match self {
             ColonyBuffer::Container(container) => container.store(),
             ColonyBuffer::Storage(storage) => storage.store(),
         }
     }
+}
 
-    pub fn energy(&self) -> u32 {
-        self.store().get_used_capacity(Some(ResourceType::Energy))
+impl WithdrawTarget for ColonyBuffer {
+    fn withdrawable(&self) -> &dyn Withdrawable { 
+        match self {
+            ColonyBuffer::Container(container) => container,
+            ColonyBuffer::Storage(storage) => storage,
+        }
     }
+}
 
-    pub fn energy_capacity_left(&self) -> u32 {
-        self.store().get_free_capacity(Some(ResourceType::Energy)).try_into().unwrap_or(0)
+impl TransferTarget for ColonyBuffer {
+    fn transferable(&self) -> &dyn Transferable {
+        match self {
+            ColonyBuffer::Container(container) => container,
+            ColonyBuffer::Storage(storage) => storage,
+        }
     }
 }
 
