@@ -128,7 +128,7 @@ impl TruckCreep {
                     return Ok(Break(self))
                 };
 
-                if !result.in_range() { return Ok(Break(self)) }
+                if !result.in_range() || truck.has_incoming_energy() { return Ok(Break(self)) }
 
                 if truck.transfer(buffer, ResourceType::Energy, None).ok_or_deferred()?.is_deferred() {
                     return Ok(Break(self))

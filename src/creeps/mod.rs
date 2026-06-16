@@ -145,10 +145,15 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 transition(state, |state| state.update(creep, &mut movement, &mut mem.claim_requests)),
             Excavator(state, source) => 
                 transition(state, |state| state.update(creep, source, &home, &mut movement)),
-            Truck(state) => 
-                transition(state, |state| state.update(&mut VirtualCreep::new(creep.clone()), &home, &mut movement, mem.truck_coordinators.entry(creep_data.home).or_default())),
-            Fabricator(state) => 
-                transition(state, |state| state.update(creep, &home, &mut movement, mem.fabricator_coordinators.entry(creep_data.home).or_default())),
+            Truck(state) => {
+                let mut virtual_creep = VirtualCreep::new(creep.clone());
+                let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
+                transition(state, |state| state.update(&mut virtual_creep, &home, &mut movement, coordinator));
+            },
+            Fabricator(state) => {
+                let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
+                transition(state, |state| state.update(creep, &home, &mut movement, coordinator));
+            },
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged, spawn),
             Scrap(spawn) => do_recycle(creep, &mut movement, spawn),
         }

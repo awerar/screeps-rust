@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
-use log::debug;
 use screeps::{ConstructionSite, Creep, HasPosition, HasStore, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, Store, Transferable, Withdrawable};
 use thiserror::Error;
 
@@ -354,8 +353,6 @@ impl<T : Withdrawable + HasStore> WithdrawTarget for T {
 impl VirtualCreep {
     pub fn transfer(&mut self, target: &impl TransferTarget, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
         self.register_intent(IntentType::Transfer)?;
-
-        debug!("Transfering: {}", self.has_intent(IntentType::Transfer));
 
         let target_free_capacity = target.store().get_free_capacity(Some(ty)).try_into().unwrap_or(0);
         let amount = amount.unwrap_or(self.get_resource(ty)).min(target_free_capacity);

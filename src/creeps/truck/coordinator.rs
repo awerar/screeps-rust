@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, safeid::{DumbID, GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, safeid::{DumbID, GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -66,9 +66,9 @@ impl TruckCoordinator {
         let mut consumers = ConsumerTasksBuilder::new();
         consumers.add_next_priority_group(center_spawn);
         consumers.add_next_priority_group(center_extensions);
-        consumers.add_next_priority_group(towers);
-        consumers.add_next_priority_group(creep_consumers);
-        consumers.add_next_priority_group(terminal).max_fill(2_000);
+        consumers.add_next_priority_group(towers).threshold(0.8);
+        consumers.add_next_priority_group(creep_consumers).threshold(0.35);
+        consumers.add_next_priority_group(terminal).max_fill(2_000).threshold(0.5);
         self.consumers.set_tasks(consumers.build());
     }
 
@@ -142,13 +142,14 @@ impl ProviderTasksBuilder {
     }
 
     fn build(self) -> impl Iterator<Item = (ProviderTruckStop, TaskAmount, ProviderTaskData)> {
-        self.groups.into_iter().rev().enumerate().flat_map(|(priority, (providers, config))| {
-            providers.into_iter().map(move |provider| {
-                let provide = provider.get_resource_avaliable(ResourceType::Energy).saturating_sub(config.min_leave.unwrap_or(0));
+        self.groups.into_iter().rev().enumerate()
+            .flat_map(|(priority, (providers, config))| {
+                providers.into_iter().map(move |provider| {
+                    let provide = provider.get_resource_avaliable(ResourceType::Energy).saturating_sub(config.min_leave.unwrap_or(0));
 
-                (provider, provide, ProviderTaskData { priority: priority as u32, push_amount: config.push_amount })
+                    (provider, provide, ProviderTaskData { priority: priority as u32, push_amount: config.push_amount })
+                })
             })
-        })
     }
 }
 
@@ -177,23 +178,33 @@ impl ConsumerTasksBuilder {
     }
 
     fn build(self) -> impl Iterator<Item = (ConsumerTruckStop, TaskAmount, u32)> {
-        self.groups.into_iter().rev().enumerate().flat_map(|(priority, (consumers, config))| {
-            consumers.into_iter().map(move |consumer| {
-                let used = consumer.get_resource_avaliable(ResourceType::Energy);
-                let capacity_left = consumer.get_resource_free(ResourceType::Energy);
-                let consume = config.max_fill.map_or(capacity_left, |max_fill| max_fill.saturating_sub(used));
+        self.groups.into_iter().rev().enumerate()
+            .flat_map(|(priority, (consumers, config))| {
+                consumers.into_iter()
+                    .filter(move |consumer| {
+                        let Some(fullness_threshold) = config.fullness_threshold else { return true };
 
-                (consumer, consume, priority as u32)
+                        let upper_limit = config.max_fill.unwrap_or_else(|| consumer.store().get_capacity(None));
+                        let ratio = consumer.store().used_energy_capacity() as f32 / upper_limit as f32;
+                        ratio <= fullness_threshold
+                    }).map(move |consumer| {
+                        let used = consumer.get_resource_avaliable(ResourceType::Energy);
+                        let capacity_left = consumer.get_resource_free(ResourceType::Energy);
+                        let consume = config.max_fill.map_or(capacity_left, |max_fill| max_fill.saturating_sub(used));
+
+                        (consumer, consume, priority as u32)
+                    })
             })
-        })
     }
 }
 
 #[derive(Default)]
 struct ConsumerTasksGroupConfig {
-    max_fill: Option<u32>
+    max_fill: Option<u32>,
+    fullness_threshold: Option<f32>
 }
 
 impl ConsumerTasksGroupConfig {
     fn max_fill(&mut self, x: u32) -> &mut Self { self.max_fill = Some(x); self }
+    fn threshold(&mut self, x: f32) -> &mut Self { self.fullness_threshold = Some(x); self }
 }
