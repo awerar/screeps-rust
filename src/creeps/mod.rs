@@ -11,6 +11,7 @@ pub mod flagship;
 pub mod excavator;
 pub mod fabricator;
 pub mod truck;
+pub mod virtual_creep;
 
 #[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
 pub struct Creeps(

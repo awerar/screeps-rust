@@ -193,6 +193,24 @@ impl<S: TryFromUnsafe> TryMakeSafe<S> for S::Unsafe {
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+#[serde(bound(deserialize = "I::ID<T> : DO"))]
+pub struct DumbID<T, I : IDKind = SafeIDs>(I::ID<T>);
+
+impl<T> DumbID<T> {
+    pub fn new(id: SafeID<T>) -> Self {
+        Self(id)
+    }
+}
+
+impl<T> TryFromUnsafe for DumbID<T> where UnsafeID<T> : TryMakeSafe<SafeID<T>> {
+    type Unsafe = DumbID<T, UnsafeIDs>;
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some(Self(us.0.try_make_safe()?))
+    }
+}
+
 pub fn deserialize_prune_hashset<'de, D, T>(deserializer: D) -> Result<HashSet<T>, D::Error>
 where
     D : Deserializer<'de>,
