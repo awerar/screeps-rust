@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use derive_deref::Deref;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasPosition, MaybeHasId, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
+use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::{ColonyBuffer, ColonyView}, movement::requests::MovementRequests, safeid::{DO, DumbID, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -100,7 +100,7 @@ impl FabricatorCreep {
                 Ok(Break(self))
             },
             Self::CollectingFor(ref task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return Self::fail_task(creep, task, coordinator) }
+                if task.has_timed_out() || !coordinator.heartbeat_task(&creep.dumb_id(), task) { return Self::fail_task(creep, task, coordinator) }
 
                 if creep.store().used_energy_capacity() > 0 {
                     return Ok(Continue(Self::Performing(task.clone())))
@@ -117,7 +117,7 @@ impl FabricatorCreep {
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(creep, task) { return Self::fail_task(creep, task, coordinator) }
+                if task.has_timed_out() || !coordinator.heartbeat_task(&creep.dumb_id(), task) { return Self::fail_task(creep, task, coordinator) }
 
                 let creep_energy = creep.store().used_energy_capacity();
                 if creep_energy == 0 {
@@ -135,7 +135,7 @@ impl FabricatorCreep {
 
     #[expect(clippy::unnecessary_wraps)]
     fn fail_task(creep: &SafeID<Creep>, task: &FabricatorTask, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
-        coordinator.finish_task(creep, task, false);
+        coordinator.finish_task(&creep.dumb_id(), task, false);
         Ok(Transition::Continue(FabricatorCreep::Idle))
     }
 }
@@ -253,7 +253,7 @@ impl FabricatorCoordinator {
         )]);
     }
 
-    fn assign_task(&mut self, creep: &Creep) -> Option<FabricatorTask> {
+    fn assign_task(&mut self, creep: &SafeID<Creep>) -> Option<FabricatorTask> {
         self.assign_emergency_upgrade(creep).map(FabricatorTaskType::UpgradingController)
             .or_else(|| self.assign_repair(creep).map(FabricatorTaskType::Repairing))
             .or_else(|| self.assign_build(creep).map(FabricatorTaskType::Building))
@@ -261,9 +261,9 @@ impl FabricatorCoordinator {
             .map(FabricatorTask::new)
     }
 
-    fn assign_repair(&mut self, creep: &Creep) -> Option<RepairTask> {
+    fn assign_repair(&mut self, creep: &SafeID<Creep>) -> Option<RepairTask> {
         let contribution = get_creep_work_count(creep) * 100;
-        self.repairs.assign_task(creep, contribution, |tasks| {
+        self.repairs.assign_task(creep.dumb_id(), contribution, |tasks| {
             let emergency_repair = tasks.clone().into_iter()
                 .filter(|(_, _, (_, percentage))| *percentage <= EMERGENCY_REPAIR_PERCENTAGE)
                 .min_by(|(_, _, (_, p1)), (_, _, (_, p2))| p1.total_cmp(p2));
@@ -275,32 +275,32 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn assign_build(&mut self, creep: &Creep) -> Option<BuildTask> {
+    fn assign_build(&mut self, creep: &SafeID<Creep>) -> Option<BuildTask> {
         let contribution = get_creep_work_count(creep) * 5;
-        self.builds.assign_task(creep, contribution, |tasks| {
+        self.builds.assign_task(creep.dumb_id(), contribution, |tasks| {
             tasks.into_iter()
                 .min_by_key(|(_, _, pos)| creep.pos().get_range_to(**pos))
         })
     }
 
-    fn assign_emergency_upgrade(&mut self, creep: &Creep) -> Option<UpgradeTask> {
+    fn assign_emergency_upgrade(&mut self, creep: &SafeID<Creep>) -> Option<UpgradeTask> {
         let contribution = get_creep_work_count(creep) * 2;
-        self.upgrades.assign_task(creep, contribution, |tasks| {
+        self.upgrades.assign_task(creep.dumb_id(), contribution, |tasks| {
             tasks.into_iter()
                 .find(|(_, _, (percentage, _))| *percentage >= CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE)
         })
     }
 
-    fn assign_upgrade(&mut self, creep: &Creep) -> Option<UpgradeTask> {
+    fn assign_upgrade(&mut self, creep: &SafeID<Creep>) -> Option<UpgradeTask> {
         let contribution = get_creep_work_count(creep) * 2;
-        self.upgrades.assign_task(creep, contribution, |tasks| {
+        self.upgrades.assign_task(creep.dumb_id(), contribution, |tasks| {
             tasks.into_iter()
                 .find(|(_, _, (_, percentage))| 
                     percentage.is_none_or(|percentage| percentage >= STORAGE_UPGRADE_CONTROLLER_THRESHOLD))
         })
     }
 
-    fn heartbeat_task(&mut self, creep: &Creep, task: &FabricatorTask) -> bool {
+    fn heartbeat_task(&mut self, creep: &DumbID<Creep>, task: &FabricatorTask) -> bool {
         match &task.task_type {
             FabricatorTaskType::Building(build) => 
                 self.builds.heartbeat_task(creep, build),
@@ -311,16 +311,14 @@ impl FabricatorCoordinator {
         }
     }
 
-    fn finish_task(&mut self, creep: &Creep, task: &FabricatorTask, success: bool) {
-        let creep_id = creep.try_id().unwrap();
-
+    fn finish_task(&mut self, creep: &DumbID<Creep>, task: &FabricatorTask, success: bool) {
         match &task.task_type {
             FabricatorTaskType::Building(build) => 
-                self.builds.finish_task(creep_id, build, success),
+                self.builds.finish_task(creep, build, success),
             FabricatorTaskType::Repairing(repair) => 
-                self.repairs.finish_task(creep_id, repair, success),
+                self.repairs.finish_task(creep, repair, success),
             FabricatorTaskType::UpgradingController(upgrade) => 
-                self.upgrades.finish_task(creep_id, upgrade, success),
+                self.upgrades.finish_task(creep, upgrade, success),
         }
     }
 }

@@ -1,9 +1,9 @@
 use std::cmp::Reverse;
 
-use screeps::{Creep, HasPosition, ResourceType, Room, StructureContainer, find};
+use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef, StructureRefReq}}, creeps::truck::{VirtualTruck, state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, safeid::{GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, safeid::{DumbID, GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -72,41 +72,41 @@ impl TruckCoordinator {
         self.consumers.set_tasks(consumers.build());
     }
 
-    pub fn heartbeat(&mut self, creep: &Creep, task: &TruckTask) -> bool {
+    pub fn heartbeat(&mut self, creep: &DumbID<Creep>, task: &TruckTask) -> bool {
         match task {
             TruckTask::CollectingFrom(task) => self.providers.heartbeat_task(creep, task),
             TruckTask::ProvidingTo(task) => self.consumers.heartbeat_task(creep, task)
         }
     }
 
-    pub fn finish(&mut self, creep: &Creep, task: &TruckTask, success: bool) {
+    pub fn finish(&mut self, creep: &DumbID<Creep>, task: &TruckTask, success: bool) {
         match task {
             TruckTask::CollectingFrom(task) => 
-                self.providers.finish_task(creep.try_id().unwrap(), task, success),
+                self.providers.finish_task(creep, task, success),
             TruckTask::ProvidingTo(task) => 
-                self.consumers.finish_task(creep.try_id().unwrap(), task, success)
+                self.consumers.finish_task(creep, task, success)
         }
     }
 
-    pub fn assign_push_provider(&mut self, truck: &VirtualTruck) -> Option<ProviderTruckStop> {
-        self.providers.assign_task(&truck.creep, truck.free_energy_capacity(), |tasks| {
+    pub fn assign_push_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
+        self.providers.assign_task(truck.id(), truck.next_free_capacity(), |tasks| {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
-                .max_by_key(|(provider, _, data)| (data.priority, Reverse(provider.pos().get_range_to(truck.creep.pos()))))
+                .max_by_key(|(provider, _, data)| (data.priority, Reverse(provider.pos().get_range_to(truck.pos()))))
         })
     }
 
-    pub fn assign_provider(&mut self, truck: &VirtualTruck) -> Option<ProviderTruckStop> {
-        self.providers.assign_task(&truck.creep, truck.free_energy_capacity(), |tasks| {
+    pub fn assign_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
+        self.providers.assign_task(truck.id(), truck.next_free_capacity(), |tasks| {
             tasks.into_iter()
-                .max_by_key(|(provider, amount, data)| ((*amount).min(truck.free_energy_capacity()), data.priority, Reverse(provider.pos().get_range_to(truck.creep.pos()))))
+                .max_by_key(|(provider, amount, data)| ((*amount).min(truck.next_free_capacity()), data.priority, Reverse(provider.pos().get_range_to(truck.pos()))))
         })
     }
 
-    pub fn assign_consumer(&mut self, truck: &VirtualTruck) -> Option<ConsumerTruckStop> {
-        self.consumers.assign_task(&truck.creep, truck.used_energy_capacity(), |tasks| {
+    pub fn assign_consumer(&mut self, truck: &VirtualCreep) -> Option<ConsumerTruckStop> {
+        self.consumers.assign_task(truck.id(), truck.next_used_energy_capacity(), |tasks| {
             tasks.into_iter()
-                .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(truck.creep.pos()))))
+                .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(truck.pos()))))
         })
     }
 }

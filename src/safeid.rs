@@ -1,6 +1,7 @@
 use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
 
-use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, game};
+use derive_where::derive_where;
+use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, SharedCreepProperties, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 
@@ -111,10 +112,18 @@ auto trait HasIDEntity {}
 impl !HasIDEntity for Creep {}
 impl !HasIDEntity for ConstructionSite {}
 
-pub trait GetSafeID: Sized { fn safe_id(&self) -> SafeID<Self>; }
+pub trait GetSafeID: Sized { 
+    fn safe_id(&self) -> SafeID<Self>;
+    #[expect(unused)] fn dumb_id(&self) -> DumbID<Self>;
+}
+
 impl<T: Clone + HasId + HasIDEntity> GetSafeID for T {
     default fn safe_id(&self) -> SafeID<Self> {
         SafeID { id: self.id(), inner: Rc::new(self.clone()) }
+    }
+    
+    fn dumb_id(&self) -> DumbID<Self> {
+        DumbID::new(self.safe_id())
     }
 }
 
@@ -193,13 +202,32 @@ impl<S: TryFromUnsafe> TryMakeSafe<S> for S::Unsafe {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-#[serde(bound(deserialize = "I::ID<T> : DO"))]
+#[derive(Serialize, Deserialize)]
+#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
+#[serde(bound(deserialize = "I::ID<T> : DO", serialize = ""))]
 pub struct DumbID<T, I : IDKind = SafeIDs>(I::ID<T>);
+
+impl<T> From<SafeID<T>> for DumbID<T> {
+    fn from(id: SafeID<T>) -> Self {
+        DumbID::new(id)
+    }
+}
+
+impl<T> SafeID<T> {
+    pub fn dumb_id(&self) -> DumbID<T> {
+        self.clone().into()
+    }
+}
 
 impl<T> DumbID<T> {
     pub fn new(id: SafeID<T>) -> Self {
         Self(id)
+    }
+}
+
+impl DumbID<Creep> {
+    pub fn name(&self) -> String {
+        self.0.name()
     }
 }
 
@@ -211,6 +239,7 @@ impl<T> TryFromUnsafe for DumbID<T> where UnsafeID<T> : TryMakeSafe<SafeID<T>> {
     }
 }
 
+#[expect(unused)]
 pub fn deserialize_prune_hashset<'de, D, T>(deserializer: D) -> Result<HashSet<T>, D::Error>
 where
     D : Deserializer<'de>,

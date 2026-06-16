@@ -186,6 +186,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf43ca6c88706e96d63adb8f8e44d0c2eaa7c90b3dbaf85f61483770b9a80f9"
 
 [[package]]
+name = "derive-where"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d08b3a0bcc0d079199cd476b2cae8435016ec11d1c0986c6901c5ac223041534"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "derive_deref"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -567,6 +578,7 @@ dependencies = [
  "bimap",
  "clap",
  "derive-alias",
+ "derive-where",
  "derive_deref",
  "enum-display",
  "fern",

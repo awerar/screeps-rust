@@ -2,11 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 use itertools::Itertools;
-use screeps::{ConstructionSite, Creep, HasStore, Part, Repairable, Resource, ResourceType, SharedCreepProperties, Source, Transferable, Withdrawable};
+use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, Transferable, Withdrawable};
 
-use crate::safeid::{DumbID, SafeID};
+use crate::{movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, SafeID}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+#[expect(unused)]
 pub enum IntentType {
     Attack,
     AttackController,
@@ -98,8 +99,18 @@ impl VirtualCreep {
         DumbID::new(self.creep.clone())
     }
 
+    pub fn pos(&self) -> Position {
+        self.creep.pos()
+    }
+
     pub fn has_intent(&self, intent: IntentType) -> bool {
         self.intents.contains(&intent)
+    }
+
+    pub fn can_do(&self, intent: IntentType) -> bool {
+        !self.has_intent(intent) &&
+        self.check_pipeline(intent, PIPELINE_A).is_ok() &&
+        self.check_pipeline(intent, PIPELINE_B).is_ok()
     }
 
     fn check_pipeline<const N: usize>(&self, intent: IntentType, pipeline: [IntentType; N]) -> Result<()> {
@@ -110,7 +121,7 @@ impl VirtualCreep {
             bail!("{intent:?} would override {lower_intent:?}");
         }
 
-        if let Some(higher_intent) = higher_intents.iter().find(|other| self.has_intent(**other)) {
+        if let Some(higher_intent) = higher_intents.iter().skip(1).find(|other| self.has_intent(**other)) {
             bail!("{higher_intent:?} overrides {intent:?}");
         }
 
@@ -165,22 +176,25 @@ impl VirtualCreep {
         self.remove_resource(ty, amount)
     }
 
-    pub fn get_capacity(&self) -> u32 {
+    #[expect(unused)]
+    pub fn capacity(&self) -> u32 {
         self.creep.store().get_capacity(None)
     }
 
     // Free capacity left this tick
-    pub fn get_curr_free_capacity(&self) -> u32 {
+    #[expect(unused)]
+    pub fn curr_free_capacity(&self) -> u32 {
         self.free_capacity
     }
 
     // Free capacity next tick
-    pub fn get_next_free_capacity(&self) -> u32 {
+    pub fn next_free_capacity(&self) -> u32 {
         self.free_capacity + self.total_outgoing_resources
     }
 
     // Used capacity left this tick
-    pub fn get_curr_used_capacity(&self, ty: Option<ResourceType>) -> u32 {
+    #[expect(unused)]
+    pub fn curr_used_capacity(&self, ty: Option<ResourceType>) -> u32 {
         if let Some(ty) = ty {
             self.get_resource(ty)
         } else {
@@ -189,7 +203,7 @@ impl VirtualCreep {
     }
 
     // Used capacity next tick
-    pub fn get_next_used_capacity(&self, ty: Option<ResourceType>) -> u32 {
+    pub fn next_used_capacity(&self, ty: Option<ResourceType>) -> u32 {
         if let Some(ty) = ty {
             self.get_resource(ty) + self.incoming_resources.get(&ty).copied().unwrap_or(0)
         } else {
@@ -197,9 +211,11 @@ impl VirtualCreep {
         }
     }
 
-    pub fn get_curr_used_energy_capacity(&self) -> u32 { self.get_curr_used_capacity(Some(ResourceType::Energy)) }
-    pub fn get_next_used_energy_capacity(&self) -> u32 { self.get_next_used_capacity(Some(ResourceType::Energy)) }
+    #[expect(unused)]
+    pub fn curr_used_energy_capacity(&self) -> u32 { self.curr_used_capacity(Some(ResourceType::Energy)) }
+    pub fn next_used_energy_capacity(&self) -> u32 { self.next_used_capacity(Some(ResourceType::Energy)) }
     
+    #[expect(unused)]
     pub fn build(&mut self, target: &ConstructionSite) -> Result<()> {
         self.register_intent(IntentType::Build)?;
 
@@ -209,6 +225,7 @@ impl VirtualCreep {
         Ok(())
     }
 
+    #[expect(unused)]
     pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Result<()> {
         self.register_intent(IntentType::Drop)?;
 
@@ -218,6 +235,7 @@ impl VirtualCreep {
         Ok(())
     }
 
+    #[expect(unused)]
     pub fn harvest_source(&mut self, source: &Source) -> Result<()> {
         self.register_intent(IntentType::Harvest)?;
 
@@ -235,6 +253,7 @@ impl VirtualCreep {
         Ok(())
     }
 
+    #[expect(unused)]
     pub fn repair(&mut self, target: &(impl Repairable + ?Sized)) -> Result<()> {
         self.register_intent(IntentType::Repair)?;
 
@@ -244,23 +263,45 @@ impl VirtualCreep {
         Ok(())
     }
 
-    pub fn transfer(&mut self, target: &(impl Transferable + HasStore + ?Sized), ty: ResourceType, amount: Option<u32>) -> Result<()> {
+    // TODO: Fix commented out code
+    pub fn transfer(&mut self, target: &(impl Transferable + ?Sized), ty: ResourceType, amount: Option<u32>) -> Result<()> {
         self.register_intent(IntentType::Transfer)?;
 
-        let target_free_capacity = target.store().get_free_capacity(Some(ty)).try_into().unwrap_or(0);
-        let amount = amount.unwrap_or(self.get_resource(ty)).min(target_free_capacity);
+        // let target_free_capacity = target.store().get_free_capacity(Some(ty)).try_into().unwrap_or(0);
+        let amount = amount.unwrap_or(self.get_resource(ty))/*.min(target_free_capacity)*/;
         self.remove_resource(ty, amount)?;
         self.creep.transfer(target, ty, Some(amount))?;
         Ok(())
     }
 
-    pub fn withdraw(&mut self, target: &(impl Withdrawable + HasStore + ?Sized), ty: ResourceType, amount: Option<u32>) -> Result<()> {
+    // Transfer from other creep into this creep
+    pub fn transfer_from(&mut self, target: &SafeID<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<()> {
+        let amount = amount.unwrap_or(self.free_capacity)/*.min(target.store().get_used_capacity(Some(ty)))*/;
+        self.add_resource(ty, amount)?;
+        target.transfer(&*self.creep, ty, Some(amount))?;
+        Ok(())
+    }
+
+    // TODO: Fix commented out code
+    pub fn withdraw(&mut self, target: &(impl Withdrawable + ?Sized), ty: ResourceType, amount: Option<u32>) -> Result<()> {
         self.register_intent(IntentType::Withdraw)?;
 
-        let amount = amount.unwrap_or(self.free_capacity).min(target.store().get_used_capacity(Some(ty)));
+        let amount = amount.unwrap_or(self.free_capacity)/*.min(target.store().get_used_capacity(Some(ty)))*/;
         self.add_resource(ty, amount)?;
         self.creep.withdraw(target, ty, Some(amount))?;
         Ok(())
     }
 }
 
+impl MovementRequests {
+    pub fn move_vcreep_to(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Result<MoveToResult> {
+        creep.register_intent(IntentType::Move)?;
+        Ok(self.move_creep_to(&creep.creep, target, range))
+    }
+
+    #[expect(unused)]
+    pub fn move_vtugged_to(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Result<MoveToResult> {
+        creep.register_intent(IntentType::Move)?;
+        Ok(self.move_tugged_to(&creep.creep, target, range))
+    }
+}
