@@ -3,7 +3,7 @@ use screeps::{Creep, HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{break_dererable, break_move, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, DumbID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{Transition, update_many}, utils::EnergyStore};
+use crate::{break_dererable, break_move, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, movement::requests::MovementRequests, safeid::{DO, DumbID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{Transition, update_many}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -101,14 +101,14 @@ impl TruckCreep {
                     let consumer = coordinator.assign_consumer(truck);
                     if let Some(consumer) = consumer { return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))) }
 
-                    if home.buffer.as_ref().is_some_and(|buffer| buffer.store().free_energy_capacity() > 0) { 
+                    if home.buffer.as_ref().is_some_and(|buffer| buffer.free_energy_capacity() > 0) { 
                         return Ok(Continue(Self::StoringAway)) 
                     }
                 } else {
                     let push_provider = coordinator.assign_push_provider(truck);
                     if let Some(provider) = push_provider { return Ok(Continue(Self::Performing(TruckTask::CollectingFrom(provider)))) }
 
-                    if home.buffer.as_ref().is_some_and(|buffer| buffer.store().used_energy_capacity() > 0) {
+                    if home.buffer.as_ref().is_some_and(|buffer| buffer.used_energy_capacity() > 0) {
                         let consumer = coordinator.assign_consumer(truck);
                         if let Some(consumer) = consumer { return Ok(Continue(Self::FillingUpFor(consumer))) }
                     }
@@ -135,7 +135,7 @@ impl TruckCreep {
                 Ok(Continue(Self::succeed(&truck.id(), task, coordinator)))
             },
             Self::FillingUpFor(ref consumer) => {
-                let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.store().used_energy_capacity() > 0) else {
+                let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.used_energy_capacity() > 0) else {
                     return Ok(Continue(Self::fail(&truck.id(), &consumer.clone().into(), coordinator)))
                 };
 
@@ -151,7 +151,7 @@ impl TruckCreep {
                 Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
             Self::StoringAway => {
-                let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.store().free_energy_capacity() > 0) else { 
+                let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.free_energy_capacity() > 0) else { 
                     return Ok(Continue(Self::Idle)) 
                 };
                 
@@ -193,7 +193,7 @@ impl TruckTask {
             TruckTask::CollectingFrom(provider) => 
                 provider.creep_withdraw(truck, ResourceType::Energy),
             TruckTask::ProvidingTo(consumer) => 
-                consumer.creep_transfer(truck, ResourceType::Energy)
+                truck.transfer(consumer, ResourceType::Energy, None)
         }
     }
 
@@ -202,7 +202,7 @@ impl TruckTask {
             TruckTask::CollectingFrom(provider) => 
                 provider.get_resource_avaliable(ResourceType::Energy) > 0,
             TruckTask::ProvidingTo(consumer) =>
-                consumer.get_resource_free(ResourceType::Energy) > 0
+                consumer.free_capacity(Some(ResourceType::Energy)) > 0
         }
     }
 }

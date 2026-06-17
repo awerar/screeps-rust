@@ -18,7 +18,7 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers, utils::EnergyStore};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
 
 mod logging;
 mod names;
@@ -36,6 +36,7 @@ mod commands;
 mod tasks;
 mod safeid;
 mod movement;
+mod domain_traits;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -108,8 +109,8 @@ fn do_links(mem: &mut Memory) {
             .filter_map(|plan| {
                 let link = plan.link.resolve()?;
 
-                let link_energy = link.store().used_energy_capacity();
-                let container_energy = plan.container.resolve().map_or(0, |container| container.store().used_energy_capacity());
+                let link_energy = link.used_energy_capacity();
+                let container_energy = plan.container.resolve().map_or(0, |container| container.used_energy_capacity());
 
                 Some((link, link_energy + container_energy))
             }).sorted_by_key(|(_, energy)| Reverse(*energy))
@@ -117,8 +118,8 @@ fn do_links(mem: &mut Memory) {
             .collect_vec();
 
         for source_link in source_links {
-            if source_link.store().used_energy_capacity() > 400
-                && central_link.store().free_energy_capacity() > 50 {
+            if source_link.used_energy_capacity() > 400
+                && central_link.free_energy_capacity() > 50 {
                     source_link.transfer_energy(&central_link, None).ok();
                     break;
                 }

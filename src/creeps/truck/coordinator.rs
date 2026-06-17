@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, safeid::{DumbID, GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, safeid::{DumbID, GetSafeID, SafeID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -184,12 +184,12 @@ impl ConsumerTasksBuilder {
                     .filter(move |consumer| {
                         let Some(fullness_threshold) = config.fullness_threshold else { return true };
 
-                        let upper_limit = config.max_fill.unwrap_or_else(|| consumer.store().get_capacity(Some(ResourceType::Energy)));
-                        let ratio = consumer.store().used_energy_capacity() as f32 / upper_limit as f32;
+                        let upper_limit = config.max_fill.unwrap_or_else(|| consumer.energy_capacity());
+                        let ratio = consumer.used_energy_capacity() as f32 / upper_limit as f32;
                         ratio <= fullness_threshold
                     }).map(move |consumer| {
-                        let used = consumer.get_resource_avaliable(ResourceType::Energy);
-                        let capacity_left = consumer.get_resource_free(ResourceType::Energy);
+                        let used = consumer.used_energy_capacity();
+                        let capacity_left = consumer.free_energy_capacity();
                         let consume = config.max_fill.map_or(capacity_left, |max_fill| max_fill.saturating_sub(used));
 
                         (consumer, consume, priority as u32)

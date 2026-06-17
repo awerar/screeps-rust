@@ -1,10 +1,10 @@
 use std::hash::Hash;
 
 use anyhow::anyhow;
-use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Store, Tombstone};
+use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, StoreTarget, VirtualCreep}}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
+use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "I::ID<Ruin> : DO, I::ID<Resource> : DO, I::ID<Tombstone> : DO, ProviderStructure<I> : DO, I::ID<Creep> : DO"))]
@@ -94,29 +94,24 @@ impl ConsumerTruckStop {
             Self::Creep(id) => id.pos(),
         }
     }
+}
 
-    pub fn store(&self) -> Store {
+impl HasStore for ConsumerTruckStop {
+    fn store(&self) -> screeps::Store {
         match self {
-            Self::Structure(id) => id.store(),
-            Self::Creep(id) => id.store(),
+            ConsumerTruckStop::Structure(structure) => structure.store(),
+            ConsumerTruckStop::Creep(creep) => creep.store(),
         }
     }
+}
 
-    pub fn get_resource_avaliable(&self, ty: ResourceType) -> u32 { 
-        self.store().get_used_capacity(Some(ty))
-    }
-
-    pub fn get_resource_free(&self, ty: ResourceType) -> u32 { 
-        self.store().get_free_capacity(Some(ty)) as u32
-    }
-
-    pub fn creep_transfer(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<(), IntentError> {
+impl Transferable for ConsumerTruckStop {
+    fn transferable(&self) -> &dyn screeps::Transferable {
         match self {
-            Self::Structure(structure) => creep.transfer(structure, ty, None),
-            Self::Creep(id) => Ok(creep.transfer(&**id, ty, None)?),
+            ConsumerTruckStop::Structure(structure) => structure.transferable(),
+            ConsumerTruckStop::Creep(creep) => creep.as_ref(),
         }
     }
-
 }
 
 pub mod safe_structure {
@@ -124,10 +119,10 @@ pub mod safe_structure {
 
     use std::marker::PhantomData;
 
-    use screeps::{HasPosition, HasStore, Position, Store, Structure, Transferable, Withdrawable};
+    use screeps::{HasPosition, Position, Store, Structure};
     use serde::{Deserialize, Serialize};
 
-    use crate::{creeps::virtual_creep::{StoreTarget, TransferTarget, WithdrawTarget}, safeid::{GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, DO}, utils::EasyStructure};
+    use crate::{domain_traits::{HasStore, Transferable, Withdrawable}, safeid::{DO, GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, utils::EasyStructure};
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
     #[serde(bound(deserialize = "EasyStructure<I> : DO"))]
@@ -151,7 +146,7 @@ pub mod safe_structure {
         pub fn pos(&self) -> Position { self.0.pos() }
     }
 
-    impl<T> StoreTarget for SafeStructure<T> {
+    impl<T> HasStore for SafeStructure<T> {
         fn store(&self) -> Store { self.0.structure_object().as_has_store().unwrap().store() }
     }
 
@@ -162,8 +157,8 @@ pub mod safe_structure {
         }
     }
 
-    impl TransferTarget for ConsumerStructure {
-        fn transferable(&self) -> &dyn Transferable { self.0.structure_object().as_transferable().unwrap() }
+    impl Transferable for ConsumerStructure {
+        fn transferable(&self) -> &dyn screeps::Transferable { self.0.structure_object().as_transferable().unwrap() }
     }
 
     pub trait ProviderStructureReqs = Into<Structure> + HasStore + Withdrawable;
@@ -173,7 +168,7 @@ pub mod safe_structure {
         }
     }
 
-    impl WithdrawTarget for ProviderStructure {
-        fn withdrawable(&self) -> &dyn Withdrawable { self.0.structure_object().as_withdrawable().unwrap() }
+    impl Withdrawable for ProviderStructure {
+        fn withdrawable(&self) -> &dyn screeps::Withdrawable { self.0.structure_object().as_withdrawable().unwrap() }
     }
 }

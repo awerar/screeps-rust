@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::{StoreTarget, WithdrawTarget}, movement::requests::MovementRequests, safeid::{DO, DumbID, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}, utils::EnergyStore};
+use crate::{colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, movement::requests::MovementRequests, safeid::{DO, DumbID, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryGetSafeID, TryMakeSafe, UnsafeIDs}, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -102,12 +102,12 @@ impl FabricatorCreep {
             Self::CollectingFor(ref task) => {
                 if task.has_timed_out() || !coordinator.heartbeat_task(&creep.dumb_id(), task) { return Self::fail_task(creep, task, coordinator) }
 
-                if creep.store().used_energy_capacity() > 0 {
+                if creep.used_energy_capacity() > 0 {
                     return Ok(Continue(Self::Performing(task.clone())))
                 }
 
                 let Some(buffer) = &home.buffer else { return Ok(Break(self)) };
-                if buffer.store().get_used_capacity(Some(ResourceType::Energy)) == 0 { return Ok(Break(self)) }
+                if buffer.used_energy_capacity() == 0 { return Ok(Break(self)) }
 
                 if movement.move_creep_to(creep, buffer.pos(), 1).in_range() {
                     creep.withdraw(buffer.withdrawable(), ResourceType::Energy, None)?;
@@ -119,7 +119,7 @@ impl FabricatorCreep {
             Self::Performing(ref task) => {
                 if task.has_timed_out() || !coordinator.heartbeat_task(&creep.dumb_id(), task) { return Self::fail_task(creep, task, coordinator) }
 
-                let creep_energy = creep.store().used_energy_capacity();
+                let creep_energy = creep.used_energy_capacity();
                 if creep_energy == 0 {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
@@ -237,8 +237,8 @@ impl FabricatorCoordinator {
         let storage_fill_percentage = buffer.and_then(|buffer| {
             match buffer {
                 ColonyBuffer::Container(container) => {
-                    let used = container.store().get_used_capacity(Some(ResourceType::Energy));
-                    let capacity = container.store().get_capacity(Some(ResourceType::Energy));
+                    let used = container.used_energy_capacity();
+                    let capacity = container.energy_capacity();
                     Some(used as f32 / capacity as f32)
                 },
                 ColonyBuffer::Storage(_) => None,

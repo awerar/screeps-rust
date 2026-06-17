@@ -1,12 +1,12 @@
 use std::{collections::{HashMap, HashSet, hash_map}, fmt::Display};
 
 use js_sys::JsString;
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, Transferable, Withdrawable, find, game};
+use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, find, game};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
 
-use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, creeps::virtual_creep::{StoreTarget, TransferTarget, WithdrawTarget}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, domain_traits::{HasStore, Transferable, Withdrawable}, memory::Memory, statemachine::transition, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 pub mod steps;
@@ -61,7 +61,7 @@ pub enum ColonyBuffer {
     Storage(StructureStorage)
 }
 
-impl StoreTarget for ColonyBuffer {
+impl HasStore for ColonyBuffer {
     fn store(&self) -> Store {
         match self {
             ColonyBuffer::Container(container) => container.store(),
@@ -70,8 +70,8 @@ impl StoreTarget for ColonyBuffer {
     }
 }
 
-impl WithdrawTarget for ColonyBuffer {
-    fn withdrawable(&self) -> &dyn Withdrawable { 
+impl Withdrawable for ColonyBuffer {
+    fn withdrawable(&self) -> &dyn screeps::Withdrawable { 
         match self {
             ColonyBuffer::Container(container) => container,
             ColonyBuffer::Storage(storage) => storage,
@@ -79,8 +79,8 @@ impl WithdrawTarget for ColonyBuffer {
     }
 }
 
-impl TransferTarget for ColonyBuffer {
-    fn transferable(&self) -> &dyn Transferable {
+impl Transferable for ColonyBuffer {
+    fn transferable(&self) -> &dyn screeps::Transferable {
         match self {
             ColonyBuffer::Container(container) => container,
             ColonyBuffer::Storage(storage) => storage,

@@ -111,8 +111,7 @@ impl CreepRole {
 }
 
 fn do_recycle(creep: &SafeID<Creep>, movement: &mut MovementRequests, spawn: &SafeID<StructureSpawn>) {
-    movement.move_creep_to(creep, spawn.pos(), 1);
-    if creep.pos().is_near_to(spawn.pos()) {
+    if movement.move_creep_to(creep, spawn.pos(), 1).in_range() {
         spawn.recycle_creep(creep).ok();
     }
 }

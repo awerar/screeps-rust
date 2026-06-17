@@ -45,7 +45,7 @@ impl FlagshipCreep {
                         return Ok(Continue(Claiming(*target, controller.safe_id())))
                     }
 
-                movement.move_creep_to(creep, *target, 0);
+                let _ = movement.move_creep_to(creep, *target, 0);
                 Ok(Break(self))
             }
             Claiming(request, controller) => {

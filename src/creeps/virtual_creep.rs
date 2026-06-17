@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasPosition, HasStore, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, Store, Transferable, Withdrawable};
+use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source};
 use thiserror::Error;
 
-use crate::{movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, SafeID}};
+use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, SafeID}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -128,8 +128,8 @@ pub struct VirtualCreep {
 impl VirtualCreep {
     pub fn new(creep: SafeID<Creep>) -> Self {
         VirtualCreep { 
-            free_capacity: creep.store().get_free_capacity(None).try_into().unwrap_or(0),
-            total_resources: creep.store().get_used_capacity(None),
+            free_capacity: creep.free_capacity(None),
+            total_resources: creep.used_capacity(None),
             total_incoming_resources: 0,
             total_outgoing_resources: 0,
             resources: HashMap::new(),
@@ -179,7 +179,7 @@ impl VirtualCreep {
     }
 
     fn get_resource(&self, ty: ResourceType) -> u32 {
-        self.resources.get(&ty).copied().unwrap_or_else(|| self.creep.store().get_used_capacity(Some(ty)))
+        self.resources.get(&ty).copied().unwrap_or_else(|| self.creep.used_capacity(Some(ty)))
     }
 
     fn add_resource(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
@@ -198,7 +198,7 @@ impl VirtualCreep {
     }
 
     fn remove_resource(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
-        let resource = self.resources.entry(ty).or_insert_with(|| self.creep.store().get_used_capacity(Some(ty)));
+        let resource = self.resources.entry(ty).or_insert_with(|| self.creep.used_capacity(Some(ty)));
         if amount > *resource { return Err(IntentError::NotEnoughResource { resource: ty, target: amount, curr: *resource }); }
 
         *resource -= amount;
@@ -215,7 +215,7 @@ impl VirtualCreep {
 
     #[expect(unused)]
     pub fn capacity(&self) -> u32 {
-        self.creep.store().get_capacity(None)
+        self.creep.capacity(None)
     }
 
     // Free capacity left this tick
@@ -315,52 +315,26 @@ impl VirtualCreep {
 
     // Transfer from other creep into this creep
     pub fn transfer_from(&mut self, target: &SafeID<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
-        let amount = amount.unwrap_or(self.free_capacity)/*.min(target.store().get_used_capacity(Some(ty)))*/;
+        let amount = amount.unwrap_or(self.free_capacity).min(target.used_capacity(Some(ty)));
         self.add_resource(ty, amount)?;
         target.transfer(&*self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;
         Ok(())
     }
-}
 
-pub trait StoreTarget {
-    fn store(&self) -> Store;
-}
-
-impl<T : HasStore> StoreTarget for T {
-    fn store(&self) -> Store { self.store() }
-}
-
-pub trait TransferTarget: StoreTarget {
-    fn transferable(&self) -> &dyn Transferable;
-}
-
-impl<T : Transferable + HasStore> TransferTarget for T {
-    fn transferable(&self) -> &dyn Transferable { self }
-}
-
-pub trait WithdrawTarget: StoreTarget {
-    fn withdrawable(&self) -> &dyn Withdrawable;
-}
-
-impl<T : Withdrawable + HasStore> WithdrawTarget for T {
-    fn withdrawable(&self) -> &dyn Withdrawable { self }
-}
-
-impl VirtualCreep {
-    pub fn transfer(&mut self, target: &impl TransferTarget, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn transfer(&mut self, target: &impl Transferable, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
         self.register_intent(IntentType::Transfer)?;
 
-        let target_free_capacity = target.store().get_free_capacity(Some(ty)).try_into().unwrap_or(0);
+        let target_free_capacity = target.free_capacity(Some(ty));
         let amount = amount.unwrap_or(self.get_resource(ty)).min(target_free_capacity);
         self.remove_resource(ty, amount)?;
         self.creep.transfer(target.transferable(), ty, Some(amount)).map_err(anyhow::Error::new)?;
         Ok(())
     }
 
-    pub fn withdraw(&mut self, target: &impl WithdrawTarget, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn withdraw(&mut self, target: &impl Withdrawable, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
         self.register_intent(IntentType::Withdraw)?;
 
-        let amount = amount.unwrap_or(self.free_capacity).min(target.store().get_used_capacity(Some(ty)));
+        let amount = amount.unwrap_or(self.free_capacity).min(target.used_capacity(Some(ty)));
         self.add_resource(ty, amount)?;
         self.creep.withdraw(target.withdrawable(), ty, Some(amount)).map_err(anyhow::Error::new)?;
         Ok(())

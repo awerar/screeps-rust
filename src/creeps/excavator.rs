@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn, Transferable};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, movement::requests::MovementRequests, safeid::SafeID, statemachine::Transition, utils::EnergyStore};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, safeid::SafeID, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -40,7 +40,7 @@ impl SourcePlan {
     fn get_energy_destination(&self) -> Option<EnergyDestination> {
         self.get_construction_site().map(EnergyDestination::ConstructionSite)
             .or_else(|| self.get_fill_target().map(EnergyDestination::FillTarget))
-            .or_else(|| self.container.resolve().filter(|container| container.store().free_energy_capacity() > 0).map(EnergyDestination::Container))
+            .or_else(|| self.container.resolve().filter(|container| container.free_energy_capacity() > 0).map(EnergyDestination::Container))
     }
 }
 
@@ -105,10 +105,10 @@ impl ExcavatorCreep {
                     return Ok(Break(self));
                 };
 
-                let harvest_energy = (work_count(creep) * 2).try_into().unwrap();
+                let harvest_energy = work_count(creep) * 2;
 
                 let mut can_harvest = true;
-                if creep.store().free_energy_capacity() < harvest_energy {
+                if creep.energy_capacity() < harvest_energy {
                     energy_dest.recieve(creep);
 
                     if !energy_dest.can_also_harvest() {
