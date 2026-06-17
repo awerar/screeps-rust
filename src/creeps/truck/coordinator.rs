@@ -184,7 +184,7 @@ impl ConsumerTasksBuilder {
                     .filter(move |consumer| {
                         let Some(fullness_threshold) = config.fullness_threshold else { return true };
 
-                        let upper_limit = config.max_fill.unwrap_or_else(|| consumer.store().get_capacity(None));
+                        let upper_limit = config.max_fill.unwrap_or_else(|| consumer.store().get_capacity(Some(ResourceType::Energy)));
                         let ratio = consumer.store().used_energy_capacity() as f32 / upper_limit as f32;
                         ratio <= fullness_threshold
                     }).map(move |consumer| {
