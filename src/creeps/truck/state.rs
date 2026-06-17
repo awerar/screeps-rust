@@ -3,7 +3,7 @@ use screeps::{Creep, HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{break_collision, break_move, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, DumbID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{Transition, update_many}, utils::EnergyStore};
+use crate::{break_dererable, break_move, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, StoreTarget, VirtualCreep}}, movement::requests::MovementRequests, safeid::{DO, DumbID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{Transition, update_many}, utils::EnergyStore};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -127,10 +127,10 @@ impl TruckCreep {
                         if truck.next_used_energy_capacity() == 0 { return Ok(Continue(FillingUpFor(task.clone()))) },
                 }
 
-                break_collision!(break_move!(movement.move_vcreep_to(truck, task.pos(), 1), self), self)?;
+                break_dererable!(break_move!(movement.move_vcreep_to(truck, task.pos(), 1), self), self)?;
 
                 if truck.incoming_energy() > 0 { return Ok(Break(self)) }
-                break_collision!(task.creep_perform(truck), self)?;
+                break_dererable!(task.creep_perform(truck), self)?;
 
                 Ok(Continue(Self::succeed(&truck.id(), task, coordinator)))
             },
@@ -143,10 +143,10 @@ impl TruckCreep {
                     return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone())))) 
                 }
 
-                break_collision!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
+                break_dererable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
 
                 if truck.outgoing() > 0 { return Ok(Break(self)) }
-                break_collision!(truck.withdraw(buffer, ResourceType::Energy, None), self)?;
+                break_dererable!(truck.withdraw(buffer, ResourceType::Energy, None), self)?;
 
                 Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
@@ -157,10 +157,10 @@ impl TruckCreep {
                 
                 if truck.next_used_energy_capacity() == 0 { return Ok(Continue(Self::Idle)); }
 
-                break_collision!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
+                break_dererable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
                 
                 if truck.incoming_energy() > 0 { return Ok(Break(self)) }
-                break_collision!(truck.transfer(buffer, ResourceType::Energy, None), self)?;
+                break_dererable!(truck.transfer(buffer, ResourceType::Energy, None), self)?;
 
                 Ok(Continue(Self::Idle))
             },

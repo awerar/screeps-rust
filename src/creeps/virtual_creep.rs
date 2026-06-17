@@ -61,7 +61,7 @@ pub enum IntentError {
     #[error("Not enough {resource}: {curr} out of {target}")]
     NotEnoughResource { resource: ResourceType, target: u32, curr: u32 },
     #[error(transparent)]
-    Execution(#[from] anyhow::Error)
+    Other(#[from] anyhow::Error)
 }
 
 impl IntentError {
@@ -71,7 +71,7 @@ impl IntentError {
 }
 
 #[macro_export]
-macro_rules! break_collision {
+macro_rules! break_dererable {
     ($expr:expr, $next:expr) => {
         match $expr {
             Ok(val) => Ok(val),

@@ -14,6 +14,7 @@ struct Tugboat(SafeID<Creep>);
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugged(SafeID<Creep>);
 
+#[must_use]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MoveToResult {
     InRange, OutOfRange

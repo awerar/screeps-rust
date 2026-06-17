@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use anyhow::anyhow;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Store, Tombstone};
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +47,8 @@ impl ProviderTruckStop {
             Self::Tombstone(id) => id.store().get_used_capacity(Some(ty)),
             Self::Structure(id) => id.store().get_used_capacity(Some(ty)),
             Self::Creep(id) => id.store().get_used_capacity(Some(ty)),
-            Self::Resource(id) => id.amount(),
+            Self::Resource(id) => 
+                if id.resource_type() == ty { id.amount() } else { 0 },
         }
     }
 
@@ -56,7 +58,12 @@ impl ProviderTruckStop {
             Self::Tombstone(id) => Ok(creep.withdraw(id.as_ref(), ty, None)?),
             Self::Creep(id) => Ok(creep.transfer_from(id, ty, None)?),
             Self::Structure(id) => creep.withdraw(id, ty, None),
-            Self::Resource(id) => Ok(creep.pickup(id)?),
+            Self::Resource(id) => 
+                if id.resource_type() == ty { 
+                    Ok(creep.pickup(id)?) 
+                } else { 
+                    Err(anyhow!("Resource pile does not contain {ty}").into()) 
+                },
         }
     }
 
