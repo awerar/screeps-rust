@@ -1,11 +1,11 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, mem};
 
 use derive_deref::{Deref, DerefMut};
 use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -146,9 +146,8 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             Excavator(state, source) => 
                 transition(state, |state| state.update(creep, source, &home, &mut movement)),
             Truck(state) => {
-                let mut virtual_creep = VirtualCreep::new(creep.clone());
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                transition(state, |state| state.update(&mut virtual_creep, &home, &mut movement, coordinator));
+                *state = mem::take(state).update(creep, &home, &mut movement, coordinator);
             },
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();

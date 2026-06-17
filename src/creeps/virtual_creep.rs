@@ -70,35 +70,28 @@ impl IntentError {
     }
 }
 
-#[must_use]
-pub enum ActionOutcome<T> {
-    Executed(T),
-    Deferred
-}
-
-pub trait DeferrableExt<T> {
-    fn ok_or_deferred(self) -> Result<ActionOutcome<T>>;
-}
-
-impl<T> DeferrableExt<T> for Result<T, IntentError> {
-    fn ok_or_deferred(self) -> Result<ActionOutcome<T>> {
-        match self {
-            Ok(val) => Ok(ActionOutcome::Executed(val)),
-            Err(err) if err.is_deferable() => Ok(ActionOutcome::Deferred),
-            Err(err) => Err(err.into())
-        }
-    }
-}
-
 #[macro_export]
-macro_rules! defer {
+macro_rules! break_collision {
     ($expr:expr, $next:expr) => {
-        match $expr.ok_or_deferred()? {
-            $crate::creeps::virtual_creep::ActionOutcome::Executed(val) => val,
-            $crate::creeps::virtual_creep::ActionOutcome::Deferred => return Ok(Transition::Break($next))
+        match $expr {
+            Ok(val) => Ok(val),
+            Err(e) if e.is_deferable() => return Ok($crate::statemachine::Transition::Break($next)),
+            Err(e) => Err(e)
         }
     };
 }
+
+#[macro_export]
+macro_rules! break_move {
+    ($expr:expr, $next:expr) => {
+        match $expr {
+            Ok(val) if !val.in_range() => return Ok($crate::statemachine::Transition::Break($next)),
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
+        }
+    };
+}
+
 
 /*
 vvv Summary by ChatGPT vvv
@@ -255,18 +248,22 @@ impl VirtualCreep {
         }
     }
 
-    pub fn has_incoming(&self, ty: Option<ResourceType>) -> bool {
+    pub fn incoming(&self, ty: Option<ResourceType>) -> u32 {
         if let Some(ty) = ty {
-            self.incoming_resources.get(&ty).is_some_and(|x| *x > 0)
+            self.incoming_resources.get(&ty).map_or(0, |x| *x)
         } else {
-            self.total_incoming_resources > 0
+            self.total_incoming_resources
         }
+    }
+
+    pub fn outgoing(&self) -> u32 {
+        self.total_outgoing_resources
     }
 
     #[expect(unused)]
     pub fn curr_used_energy_capacity(&self) -> u32 { self.curr_used_capacity(Some(ResourceType::Energy)) }
     pub fn next_used_energy_capacity(&self) -> u32 { self.next_used_capacity(Some(ResourceType::Energy)) }
-    pub fn has_incoming_energy(&self) -> bool { self.has_incoming(Some(ResourceType::Energy)) }
+    pub fn incoming_energy(&self) -> u32 { self.incoming(Some(ResourceType::Energy)) }
     
     #[expect(unused)]
     pub fn build(&mut self, target: &ConstructionSite) -> Result<(), IntentError> {
