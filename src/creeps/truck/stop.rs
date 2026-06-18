@@ -4,11 +4,11 @@ use anyhow::anyhow;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, safeid::{DO, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}};
+use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, safeid::{DO, IDKind, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "I::ID<Ruin> : DO, I::ID<Resource> : DO, I::ID<Tombstone> : DO, ProviderStructure<I> : DO, I::ID<Creep> : DO"))]
-pub enum ProviderTruckStop<I: IDKind = SafeIDs> {
+pub enum ProviderTruckStop<I: IDKind = CheckedIDs> {
     Ruin(I::ID<Ruin>),
     Resource(I::ID<Resource>),
     Tombstone(I::ID<Tombstone>),
@@ -16,16 +16,16 @@ pub enum ProviderTruckStop<I: IDKind = SafeIDs> {
     Creep(I::ID<Creep>)
 }
 
-impl TryFromUnsafe for ProviderTruckStop {
-    type Unsafe = ProviderTruckStop<UnsafeIDs>;
+impl TryFromUnchecked for ProviderTruckStop {
+    type Unchecked = ProviderTruckStop<UncheckedIDs>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(match us {
-            Self::Unsafe::Ruin(x) => Self::Ruin(x.try_make_safe()?),
-            Self::Unsafe::Resource(x) => Self::Resource(x.try_make_safe()?),
-            Self::Unsafe::Tombstone(x) => Self::Tombstone(x.try_make_safe()?),
-            Self::Unsafe::Structure(x) => Self::Structure(x.try_make_safe()?),
-            Self::Unsafe::Creep(x) => Self::Creep(x.try_make_safe()?),
+            Self::Unchecked::Ruin(x) => Self::Ruin(x.try_check()?),
+            Self::Unchecked::Resource(x) => Self::Resource(x.try_check()?),
+            Self::Unchecked::Tombstone(x) => Self::Tombstone(x.try_check()?),
+            Self::Unchecked::Structure(x) => Self::Structure(x.try_check()?),
+            Self::Unchecked::Creep(x) => Self::Creep(x.try_check()?),
         })
     }
 }
@@ -71,18 +71,18 @@ impl ProviderTruckStop {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "ConsumerStructure<I> : DO, I::ID<Creep> : DO"))]
-pub enum ConsumerTruckStop<I: IDKind = SafeIDs> {
+pub enum ConsumerTruckStop<I: IDKind = CheckedIDs> {
     Structure(ConsumerStructure<I>),
     Creep(I::ID<Creep>)
 }
 
-impl TryFromUnsafe for ConsumerTruckStop {
-    type Unsafe = ConsumerTruckStop<UnsafeIDs>;
+impl TryFromUnchecked for ConsumerTruckStop {
+    type Unchecked = ConsumerTruckStop<UncheckedIDs>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(match us {
-            Self::Unsafe::Structure(x) => Self::Structure(x.try_make_safe()?),
-            Self::Unsafe::Creep(x) => Self::Creep(x.try_make_safe()?),
+            Self::Unchecked::Structure(x) => Self::Structure(x.try_check()?),
+            Self::Unchecked::Creep(x) => Self::Creep(x.try_check()?),
         })
     }
 }
@@ -122,25 +122,25 @@ pub mod safe_structure {
     use screeps::{HasPosition, Position, Store, Structure};
     use serde::{Deserialize, Serialize};
 
-    use crate::{domain_traits::{HasStore, Transferable, Withdrawable}, safeid::{DO, GetSafeID, IDKind, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, utils::EasyStructure};
+    use crate::{domain_traits::{HasStore, Transferable, Withdrawable}, safeid::{DO, GetCheckedID, IDKind, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs}, utils::EasyStructure};
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
     #[serde(bound(deserialize = "EasyStructure<I> : DO"))]
-    pub struct SafeStructure<T, I: IDKind = SafeIDs>(EasyStructure<I>, PhantomData<T>);
+    pub struct SafeStructure<T, I: IDKind = CheckedIDs>(EasyStructure<I>, PhantomData<T>);
 
-    impl<T> TryFromUnsafe for SafeStructure<T> {
-        type Unsafe = SafeStructure<T, UnsafeIDs>;
+    impl<T> TryFromUnchecked for SafeStructure<T> {
+        type Unchecked = SafeStructure<T, UncheckedIDs>;
     
-        fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-            Some(SafeStructure(us.0.try_make_safe()?, PhantomData))
+        fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
+            Some(SafeStructure(us.0.try_check()?, PhantomData))
         }
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)] pub struct Consumer;
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)] pub struct Provider;
 
-    pub type ConsumerStructure<I = SafeIDs> = SafeStructure<Consumer, I>;
-    pub type ProviderStructure<I = SafeIDs> = SafeStructure<Provider, I>;
+    pub type ConsumerStructure<I = CheckedIDs> = SafeStructure<Consumer, I>;
+    pub type ProviderStructure<I = CheckedIDs> = SafeStructure<Provider, I>;
 
     impl<T> SafeStructure<T> {
         pub fn pos(&self) -> Position { self.0.pos() }
@@ -153,7 +153,7 @@ pub mod safe_structure {
     pub trait ConsumerStructureReqs = Into<Structure> + HasStore + Transferable;
     impl ConsumerStructure {
         pub fn new<S: ConsumerStructureReqs>(structure: S) -> Self {
-            Self(EasyStructure::new(structure.into().safe_id()), PhantomData)
+            Self(EasyStructure::new(structure.into().check_id()), PhantomData)
         }
     }
 
@@ -164,7 +164,7 @@ pub mod safe_structure {
     pub trait ProviderStructureReqs = Into<Structure> + HasStore + Withdrawable;
     impl ProviderStructure {
         pub fn new<S: ProviderStructureReqs>(structure: S) -> Self {
-            Self(EasyStructure::new(structure.into().safe_id()), PhantomData)
+            Self(EasyStructure::new(structure.into().check_id()), PhantomData)
         }
     }
 

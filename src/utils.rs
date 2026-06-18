@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Position, Structure, StructureObject};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::safeid::{IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeID, UnsafeIDs};
+use crate::safeid::{IDKind, CheckedID, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedID, UncheckedIDs};
 
 pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
     (-1..=1).cartesian_product(-1..=1)
@@ -14,7 +14,7 @@ pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
 }
 
 #[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
-pub struct EasyStructure<I: IDKind = SafeIDs>(I::ID<Structure>, #[derive_where(skip)] Option<StructureObject>);
+pub struct EasyStructure<I: IDKind = CheckedIDs>(I::ID<Structure>, #[derive_where(skip)] Option<StructureObject>);
 
 impl<I: IDKind> Serialize for EasyStructure<I> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -22,22 +22,22 @@ impl<I: IDKind> Serialize for EasyStructure<I> {
     }
 }
 
-impl<'de> Deserialize<'de> for EasyStructure<UnsafeIDs> {
+impl<'de> Deserialize<'de> for EasyStructure<UncheckedIDs> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Self(UnsafeID::<Structure>::deserialize(deserializer)?, None))
+        Ok(Self(UncheckedID::<Structure>::deserialize(deserializer)?, None))
     }
 }
 
-impl TryFromUnsafe for EasyStructure {
-    type Unsafe = EasyStructure<UnsafeIDs>;
+impl TryFromUnchecked for EasyStructure {
+    type Unchecked = EasyStructure<UncheckedIDs>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some(EasyStructure::new(us.0.try_make_safe()?))
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
+        Some(EasyStructure::new(us.0.try_check()?))
     }
 }
 
 impl EasyStructure {
-    pub fn new(structure: SafeID<Structure>) -> Self {
+    pub fn new(structure: CheckedID<Structure>) -> Self {
         let structure_object = StructureObject::from(structure.as_ref().clone());
         Self(structure, Some(structure_object))
     }

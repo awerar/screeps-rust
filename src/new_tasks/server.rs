@@ -2,7 +2,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use serde::{Deserialize, Serialize};
 
-use crate::safeid::{TryFromUnsafe, TryMakeSafe};
+use crate::safeid::{TryFromUnchecked, TryCheck};
 
 /*
 Requirements:
@@ -28,15 +28,15 @@ struct TaskSpecification<Task, Meta> {
     meta: Meta
 }
 
-impl<Task: TryFromUnsafe, Meta: TryFromUnsafe> TryFromUnsafe for TaskSpecification<Task, Meta>
+impl<Task: TryFromUnchecked, Meta: TryFromUnchecked> TryFromUnchecked for TaskSpecification<Task, Meta>
 {
-    type Unsafe = TaskSpecification<Task::Unsafe, Meta::Unsafe>;
+    type Unchecked = TaskSpecification<Task::Unchecked, Meta::Unchecked>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(Self {
             work_required: us.work_required,
-            task: us.task.try_make_safe()?,
-            meta: us.meta.try_make_safe()?,
+            task: us.task.try_check()?,
+            meta: us.meta.try_check()?,
         })
     }
 }

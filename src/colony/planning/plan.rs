@@ -8,7 +8,7 @@ use serde_json_any_key::any_key_map;
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}, safeid::UnsafeID};
+use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}, safeid::UncheckedID};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
@@ -36,7 +36,7 @@ pub struct CenterPlan {
     pub extensions: PlannedStructureRefs<StructureExtension>
 }
 
-pub type SourcesPlan = HashMap<UnsafeID<Source>, SourcePlan>;
+pub type SourcesPlan = HashMap<UncheckedID<Source>, SourcePlan>;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourcePlan {

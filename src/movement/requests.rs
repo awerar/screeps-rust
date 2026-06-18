@@ -6,13 +6,13 @@ use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
 use screeps::{Creep, HasPosition, Position, RectStyle, RoomVisual, StructureSpawn, game};
 
-use crate::{movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::SafeID, spawn::TugboatRequests};
+use crate::{movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, safeid::CheckedID, spawn::TugboatRequests};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
-struct Tugboat(SafeID<Creep>);
+struct Tugboat(CheckedID<Creep>);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
-struct Tugged(SafeID<Creep>);
+struct Tugged(CheckedID<Creep>);
 
 #[must_use]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -27,9 +27,9 @@ impl MoveToResult {
 }
 
 pub struct MovementRequests {
-    singles: HashMap<SafeID<Creep>, MoveTarget>,
+    singles: HashMap<CheckedID<Creep>, MoveTarget>,
     sessions: BiHashMap<Tugboat, Tugged>,
-    tugboats: HashMap<Tugboat, SafeID<StructureSpawn>>,
+    tugboats: HashMap<Tugboat, CheckedID<StructureSpawn>>,
     tuggeds: HashMap<Tugged, MoveTarget>
 }
 
@@ -43,7 +43,7 @@ impl MovementRequests {
         }
     }
 
-    pub fn move_creep_to(&mut self, creep: &SafeID<Creep>, target: Position, range: u32) -> MoveToResult {
+    pub fn move_creep_to(&mut self, creep: &CheckedID<Creep>, target: Position, range: u32) -> MoveToResult {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep.pos());
 
@@ -57,12 +57,12 @@ impl MovementRequests {
         }
     }
 
-    pub fn do_tugboat(&mut self, tugboat: &SafeID<Creep>, tugged: &SafeID<Creep>, spawn: &SafeID<StructureSpawn>) {
+    pub fn do_tugboat(&mut self, tugboat: &CheckedID<Creep>, tugged: &CheckedID<Creep>, spawn: &CheckedID<StructureSpawn>) {
         self.tugboats.insert(Tugboat(tugboat.clone()), spawn.clone());
         self.sessions.insert(Tugboat(tugboat.clone()), Tugged(tugged.clone()));
     }
 
-    pub fn move_tugged_to(&mut self, creep: &SafeID<Creep>, target: Position, range: u32) -> MoveToResult {
+    pub fn move_tugged_to(&mut self, creep: &CheckedID<Creep>, target: Position, range: u32) -> MoveToResult {
         let target = MoveTarget { target, range };
         let in_range = target.in_range(creep.pos());
 
@@ -132,7 +132,7 @@ impl MovementRequests {
     }
 
     fn collect_creeps(self) -> RawMoveCreeps {
-        let free = SafeID::creeps()
+        let free = CheckedID::creeps()
             .filter(|creep| {
                 !self.sessions.contains_left(&Tugboat(creep.clone())) &&
                 !self.sessions.contains_right(&Tugged(creep.clone())) &&
@@ -164,7 +164,7 @@ impl MovementRequests {
     }
 }
 
-fn handle_target_visualization(creep: &SafeID<Creep>, target: &MoveTarget) {
+fn handle_target_visualization(creep: &CheckedID<Creep>, target: &MoveTarget) {
     if has_selected(creep) {
         let visual = RoomVisual::new(Some(target.target.pos().room_name()));
         visual.rect(

@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source};
 use thiserror::Error;
 
-use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, SafeID}};
+use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, CheckedID}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -111,7 +111,7 @@ During this tick we will only remove up to [total_resources] resources and only 
 */
 
 pub struct VirtualCreep {
-    creep: SafeID<Creep>,
+    creep: CheckedID<Creep>,
 
     free_capacity: u32, // Free capacity left this tick
     total_resources: u32, // Used capacity left this tick
@@ -126,7 +126,7 @@ pub struct VirtualCreep {
 }
 
 impl VirtualCreep {
-    pub fn new(creep: SafeID<Creep>) -> Self {
+    pub fn new(creep: CheckedID<Creep>) -> Self {
         VirtualCreep { 
             free_capacity: creep.free_capacity(None),
             total_resources: creep.used_capacity(None),
@@ -314,7 +314,7 @@ impl VirtualCreep {
     }
 
     // Transfer from other creep into this creep
-    pub fn transfer_from(&mut self, target: &SafeID<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn transfer_from(&mut self, target: &CheckedID<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
         let amount = amount.unwrap_or(self.free_capacity).min(target.used_capacity(Some(ty)));
         self.add_resource(ty, amount)?;
         target.transfer(&*self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;

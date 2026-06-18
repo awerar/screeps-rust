@@ -3,10 +3,10 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{memory::ClaimRequests, movement::requests::MovementRequests, safeid::{GetSafeID, IDKind, SafeID, SafeIDs, TryMakeSafe, UnsafeIDs}, statemachine::Transition};
+use crate::{memory::ClaimRequests, movement::requests::MovementRequests, safeid::{GetCheckedID, IDKind, CheckedID, CheckedIDs, TryCheck, UncheckedIDs}, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
-pub enum FlagshipCreep<I: IDKind = SafeIDs> {
+pub enum FlagshipCreep<I: IDKind = CheckedIDs> {
     #[default]
     Idle,
     GoingTo(Position),
@@ -15,19 +15,19 @@ pub enum FlagshipCreep<I: IDKind = SafeIDs> {
 
 impl<'de> Deserialize<'de> for FlagshipCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let us = FlagshipCreep::<UnsafeIDs>::deserialize(deserializer)?;
+        let us = FlagshipCreep::<UncheckedIDs>::deserialize(deserializer)?;
         Ok(match us {
             FlagshipCreep::Idle => Self::Idle,
             FlagshipCreep::GoingTo(pos) => Self::GoingTo(pos),
             FlagshipCreep::Claiming(pos, controller) => 
-                controller.try_make_safe().map(|controller| Self::Claiming(pos, controller))
+                controller.try_check().map(|controller| Self::Claiming(pos, controller))
                     .unwrap_or(Self::GoingTo(pos)),
         })
     }
 }
 
 impl FlagshipCreep {
-    pub fn update(self, creep: &SafeID<Creep>, movement: &mut MovementRequests, claim_requests: &mut ClaimRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &CheckedID<Creep>, movement: &mut MovementRequests, claim_requests: &mut ClaimRequests) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
 
@@ -42,7 +42,7 @@ impl FlagshipCreep {
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name()
                     && let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Continue(Claiming(*target, controller.safe_id())))
+                        return Ok(Continue(Claiming(*target, controller.check_id())))
                     }
 
                 let _ = movement.move_creep_to(creep, *target, 0);

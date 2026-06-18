@@ -4,17 +4,17 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use screeps::{Creep, Direction, HasPosition, Part};
 
-use crate::{movement::{MoveTarget, SpawningID}, safeid::SafeID, spawn::Body};
+use crate::{movement::{MoveTarget, SpawningID}, safeid::CheckedID, spawn::Body};
 
-pub struct RawTrain(pub NonEmpty<(SafeID<Creep>, MoveTarget)>);
+pub struct RawTrain(pub NonEmpty<(CheckedID<Creep>, MoveTarget)>);
 pub struct RawMoveCreeps {
     pub trains: Vec<RawTrain>,
-    pub free: Vec<SafeID<Creep>>,
+    pub free: Vec<CheckedID<Creep>>,
     pub spawning: Vec<SpawningID>
 }
 
 struct SimpleTrain {
-    pub segments: NonEmpty<SafeID<Creep>>,
+    pub segments: NonEmpty<CheckedID<Creep>>,
     pub target: MoveTarget,
     pub must_move: bool
 }
@@ -22,13 +22,13 @@ struct SimpleTrain {
 pub enum CreepConstraint {
     Stay,
     Move { target: MoveTarget, must_move: bool },
-    Follow(SafeID<Creep>),
+    Follow(CheckedID<Creep>),
     Free,
 }
 
 pub struct SimpleMoveCreeps {
     pub spawning: Vec<SpawningID>,
-    pub creeps: HashMap<SafeID<Creep>, CreepConstraint>
+    pub creeps: HashMap<CheckedID<Creep>, CreepConstraint>
 }
 
 /* 
@@ -77,7 +77,7 @@ impl RawMoveCreeps {
     }
 }
 
-fn has_move_parts(creep: &SafeID<Creep>) -> bool {
+fn has_move_parts(creep: &CheckedID<Creep>) -> bool {
     Body::from(&**creep).num(Part::Move) > 0
 }
 
@@ -171,7 +171,7 @@ impl SimpleTrain {
         true
     }
 
-    fn collect_constraints(self) -> Vec<(SafeID<Creep>, CreepConstraint)> {
+    fn collect_constraints(self) -> Vec<(CheckedID<Creep>, CreepConstraint)> {
         let mut constraints = Vec::new();
         constraints.push((
             self.segments.first().clone(),

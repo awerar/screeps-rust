@@ -3,7 +3,7 @@ use std::{iter, mem, ops::{Add, Mul}, sync::LazyLock};
 use log::{error, info, warn};
 use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::EnergyStoreAccessors, memory::Memory, names::get_new_creep_name, safeid::{GetSafeID, SafeID, ToSafeID}};
+use crate::{colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::EnergyStoreAccessors, memory::Memory, names::get_new_creep_name, safeid::{GetCheckedID, CheckedID, ToCheckedID}};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -77,7 +77,7 @@ struct CreepPrototype {
 }
 
 impl CreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: &SafeID<Creep>) -> Option<Self> {
+    fn try_from_existing(mem: &Memory, creep: &CheckedID<Creep>) -> Option<Self> {
         let creep_data = mem.creeps.get(creep)?;
 
         Some(Self {
@@ -118,7 +118,7 @@ impl SpawnerData {
         let room = spawn.room()?;
         let spawning = spawn.spawning()
             .and_then(|spawning| {
-                let creep = SafeID::from_name(spawning.name().into())?;
+                let creep = CheckedID::from_name(spawning.name().into())?;
                 let prototype = CreepPrototype::try_from_existing(mem, &creep)?;
 
                 Some((prototype, spawning.remaining_time()))
@@ -175,7 +175,7 @@ impl SpawnSchedule {
             spawners: game::spawns().values()
                 .filter_map(|spawn| SpawnerData::try_from(mem, &spawn))
                 .collect(),
-            already_spawned: SafeID::creeps()
+            already_spawned: CheckedID::creeps()
                 .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
                 .collect()
         }
@@ -226,7 +226,7 @@ impl SpawnSchedule {
 
 pub fn handle_incoming_creeps(mem: &mut Memory) {
     for (name, data) in mem::take(&mut mem.incoming_creeps) {
-        let Some(creep) = SafeID::from_name(name) else { error!("Invalid incoming creep"); continue; };
+        let Some(creep) = CheckedID::from_name(name) else { error!("Invalid incoming creep"); continue; };
         mem.creeps.insert(creep, data);
     }
 }
@@ -268,7 +268,7 @@ fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
 fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
     for colony in mem.colonies.view_all() {
         for (source, source_plan) in &colony.plan.sources {
-            let Some(source) = source.to_safe_id() else { continue; };
+            let Some(source) = source.check_id() else { continue; };
 
             let any_excavator_already = schedule.all_creeps()
                 .0.any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source));
@@ -365,13 +365,13 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (energy / 50) as usize)
 }
 
-pub struct TugboatRequests(Vec<SafeID<Creep>>);
+pub struct TugboatRequests(Vec<CheckedID<Creep>>);
 impl TugboatRequests {
     pub fn new() -> Self {
         Self(Vec::new())
     }
 
-    pub fn add_request_for(&mut self, tugged: SafeID<Creep>) {
+    pub fn add_request_for(&mut self, tugged: CheckedID<Creep>) {
         self.0.push(tugged);
     }
 }
@@ -387,7 +387,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_req
 
         spawner.schedule_or_block(CreepPrototype { 
             body: get_tugboat_body(spawner.energy_capacity, &tugged),
-            role: CreepRole::Tugboat(tugged.clone(), spawner.structure.safe_id()), 
+            role: CreepRole::Tugboat(tugged.clone(), spawner.structure.check_id()), 
             home 
         });
     }
@@ -428,7 +428,7 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_req
         if buffered_energy == 0 && excavator_count == 0 {
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
             let Some((source, source_plan)) = colony.plan.sources.iter().next() else { continue; };
-            let Some(source) = source.to_safe_id() else { continue; };
+            let Some(source) = source.check_id() else { continue; };
 
             spawn.schedule_or_block(CreepPrototype { 
                 body: get_excavator_body(spawn.energy_avaliable.max(300), source_plan), 
@@ -444,7 +444,7 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_req
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
             spawn.schedule_or_block(CreepPrototype { 
                 body: get_tugboat_body(spawn.energy_avaliable.max(300), creep), 
-                role: CreepRole::Tugboat(creep.clone(), spawn.structure.safe_id()), 
+                role: CreepRole::Tugboat(creep.clone(), spawn.structure.check_id()), 
                 home: colony.name
             });
         }

@@ -3,11 +3,11 @@ use screeps::{Creep, HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{break_dererable, break_move, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, movement::requests::MovementRequests, safeid::{DO, DumbID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs}, statemachine::{Transition, update_many}};
+use crate::{break_dererable, break_move, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, movement::requests::MovementRequests, safeid::{DO, DumbID, IDKind, CheckedID, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs}, statemachine::{Transition, update_many}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
-pub enum TruckCreep<I: IDKind = SafeIDs> {
+pub enum TruckCreep<I: IDKind = CheckedIDs> {
     #[default] Idle,
     Performing(TruckTask<I>),
     StoringAway,
@@ -16,32 +16,32 @@ pub enum TruckCreep<I: IDKind = SafeIDs> {
 
 impl<'de> Deserialize<'de> for TruckCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let us = TruckCreep::<UnsafeIDs>::deserialize(deserializer)?;
+        let us = TruckCreep::<UncheckedIDs>::deserialize(deserializer)?;
         Ok(match us {
             TruckCreep::Idle => Self::Idle,
             TruckCreep::Performing(x) => 
-                x.try_make_safe().map_or(Self::Idle, Self::Performing),
+                x.try_check().map_or(Self::Idle, Self::Performing),
             TruckCreep::StoringAway => Self::StoringAway,
             TruckCreep::FillingUpFor(x) => 
-                x.try_make_safe().map_or(Self::Idle, Self::FillingUpFor),
+                x.try_check().map_or(Self::Idle, Self::FillingUpFor),
         })
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(bound(deserialize = "ProviderTruckStop<I> : DO, ConsumerTruckStop<I> : DO"))]
-pub enum TruckTask<I: IDKind = SafeIDs> {
+pub enum TruckTask<I: IDKind = CheckedIDs> {
     CollectingFrom(ProviderTruckStop<I>),
     ProvidingTo(ConsumerTruckStop<I>)
 }
 
-impl TryFromUnsafe for TruckTask {
-    type Unsafe = TruckTask<UnsafeIDs>;
+impl TryFromUnchecked for TruckTask {
+    type Unchecked = TruckTask<UncheckedIDs>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(match us {
-            Self::Unsafe::CollectingFrom(x) => Self::CollectingFrom(x.try_make_safe()?),
-            Self::Unsafe::ProvidingTo(x) => Self::ProvidingTo(x.try_make_safe()?),
+            Self::Unchecked::CollectingFrom(x) => Self::CollectingFrom(x.try_check()?),
+            Self::Unchecked::ProvidingTo(x) => Self::ProvidingTo(x.try_check()?),
         })
     }
 }
@@ -55,7 +55,7 @@ impl TruckCreep {
         }
     }
 
-    pub fn update(mut self, creep: &SafeID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
+    pub fn update(mut self, creep: &CheckedID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
         self = self.validate_task(&creep.dumb_id(), coordinator);
 
         let mut virtual_creep = VirtualCreep::new(creep.clone());

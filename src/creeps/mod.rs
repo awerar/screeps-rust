@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_from_unsafe}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetCheckedID, IDKind, CheckedID, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs, deserialize_check}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -15,23 +15,23 @@ pub mod virtual_creep;
 
 #[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
 pub struct Creeps(
-    #[serde(deserialize_with = "deserialize_from_unsafe")]
-    pub HashMap<SafeID<Creep>, CreepData>
+    #[serde(deserialize_with = "deserialize_check")]
+    pub HashMap<CheckedID<Creep>, CreepData>
 );
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(bound(deserialize="CreepRole<I> : DeserializeOwned"))]
-pub struct CreepData<I: IDKind = SafeIDs> {
+pub struct CreepData<I: IDKind = CheckedIDs> {
     pub role: CreepRole<I>,
     pub home: RoomName
 }
 
-impl TryFromUnsafe for CreepData {
-    type Unsafe = CreepData<UnsafeIDs>;
+impl TryFromUnchecked for CreepData {
+    type Unchecked = CreepData<UncheckedIDs>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(Self {
-            role: us.role.try_make_safe()?,
+            role: us.role.try_check()?,
             home: us.home
         })
     }
@@ -62,9 +62,9 @@ impl CreepData {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(ExcavatorCreep::default(), source.safe_id()) 
+                CreepRole::Excavator(ExcavatorCreep::default(), source.check_id()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).safe_id())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).check_id())
         };
         
         Some(CreepData::new(home.name, role))
@@ -73,7 +73,7 @@ impl CreepData {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
-pub enum CreepRole<I: IDKind = SafeIDs> {
+pub enum CreepRole<I: IDKind = CheckedIDs> {
     Excavator(ExcavatorCreep, I::ID<Source>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
@@ -82,17 +82,17 @@ pub enum CreepRole<I: IDKind = SafeIDs> {
     Scrap(I::ID<StructureSpawn>),
 }
 
-impl TryFromUnsafe for CreepRole {
-    type Unsafe = CreepRole<UnsafeIDs>;
+impl TryFromUnchecked for CreepRole {
+    type Unchecked = CreepRole<UncheckedIDs>;
 
-    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(match us {
-            Self::Unsafe::Excavator(state, source) => Self::Excavator(state, source.try_make_safe()?),
-            Self::Unsafe::Flagship(state) => Self::Flagship(state),
-            Self::Unsafe::Truck(state) => Self::Truck(state),
-            Self::Unsafe::Fabricator(state) => Self::Fabricator(state),
-            Self::Unsafe::Tugboat(tugged, spawn) => Self::Tugboat(tugged.try_make_safe()?, spawn.try_make_safe()?),
-            Self::Unsafe::Scrap(state) => Self::Scrap(state.try_make_safe()?),
+            Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.try_check()?),
+            Self::Unchecked::Flagship(state) => Self::Flagship(state),
+            Self::Unchecked::Truck(state) => Self::Truck(state),
+            Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
+            Self::Unchecked::Tugboat(tugged, spawn) => Self::Tugboat(tugged.try_check()?, spawn.try_check()?),
+            Self::Unchecked::Scrap(state) => Self::Scrap(state.try_check()?),
         })
     }
 }
@@ -110,7 +110,7 @@ impl CreepRole {
     }
 }
 
-fn do_recycle(creep: &SafeID<Creep>, movement: &mut MovementRequests, spawn: &SafeID<StructureSpawn>) {
+fn do_recycle(creep: &CheckedID<Creep>, movement: &mut MovementRequests, spawn: &CheckedID<StructureSpawn>) {
     if movement.move_creep_to(creep, spawn.pos(), 1).in_range() {
         spawn.recycle_creep(creep).ok();
     }
@@ -119,7 +119,7 @@ fn do_recycle(creep: &SafeID<Creep>, movement: &mut MovementRequests, spawn: &Sa
 pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
     use CreepRole::*;
 
-    let update_creeps: Vec<_> = SafeID::creeps()
+    let update_creeps: Vec<_> = CheckedID::creeps()
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
             if !mem.creeps.contains_key(creep) {
