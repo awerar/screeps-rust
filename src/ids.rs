@@ -1,11 +1,12 @@
-use std::{collections::{HashMap, HashSet}, fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
+use std::{fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
 
 use derive_where::derive_where;
 use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, SharedCreepProperties, game};
-use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
-pub trait DO = DeserializeOwned;
+use crate::check::{DO, TryCheck, TryFromUnchecked};
+
 
 pub trait IDKind {
     type ID<T>: Serialize + Debug + Clone + PartialEq + Eq + PartialOrd + Ord + Hash;
@@ -146,101 +147,11 @@ impl TryGetCheckedID for Creep {
     }
 }
 
-pub trait TriviallyChecked {}
-
-pub trait FromUnchecked {
-    type Unchecked;
-
-    fn from_unchecked(uc: Self::Unchecked) -> Self;
-}
-
-pub trait TryFromUnchecked: Sized {
-    type Unchecked;
-    
-    fn try_from_unchecked(uc: Self::Unchecked) -> Option<Self>;
-}
-
-impl<T: TriviallyChecked> FromUnchecked for T {
-    type Unchecked = Self;
-
-    fn from_unchecked(uc: Self::Unchecked) -> Self {
-        uc
-    }
-}
-
-impl<T: FromUnchecked> TryFromUnchecked for T {
-    type Unchecked = Self;
-
-    fn try_from_unchecked(uc: Self::Unchecked) -> Option<Self> {
-        Some(uc)
-    }
-}
-
 impl<T: JsCast + MaybeHasId + TryGetCheckedID> TryFromUnchecked for CheckedID<T> {
     type Unchecked = ObjectId<T>;
 
     fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         us.resolve()?.try_check_id()
-    }
-}
-
-impl<T: TryFromUnchecked> FromUnchecked for Option<T> {
-    type Unchecked = Option<T::Unchecked>;
-
-    fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.and_then(TryCheck::try_check)
-    }
-}
-
-impl<T: TryFromUnchecked> FromUnchecked for Vec<T> {
-    type Unchecked = Vec<T::Unchecked>;
-
-    fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.into_iter().filter_map(TryCheck::try_check).collect()
-    }
-}
-
-impl<T: TryFromUnchecked + Eq + Hash> FromUnchecked for HashSet<T> {
-    type Unchecked = HashSet<T::Unchecked>;
-
-    fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.into_iter().filter_map(TryCheck::try_check).collect()
-    }
-}
-
-impl<K: TryFromUnchecked, V: TryFromUnchecked> TryFromUnchecked for (K, V) {
-    type Unchecked = (K::Unchecked, V::Unchecked);
-
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some((us.0.try_check()?, us.1.try_check()?))
-    }
-}
-
-impl <K: TryFromUnchecked + Hash + Eq, V: TryFromUnchecked> FromUnchecked for HashMap<K, V> {
-    type Unchecked = HashMap<K::Unchecked, V::Unchecked>;
-
-    fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.into_iter().filter_map(TryCheck::try_check).collect()
-    }
-}
-
-pub trait Check<S> {
-    fn check(self) -> S;
-}
-
-impl<S: FromUnchecked> Check<S> for S::Unchecked {
-    fn check(self) -> S {
-        S::from_unchecked(self)
-    }
-}
-
-pub trait TryCheck<S> {
-    fn try_check(self) -> Option<S>;
-}
-
-impl<S: TryFromUnchecked> TryCheck<S> for S::Unchecked {
-    fn try_check(self) -> Option<S> {
-        S::try_from_unchecked(self)
     }
 }
 
@@ -279,14 +190,4 @@ impl<T> TryFromUnchecked for DumbID<T> where UncheckedID<T> : TryCheck<CheckedID
     fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
         Some(Self(us.0.try_check()?))
     }
-}
-
-pub fn deserialize_check<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D : Deserializer<'de>,
-    T: FromUnchecked,
-    T::Unchecked : Deserialize<'de>
-{
-    let raw = T::Unchecked::deserialize(deserializer)?;
-    Ok(raw.check())
 }

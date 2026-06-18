@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, safeid::{DO, IDKind, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs}};
+use crate::{check::{DO, TryCheck, TryFromUnchecked}, creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, ids::{CheckedIDs, IDKind, UncheckedIDs}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "I::ID<Ruin> : DO, I::ID<Resource> : DO, I::ID<Tombstone> : DO, ProviderStructure<I> : DO, I::ID<Creep> : DO"))]
@@ -122,7 +122,7 @@ pub mod safe_structure {
     use screeps::{HasPosition, Position, Store, Structure};
     use serde::{Deserialize, Serialize};
 
-    use crate::{domain_traits::{HasStore, Transferable, Withdrawable}, safeid::{DO, GetCheckedID, IDKind, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs}, utils::EasyStructure};
+    use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{CheckedIDs, GetCheckedID, IDKind, UncheckedIDs}, utils::EasyStructure};
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
     #[serde(bound(deserialize = "EasyStructure<I> : DO"))]

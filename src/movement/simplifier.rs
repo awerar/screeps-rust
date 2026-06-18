@@ -4,7 +4,7 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use screeps::{Creep, Direction, HasPosition, Part};
 
-use crate::{movement::{MoveTarget, SpawningID}, safeid::CheckedID, spawn::Body};
+use crate::{movement::{MoveTarget, SpawningID}, ids::CheckedID, spawn::Body};
 
 pub struct RawTrain(pub NonEmpty<(CheckedID<Creep>, MoveTarget)>);
 pub struct RawMoveCreeps {

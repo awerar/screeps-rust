@@ -8,7 +8,7 @@ use serde_json_any_key::any_key_map;
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}, safeid::UncheckedID};
+use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}, ids::UncheckedID};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {

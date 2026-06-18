@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source};
 use thiserror::Error;
 
-use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, safeid::{DumbID, CheckedID}};
+use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, ids::{DumbID, CheckedID}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]

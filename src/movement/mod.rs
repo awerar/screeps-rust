@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, 
 
 use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::{commands::{Command, pop_command}, safeid::{GetCheckedID, CheckedID, TriviallyChecked, deserialize_check}};
+use crate::{check::{TriviallyChecked, deserialize_check}, commands::{Command, pop_command}, ids::{CheckedID, GetCheckedID}};
 
 pub mod requests;
 mod simplifier;

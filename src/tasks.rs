@@ -6,7 +6,7 @@ use screeps::{Creep, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::safeid::{DO, DumbID, IDKind, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedIDs};
+use crate::{check::{DO, TryCheck, TryFromUnchecked}, ids::{CheckedIDs, DumbID, IDKind, UncheckedIDs}};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound(serialize = "D: Serialize", deserialize = "D: DO, DumbID<Creep, I> : DO + Eq + Hash"))]

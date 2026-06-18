@@ -1,8 +1,6 @@
-use std::{collections::HashMap, hash::Hash};
-
 use serde::{Deserialize, Serialize};
 
-use crate::safeid::{TryFromUnchecked, TryCheck};
+use crate::check::{TryCheck, TryFromUnchecked};
 
 /*
 Requirements:

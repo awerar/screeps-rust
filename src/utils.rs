@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Position, Structure, StructureObject};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::safeid::{IDKind, CheckedID, CheckedIDs, TryFromUnchecked, TryCheck, UncheckedID, UncheckedIDs};
+use crate::{check::{TryCheck, TryFromUnchecked}, ids::{CheckedID, CheckedIDs, IDKind, UncheckedID, UncheckedIDs}};
 
 pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
     (-1..=1).cartesian_product(-1..=1)
