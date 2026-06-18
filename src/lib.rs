@@ -1,9 +1,7 @@
 #![feature(variant_count)]
 #![feature(trait_alias)]
 #![feature(int_roundings)]
-#![feature(min_specialization)]
-#![feature(auto_traits)]
-#![feature(negative_impls)]
+#![feature(never_type)]
 
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]

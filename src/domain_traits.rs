@@ -59,6 +59,7 @@ pub trait MaybeHasId: Sized {
 }
 
 pub mod screeps_objects {
+    #[allow(clippy::wildcard_imports)]
     use screeps::{objects::*, ObjectId};
     use super::{HasId, MaybeHasId};
 
@@ -93,4 +94,8 @@ pub mod screeps_objects {
     );
 
     maybe_has_id_entities!(Creep, ConstructionSite);
+}
+
+impl<T: HasId> MaybeHasId for T {
+    fn try_id(&self) -> Option<ObjectId<Self>> { Some(self.id()) }
 }

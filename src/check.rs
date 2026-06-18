@@ -1,12 +1,18 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash};
 
+use itertools::Either;
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 
 pub trait DO = DeserializeOwned;
 
 // ==== Check traits ====
-
-pub trait TriviallyChecked {}
+// This is the main trait
+pub trait TryFromUnchecked: Sized {
+    type Unchecked;
+    type Err;
+    
+    fn try_from_unchecked(uc: Self::Unchecked) -> Result<Self, Self::Err>;
+}
 
 pub trait FromUnchecked {
     type Unchecked;
@@ -14,47 +20,39 @@ pub trait FromUnchecked {
     fn from_unchecked(uc: Self::Unchecked) -> Self;
 }
 
+pub trait TryCheck<T> {
+    type Err;
+    
+    fn try_check(self) -> Result<T, Self::Err>;
+}
+
 pub trait Check<S> {
     fn check(self) -> S;
 }
 
-pub trait TryFromUnchecked: Sized {
-    type Unchecked;
-    
-    fn try_from_unchecked(uc: Self::Unchecked) -> Option<Self>;
-}
-
-pub trait TryCheck<S> {
-    fn try_check(self) -> Option<S>;
-}
-
 // ==== Implied implementations ====
+impl<T: TryFromUnchecked> TryCheck<T> for T::Unchecked {
+    type Err = T::Err;
 
-impl<T: TriviallyChecked> FromUnchecked for T {
-    type Unchecked = Self;
+    fn try_check(self) -> Result<T, T::Err> {
+        T::try_from_unchecked(self)
+    }
+}
+
+impl<T: TryFromUnchecked<Err = !>> FromUnchecked for T {
+    type Unchecked = T::Unchecked;
 
     fn from_unchecked(uc: Self::Unchecked) -> Self {
-        uc
+        match T::try_from_unchecked(uc) {
+            Ok(val) => val,
+        }
     }
 }
+    
 
-impl<S: FromUnchecked> Check<S> for S::Unchecked {
-    fn check(self) -> S {
-        S::from_unchecked(self)
-    }
-}
-
-impl<T: FromUnchecked> TryFromUnchecked for T {
-    type Unchecked = Self;
-
-    fn try_from_unchecked(uc: Self::Unchecked) -> Option<Self> {
-        Some(uc)
-    }
-}
-
-impl<S: TryFromUnchecked> TryCheck<S> for S::Unchecked {
-    fn try_check(self) -> Option<S> {
-        S::try_from_unchecked(self)
+impl<T: FromUnchecked> Check<T> for T::Unchecked {
+    fn check(self) -> T {
+        T::from_unchecked(self)
     }
 }
 
@@ -64,7 +62,7 @@ impl<T: TryFromUnchecked> FromUnchecked for Option<T> {
     type Unchecked = Option<T::Unchecked>;
 
     fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.and_then(TryCheck::try_check)
+        us.and_then(|x| x.try_check().ok())
     }
 }
 
@@ -72,7 +70,7 @@ impl<T: TryFromUnchecked> FromUnchecked for Vec<T> {
     type Unchecked = Vec<T::Unchecked>;
 
     fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.into_iter().filter_map(TryCheck::try_check).collect()
+        us.into_iter().filter_map(|x| x.try_check().ok()).collect()
     }
 }
 
@@ -80,15 +78,16 @@ impl<T: TryFromUnchecked + Eq + Hash> FromUnchecked for HashSet<T> {
     type Unchecked = HashSet<T::Unchecked>;
 
     fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.into_iter().filter_map(TryCheck::try_check).collect()
+        us.into_iter().filter_map(|x| x.try_check().ok()).collect()
     }
 }
 
 impl<K: TryFromUnchecked, V: TryFromUnchecked> TryFromUnchecked for (K, V) {
     type Unchecked = (K::Unchecked, V::Unchecked);
+    type Err = Either<K::Err, V::Err>;
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some((us.0.try_check()?, us.1.try_check()?))
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok((us.0.try_check().map_err(Either::Left)?, us.1.try_check().map_err(Either::Right)?))
     }
 }
 
@@ -96,8 +95,24 @@ impl <K: TryFromUnchecked + Hash + Eq, V: TryFromUnchecked> FromUnchecked for Ha
     type Unchecked = HashMap<K::Unchecked, V::Unchecked>;
 
     fn from_unchecked(us: Self::Unchecked) -> Self {
-        us.into_iter().filter_map(TryCheck::try_check).collect()
+        us.into_iter().filter_map(|x| x.try_check().ok()).collect()
     }
+}
+
+#[macro_export]
+macro_rules! trivially_check {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl $crate::check::TryFromUnchecked for $ty {
+                type Unchecked = Self;
+                type Err = !;
+
+                fn try_from_unchecked(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+                    Ok(uc)
+                }
+            }
+        )*
+    };
 }
 
 pub fn deserialize_check<'de, D, T>(deserializer: D) -> Result<T, D::Error>

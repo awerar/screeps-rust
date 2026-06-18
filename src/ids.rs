@@ -7,6 +7,13 @@ use wasm_bindgen::JsCast;
 
 use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasId, MaybeHasId}};
 
+// TODO: CheckedID currently handles two things:
+// Make sure that entities have an id
+// Make sure that ids have a entity
+// We could split this into two
+// struct CheckedId<T> -- Used by for example creeps to always have an id
+// Something else to deserialize and serialize things with ids
+
 pub trait IDKind {
     type ID<T>: Serialize + Debug + Clone + PartialEq + Eq + PartialOrd + Ord + Hash;
 }
@@ -91,9 +98,10 @@ impl<T: MaybeHasId> TryIntoCheckedID for T {
 
 impl<T: JsCast + screeps::MaybeHasId> TryFromUnchecked for CheckedID<T> {
     type Unchecked = ObjectId<T>;
+    type Err = ();
     
-    fn try_from_unchecked(uc: Self::Unchecked) -> Option<Self> {
-        uc.resolve().map(|entity| CheckedID { id: uc.clone(), inner: Rc::new(entity) })
+    fn try_from_unchecked(uc: Self::Unchecked) -> Result<Self, ()> {
+        uc.resolve().ok_or(()).map(|entity| CheckedID { id: uc, inner: Rc::new(entity) })
     }
 }
 
@@ -128,8 +136,9 @@ impl DumbID<Creep> {
 
 impl<T> TryFromUnchecked for DumbID<T> where ObjectId<T> : TryCheck<CheckedID<T>> {
     type Unchecked = DumbID<T, UncheckedIDs>;
+    type Err = <ObjectId<T> as TryCheck<CheckedID<T>>>::Err;
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(Self(us.0.try_check()?))
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(Self(us.0.try_check()?))
     }
 }

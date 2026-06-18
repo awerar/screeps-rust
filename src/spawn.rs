@@ -268,7 +268,7 @@ fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
 fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule) {
     for colony in mem.colonies.view_all() {
         for (source, source_plan) in &colony.plan.sources {
-            let Some(source) = (*source).try_check() else { continue; };
+            let Ok(source) = (*source).try_check() else { continue; };
 
             let any_excavator_already = schedule.all_creeps()
                 .0.any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source));
@@ -428,7 +428,7 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, tugboat_req
         if buffered_energy == 0 && excavator_count == 0 {
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
             let Some((source, source_plan)) = colony.plan.sources.iter().next() else { continue; };
-            let Some(source) = (*source).try_check() else { continue; };
+            let Ok(source) = (*source).try_check() else { continue; };
 
             spawn.schedule_or_block(CreepPrototype { 
                 body: get_excavator_body(spawn.energy_avaliable.max(300), source_plan), 

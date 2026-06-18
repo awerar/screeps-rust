@@ -46,9 +46,10 @@ pub struct FabricatorTask<I: IDKind = CheckedIDs> {
 
 impl TryFromUnchecked for FabricatorTask {
     type Unchecked = FabricatorTask<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(Self { 
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(Self { 
             task_type: match us.task_type {
                 FabricatorTaskType::Building(id) => 
                     FabricatorTaskType::Building(id.try_check()?),

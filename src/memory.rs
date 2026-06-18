@@ -70,5 +70,5 @@ impl Memory {
 
 fn deserialize_prune_incoming_creeps<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<(String, CreepData)>, D::Error> {
     let raw = Vec::<(String, CreepData<UncheckedIDs>)>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| Some((k, v.try_check()?))).collect())
+    Ok(raw.into_iter().filter_map(|(k, v)| Some((k, v.try_check().ok()?))).collect())
 }

@@ -19,7 +19,7 @@ Minimal set of assumptions:
 
 */
 
-#[derive(Serialize, Deserialize)]
+/*#[derive(Serialize, Deserialize)]
 struct TaskSpecification<Task, Meta> {
     work_required: u32,
     task: Task,
@@ -44,4 +44,4 @@ struct TaskLease<Task> {
     pending: u32,
     last_heartbeat: u32,
     task: Task
-}
+}*/

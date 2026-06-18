@@ -28,9 +28,10 @@ pub struct CreepData<I: IDKind = CheckedIDs> {
 
 impl TryFromUnchecked for CreepData {
     type Unchecked = CreepData<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(Self {
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(Self {
             role: us.role.try_check()?,
             home: us.home
         })
@@ -84,9 +85,10 @@ pub enum CreepRole<I: IDKind = CheckedIDs> {
 
 impl TryFromUnchecked for CreepRole {
     type Unchecked = CreepRole<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(match us {
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(match us {
             Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.try_check()?),
             Self::Unchecked::Flagship(state) => Self::Flagship(state),
             Self::Unchecked::Truck(state) => Self::Truck(state),

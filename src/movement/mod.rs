@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, 
 
 use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::{check::{TriviallyChecked, deserialize_check}, commands::{Command, pop_command}, ids::{CheckedID, IntoCheckedID}};
+use crate::{check::deserialize_check, commands::{Command, pop_command}, ids::{CheckedID, IntoCheckedID}, trivially_check};
 
 pub mod requests;
 mod simplifier;
@@ -35,7 +35,7 @@ struct CachedPath {
     cache_time: u32
 }
 
-impl TriviallyChecked for CachedPath {}
+trivially_check!(CachedPath);
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct MoveTarget {

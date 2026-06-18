@@ -30,9 +30,10 @@ impl<'de> Deserialize<'de> for EasyStructure<UncheckedIDs> {
 
 impl TryFromUnchecked for EasyStructure {
     type Unchecked = EasyStructure<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(EasyStructure::new(us.0.try_check()?))
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(EasyStructure::new(us.0.try_check()?))
     }
 }
 

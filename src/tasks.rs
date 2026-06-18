@@ -24,7 +24,7 @@ impl<'de, D : DO> Deserialize<'de> for TaskData<D> {
 
         let (safe_creeps, unsafe_contributions): (HashMap<_, _>, Vec<_>) = raw.creeps.into_iter()
             .partition_map(|(creep, creep_data)| {
-                if let Some(creep) = creep.try_check() {
+                if let Ok(creep) = creep.try_check() {
                     Either::Left((creep, creep_data))
                 } else {
                     Either::Right(creep_data.contribution)
@@ -81,7 +81,7 @@ where
     D : Any
 {
     let raw = TaskServer::<R::Unchecked, D>::deserialize(deserializer)?;
-    Ok(TaskServer(raw.0.into_iter().filter_map(|(k, v)| Some((k.try_check()?, v))).collect()))
+    Ok(TaskServer(raw.0.into_iter().filter_map(|(k, v)| Some((k.try_check().ok()?, v))).collect()))
 }
 
 impl<R, D> Default for TaskServer<R, D> {

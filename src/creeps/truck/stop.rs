@@ -18,9 +18,10 @@ pub enum ProviderTruckStop<I: IDKind = CheckedIDs> {
 
 impl TryFromUnchecked for ProviderTruckStop {
     type Unchecked = ProviderTruckStop<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(match us {
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(match us {
             Self::Unchecked::Ruin(x) => Self::Ruin(x.try_check()?),
             Self::Unchecked::Resource(x) => Self::Resource(x.try_check()?),
             Self::Unchecked::Tombstone(x) => Self::Tombstone(x.try_check()?),
@@ -78,9 +79,10 @@ pub enum ConsumerTruckStop<I: IDKind = CheckedIDs> {
 
 impl TryFromUnchecked for ConsumerTruckStop {
     type Unchecked = ConsumerTruckStop<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(match us {
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(match us {
             Self::Unchecked::Structure(x) => Self::Structure(x.try_check()?),
             Self::Unchecked::Creep(x) => Self::Creep(x.try_check()?),
         })
@@ -130,9 +132,10 @@ pub mod safe_structure {
 
     impl<T> TryFromUnchecked for SafeStructure<T> {
         type Unchecked = SafeStructure<T, UncheckedIDs>;
+        type Err = ();
     
-        fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-            Some(SafeStructure(us.0.try_check()?, PhantomData))
+        fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+            Ok(SafeStructure(us.0.try_check()?, PhantomData))
         }
     }
 

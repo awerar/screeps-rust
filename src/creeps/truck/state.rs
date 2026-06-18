@@ -37,9 +37,10 @@ pub enum TruckTask<I: IDKind = CheckedIDs> {
 
 impl TryFromUnchecked for TruckTask {
     type Unchecked = TruckTask<UncheckedIDs>;
+    type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(match us {
+    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(match us {
             Self::Unchecked::CollectingFrom(x) => Self::CollectingFrom(x.try_check()?),
             Self::Unchecked::ProvidingTo(x) => Self::ProvidingTo(x.try_check()?),
         })
