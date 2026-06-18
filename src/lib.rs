@@ -37,6 +37,7 @@ mod tasks;
 mod safeid;
 mod movement;
 mod domain_traits;
+mod new_tasks;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

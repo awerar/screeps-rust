@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, 
 
 use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::{commands::{Command, pop_command}, safeid::{GetSafeID, SafeID, deserialize_prune_hashmap_keys}};
+use crate::{commands::{Command, pop_command}, safeid::{GetSafeID, SafeID, TriviallySafe, deserialize_from_unsafe}};
 
 pub mod requests;
 mod simplifier;
@@ -24,7 +24,7 @@ fn has_selected(creep: &SafeID<Creep>) -> bool {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
-    #[serde(deserialize_with = "deserialize_prune_hashmap_keys")]
+    #[serde(deserialize_with = "deserialize_from_unsafe")]
     paths: HashMap<SafeID<Creep>, CachedPath>
 }
 
@@ -34,6 +34,8 @@ struct CachedPath {
     target: MoveTarget,
     cache_time: u32
 }
+
+impl TriviallySafe for CachedPath {}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct MoveTarget {

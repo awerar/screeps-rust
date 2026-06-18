@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, MakeSafe, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_prune_hashmap}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, memory::Memory, movement::requests::MovementRequests, safeid::{DO, GetSafeID, IDKind, SafeID, SafeIDs, TryFromUnsafe, TryMakeSafe, UnsafeIDs, deserialize_from_unsafe}, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -15,7 +15,7 @@ pub mod virtual_creep;
 
 #[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
 pub struct Creeps(
-    #[serde(deserialize_with = "deserialize_prune_hashmap")]
+    #[serde(deserialize_with = "deserialize_from_unsafe")]
     pub HashMap<SafeID<Creep>, CreepData>
 );
 
@@ -87,7 +87,7 @@ impl TryFromUnsafe for CreepRole {
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
         Some(match us {
-            Self::Unsafe::Excavator(state, source) => Self::Excavator(state.make_safe(), source.try_make_safe()?),
+            Self::Unsafe::Excavator(state, source) => Self::Excavator(state, source.try_make_safe()?),
             Self::Unsafe::Flagship(state) => Self::Flagship(state),
             Self::Unsafe::Truck(state) => Self::Truck(state),
             Self::Unsafe::Fabricator(state) => Self::Fabricator(state),

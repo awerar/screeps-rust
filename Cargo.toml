@@ -41,6 +41,7 @@ rand = "0.8"
 getrandom = { version = "0.2", features = ["custom"] }
 derive-where = "1.6.1"
 thiserror = "2.0.18"
+marker_trait = "2.0.1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

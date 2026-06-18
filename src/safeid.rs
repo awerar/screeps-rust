@@ -5,6 +5,8 @@ use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, SharedCreepP
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 
+// TODO: Rename to checked / unchecked
+
 pub trait DO = DeserializeOwned;
 
 pub trait IDKind {
@@ -146,6 +148,8 @@ impl TryGetSafeID for Creep {
     }
 }
 
+pub trait TriviallySafe {}
+
 pub trait FromUnsafe {
     type Unsafe;
 
@@ -158,11 +162,19 @@ pub trait TryFromUnsafe: Sized {
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self>;
 }
 
-impl<A: TryFromUnsafe, B: TryFromUnsafe> TryFromUnsafe for (A, B) {
-    type Unsafe = (A::Unsafe, B::Unsafe);
+impl<T: TriviallySafe> FromUnsafe for T {
+    type Unsafe = Self;
+
+    fn from_unsafe(us: Self::Unsafe) -> Self {
+        us
+    }
+}
+
+impl<T: FromUnsafe> TryFromUnsafe for T {
+    type Unsafe = Self;
 
     fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
-        Some((us.0.try_make_safe()?, us.1.try_make_safe()?))
+        Some(us)
     }
 }
 
@@ -174,11 +186,43 @@ impl<T: JsCast + MaybeHasId + TryGetSafeID> TryFromUnsafe for SafeID<T> {
     }
 }
 
-impl<'de, S: Deserialize<'de>> FromUnsafe for S {
-    type Unsafe = S;
+impl<T: TryFromUnsafe> FromUnsafe for Option<T> {
+    type Unsafe = Option<T::Unsafe>;
 
     fn from_unsafe(us: Self::Unsafe) -> Self {
-        us
+        us.and_then(TryMakeSafe::try_make_safe)
+    }
+}
+
+impl<T: TryFromUnsafe> FromUnsafe for Vec<T> {
+    type Unsafe = Vec<T::Unsafe>;
+
+    fn from_unsafe(us: Self::Unsafe) -> Self {
+        us.into_iter().filter_map(TryMakeSafe::try_make_safe).collect()
+    }
+}
+
+impl<T: TryFromUnsafe + Eq + Hash> FromUnsafe for HashSet<T> {
+    type Unsafe = HashSet<T::Unsafe>;
+
+    fn from_unsafe(us: Self::Unsafe) -> Self {
+        us.into_iter().filter_map(TryMakeSafe::try_make_safe).collect()
+    }
+}
+
+impl<K: TryFromUnsafe, V: TryFromUnsafe> TryFromUnsafe for (K, V) {
+    type Unsafe = (K::Unsafe, V::Unsafe);
+
+    fn try_from_unsafe(us: Self::Unsafe) -> Option<Self> {
+        Some((us.0.try_make_safe()?, us.1.try_make_safe()?))
+    }
+}
+
+impl <K: TryFromUnsafe + Hash + Eq, V: TryFromUnsafe> FromUnsafe for HashMap<K, V> {
+    type Unsafe = HashMap<K::Unsafe, V::Unsafe>;
+
+    fn from_unsafe(us: Self::Unsafe) -> Self {
+        us.into_iter().filter_map(TryMakeSafe::try_make_safe).collect()
     }
 }
 
@@ -239,36 +283,12 @@ impl<T> TryFromUnsafe for DumbID<T> where UnsafeID<T> : TryMakeSafe<SafeID<T>> {
     }
 }
 
-#[expect(unused)]
-pub fn deserialize_prune_hashset<'de, D, T>(deserializer: D) -> Result<HashSet<T>, D::Error>
+pub fn deserialize_from_unsafe<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D : Deserializer<'de>,
-    T: TryFromUnsafe + Hash + Eq,
+    T: FromUnsafe,
     T::Unsafe : Deserialize<'de>
 {
-    let raw = Vec::<T::Unsafe>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|u| T::try_from_unsafe(u)).collect())
-}
-
-pub fn deserialize_prune_hashmap_keys<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error> 
-where
-    D : Deserializer<'de>,
-    K: TryFromUnsafe + Eq + Hash,
-    K::Unsafe : Deserialize<'de> + Eq + Hash,
-    V: Deserialize<'de>
-{
-    let raw = HashMap::<K::Unsafe, V>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| K::try_from_unsafe(k).map(|k| (k, v))).collect())
-}
-
-pub fn deserialize_prune_hashmap<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
-where
-    D : Deserializer<'de>,
-    K: TryFromUnsafe + Eq + Hash,
-    K::Unsafe: Deserialize<'de> + Eq + Hash,
-    V: TryFromUnsafe,
-    V::Unsafe: Deserialize<'de>,
-{
-    let raw = HashMap::<K::Unsafe, V::Unsafe>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| K::try_from_unsafe(k).zip(V::try_from_unsafe(v))).collect())
+    let raw = T::Unsafe::deserialize(deserializer)?;
+    Ok(raw.make_safe())
 }
