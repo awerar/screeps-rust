@@ -1,4 +1,4 @@
-use screeps::ResourceType;
+use screeps::{ObjectId, ResourceType};
 
 pub trait HasStore {
     fn store(&self) -> screeps::Store;
@@ -48,4 +48,49 @@ pub trait Withdrawable: HasStoreExt {
 
 impl<T: screeps::Withdrawable + screeps::HasStore> Withdrawable for T {
     fn withdrawable(&self) -> &dyn screeps::Withdrawable { self }
+}
+
+pub trait HasId: Sized {
+    fn id(&self) -> ObjectId<Self>;
+}
+
+pub trait MaybeHasId: Sized {
+    fn try_id(&self) -> Option<ObjectId<Self>>;
+}
+
+pub mod screeps_objects {
+    use screeps::{objects::*, ObjectId};
+    use super::{HasId, MaybeHasId};
+
+    macro_rules! has_id_entities {
+        ($($ty:ty),* $(,)?) => {
+            $(
+                impl HasId for $ty {
+                    fn id(&self) -> ObjectId<Self> { screeps::HasId::id(&self) }
+                }
+            )*
+        };
+    }
+
+    macro_rules! maybe_has_id_entities {
+        ($($ty:ty),* $(,)?) => {
+            $(
+                impl MaybeHasId for $ty {
+                    fn try_id(&self) -> Option<ObjectId<Self>> { screeps::MaybeHasId::try_id(&self) }
+                }
+            )*
+        };
+    }
+
+    has_id_entities!(
+        Deposit, Mineral, Nuke, PowerCreep, Resource, Ruin, Source, Structure,
+        StructureContainer, StructureController, StructureExtension, 
+        StructureExtractor, StructureFactory, StructureLab, StructureLink, 
+        StructureObserver, StructurePowerBank, StructurePowerSpawn, 
+        StructurePortal, StructureRampart, StructureRoad, StructureSpawn, 
+        StructureStorage, StructureTerminal, StructureTower, 
+        StructureWall, Tombstone
+    );
+
+    maybe_has_id_entities!(Creep, ConstructionSite);
 }

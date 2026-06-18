@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{CheckedID, CheckedIDs, DumbID, GetCheckedID, IDKind, TryGetCheckedID, UncheckedIDs}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{check::{DO, TryCheck, TryFromUnchecked}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, IntoCheckedID, TryIntoCheckedID, UncheckedIDs}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -209,7 +209,7 @@ impl FabricatorCoordinator {
             .filter_map(|structure| {
                 let repairable = structure.as_repairable()?;
                 Some((
-                    structure.as_structure().check_id(), 
+                    structure.as_structure().clone().into_checked(), 
                     repairable.hits_max() - repairable.hits(),
                     (structure.pos(), 
                     HealthPercentage(repairable.hits() as f32 / repairable.hits_max() as f32))
@@ -220,7 +220,7 @@ impl FabricatorCoordinator {
         self.builds.set_tasks(room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
             .map(|site| {
                 (
-                    site.try_check_id().unwrap(),
+                    site.clone().try_into_checked().unwrap(),
                     site.progress_total() - site.progress(),
                     site.pos()
                 )
@@ -246,7 +246,7 @@ impl FabricatorCoordinator {
         });
 
         self.upgrades.set_tasks(vec![(
-            controller.check_id(), 
+            controller.into_checked(), 
             u32::MAX,
             (DowngradePercentage(downgrade_percentage),
             storage_fill_percentage.map(StorageFillPercentage))

@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::TryCheck, ids::{CheckedID, CheckedIDs, GetCheckedID, IDKind, UncheckedIDs}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{check::TryCheck, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<I: IDKind = CheckedIDs> {
@@ -42,7 +42,7 @@ impl FlagshipCreep {
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name()
                     && let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Continue(Claiming(*target, controller.check_id())))
+                        return Ok(Continue(Claiming(*target, controller.into_checked())))
                     }
 
                 let _ = movement.move_creep_to(creep, *target, 0);

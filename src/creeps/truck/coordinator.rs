@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{DumbID, GetCheckedID, CheckedID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckedID, DumbID, IntoCheckedID}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -34,9 +34,9 @@ impl TruckCoordinator {
     }
 
     fn update_providers(&mut self, plan: &ColonyPlan, room: &Room, provider_creeps: Vec<CheckedID<Creep>>) {
-        let dropped_resources = room.find(find::DROPPED_RESOURCES, None).into_iter().map(|x| x.check_id()).map(ProviderTruckStop::Resource);
-        let tombstones = room.find(find::TOMBSTONES, None).into_iter().map(|x| x.check_id()).map(ProviderTruckStop::Tombstone);
-        let ruins = room.find(find::RUINS, None).into_iter().map(|x| x.check_id()).map(ProviderTruckStop::Ruin);
+        let dropped_resources = room.find(find::DROPPED_RESOURCES, None).into_iter().map(IntoCheckedID::into_checked).map(ProviderTruckStop::Resource);
+        let tombstones = room.find(find::TOMBSTONES, None).into_iter().map(IntoCheckedID::into_checked).map(ProviderTruckStop::Tombstone);
+        let ruins = room.find(find::RUINS, None).into_iter().map(IntoCheckedID::into_checked).map(ProviderTruckStop::Ruin);
 
         let creep_providers = provider_creeps.into_iter().map(ProviderTruckStop::Creep);
         let center_link = plan.center.link.resolve().map(ProviderStructure::new).map(ProviderTruckStop::Structure);

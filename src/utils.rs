@@ -2,10 +2,10 @@ use std::ops::Deref;
 
 use derive_where::derive_where;
 use itertools::Itertools;
-use screeps::{Position, Structure, StructureObject};
+use screeps::{ObjectId, Position, Structure, StructureObject};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{check::{TryCheck, TryFromUnchecked}, ids::{CheckedID, CheckedIDs, IDKind, UncheckedID, UncheckedIDs}};
+use crate::{check::{TryCheck, TryFromUnchecked}, ids::{CheckedID, CheckedIDs, IDKind, UncheckedIDs}};
 
 pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
     (-1..=1).cartesian_product(-1..=1)
@@ -24,7 +24,7 @@ impl<I: IDKind> Serialize for EasyStructure<I> {
 
 impl<'de> Deserialize<'de> for EasyStructure<UncheckedIDs> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Self(UncheckedID::<Structure>::deserialize(deserializer)?, None))
+        Ok(Self(ObjectId::<Structure>::deserialize(deserializer)?, None))
     }
 }
 

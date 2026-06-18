@@ -1,12 +1,11 @@
 use std::{fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
 
 use derive_where::derive_where;
-use screeps::{ConstructionSite, Creep, HasId, MaybeHasId, ObjectId, SharedCreepProperties, game};
-use serde::{Deserialize, Serialize};
+use screeps::{Creep, ObjectId, SharedCreepProperties, game};
+use serde::{Deserialize, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
-use crate::check::{DO, TryCheck, TryFromUnchecked};
-
+use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasId, MaybeHasId}};
 
 pub trait IDKind {
     type ID<T>: Serialize + Debug + Clone + PartialEq + Eq + PartialOrd + Ord + Hash;
@@ -24,27 +23,27 @@ impl IDKind for UncheckedIDs {
     type ID<T> = ObjectId<T>;
 }
 
-pub type UncheckedID<T> = ObjectId<T>;
+#[derive_where(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct CheckedID<T> {
     pub id: ObjectId<T>,
-    inner: Rc<T>
+    #[derive_where(skip)] inner: Rc<T>
+}
+
+impl<T: HasId> CheckedID<T> {
+    pub fn new(entity: T) -> Self {
+        CheckedID { id: entity.id(), inner: Rc::new(entity) }
+    }
+}
+
+impl<T: MaybeHasId> CheckedID<T> {
+    pub fn try_new(entity: T) -> Option<Self> {
+        Some(CheckedID { id: entity.try_id()?, inner: Rc::new(entity) })
+    }
 }
 
 impl<T> AsRef<T> for CheckedID<T> {
     fn as_ref(&self) -> &T {
         &self.inner
-    }
-}
-
-impl<T> Debug for CheckedID<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)
-    }
-}
-
-impl<T> Clone for CheckedID<T> {
-    fn clone(&self) -> Self {
-        Self { id: self.id, inner: self.inner.clone() }
     }
 }
 
@@ -57,34 +56,8 @@ impl<T> Deref for CheckedID<T> {
 }
 
 impl<T> Serialize for CheckedID<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: serde::Serializer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.id.serialize(serializer)
-    }
-}
-
-impl<T> Eq for CheckedID<T> {}
-impl<T> PartialEq for CheckedID<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl<T> Hash for CheckedID<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
-    }
-}
-
-impl<T> Ord for CheckedID<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
-impl<T> PartialOrd for CheckedID<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -102,56 +75,25 @@ impl CheckedID<Creep> {
     }
 }
 
-pub trait ToCheckedID<T> { fn check_id(self) -> Option<CheckedID<T>>; }
-impl<T: JsCast + MaybeHasId> ToCheckedID<T> for ObjectId<T> {
-    fn check_id(self) -> Option<CheckedID<T>> {
-        self.resolve().map(|entity| CheckedID { id: self, inner: Rc::new(entity) })
+pub trait IntoCheckedID: Sized { fn into_checked(self) -> CheckedID<Self>;}
+impl<T: HasId> IntoCheckedID for T {
+    fn into_checked(self) -> CheckedID<Self> {
+        CheckedID::new(self)
     }
 }
 
-auto trait HasIDEntity {}
-impl !HasIDEntity for Creep {}
-impl !HasIDEntity for ConstructionSite {}
-
-pub trait GetCheckedID: Sized { 
-    fn check_id(&self) -> CheckedID<Self>;
-    #[expect(unused)] fn dumb_id(&self) -> DumbID<Self>;
-}
-
-impl<T: Clone + HasId + HasIDEntity> GetCheckedID for T {
-    default fn check_id(&self) -> CheckedID<Self> {
-        CheckedID { id: self.id(), inner: Rc::new(self.clone()) }
-    }
-    
-    fn dumb_id(&self) -> DumbID<Self> {
-        DumbID::new(self.check_id())
+pub trait TryIntoCheckedID: Sized { fn try_into_checked(self) -> Option<CheckedID<Self>>;}
+impl<T: MaybeHasId> TryIntoCheckedID for T {
+    fn try_into_checked(self) -> Option<CheckedID<Self>> {
+        CheckedID::try_new(self)
     }
 }
 
-pub trait TryGetCheckedID: Sized { fn try_check_id(&self) -> Option<CheckedID<Self>>; }
-impl<T: GetCheckedID> TryGetCheckedID for T {
-    fn try_check_id(&self) -> Option<CheckedID<Self>> {
-        Some(self.check_id())
-    }
-}
-
-impl TryGetCheckedID for ConstructionSite {
-    fn try_check_id(&self) -> Option<CheckedID<Self>> {
-        self.try_id().map(|id| CheckedID { id, inner: Rc::new(self.clone()) })
-    }
-}
-
-impl TryGetCheckedID for Creep {
-    fn try_check_id(&self) -> Option<CheckedID<Self>> {
-        self.try_id().map(|id| CheckedID { id, inner: Rc::new(self.clone()) })
-    }
-}
-
-impl<T: JsCast + MaybeHasId + TryGetCheckedID> TryFromUnchecked for CheckedID<T> {
+impl<T: JsCast + screeps::MaybeHasId> TryFromUnchecked for CheckedID<T> {
     type Unchecked = ObjectId<T>;
-
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        us.resolve()?.try_check_id()
+    
+    fn try_from_unchecked(uc: Self::Unchecked) -> Option<Self> {
+        uc.resolve().map(|entity| CheckedID { id: uc.clone(), inner: Rc::new(entity) })
     }
 }
 
@@ -184,7 +126,7 @@ impl DumbID<Creep> {
     }
 }
 
-impl<T> TryFromUnchecked for DumbID<T> where UncheckedID<T> : TryCheck<CheckedID<T>> {
+impl<T> TryFromUnchecked for DumbID<T> where ObjectId<T> : TryCheck<CheckedID<T>> {
     type Unchecked = DumbID<T, UncheckedIDs>;
 
     fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {

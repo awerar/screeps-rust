@@ -6,7 +6,7 @@ use log::warn;
 use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, HasPosition, Position, RoomName, RoomTerrain, StructureType, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult, SearchOptions}};
 use wasm_bindgen::JsValue;
 
-use crate::{movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, ids::{CheckedID, TryGetCheckedID}, utils::adjacent_positions};
+use crate::{ids::CheckedID, movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, utils::adjacent_positions};
 
 #[derive(Debug)]
 pub enum CreepAction {
@@ -284,7 +284,7 @@ impl<'m> MovementSolver<'m> {
             };
 
         assert!(my_creeps.len() <= 1);
-        let Some(other) = my_creeps.first().and_then(TryGetCheckedID::try_check_id) else { 
+        let Some(other) = my_creeps.first().cloned().and_then(CheckedID::try_new) else { 
             return Some((3, terrain_prio)) 
         };
 

@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use log::warn;
 use itertools::Itertools;
-use screeps::{HasPosition, OwnedStructureProperties, Position, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find, look};
+use screeps::{HasPosition, ObjectId, OwnedStructureProperties, Position, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}, ids::UncheckedID};
+use crate::{colony::{planning::planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep}};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ColonyPlan {
@@ -36,7 +36,7 @@ pub struct CenterPlan {
     pub extensions: PlannedStructureRefs<StructureExtension>
 }
 
-pub type SourcesPlan = HashMap<UncheckedID<Source>, SourcePlan>;
+pub type SourcesPlan = HashMap<ObjectId<Source>, SourcePlan>;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourcePlan {

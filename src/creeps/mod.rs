@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked, deserialize_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{CheckedID, CheckedIDs, GetCheckedID, IDKind, UncheckedIDs}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{check::{DO, TryCheck, TryFromUnchecked, deserialize_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -62,9 +62,9 @@ impl CreepData {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(ExcavatorCreep::default(), source.check_id()) 
+                CreepRole::Excavator(ExcavatorCreep::default(), source.into_checked()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).check_id())
+            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).into_checked())
         };
         
         Some(CreepData::new(home.name, role))

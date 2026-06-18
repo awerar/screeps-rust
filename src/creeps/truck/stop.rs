@@ -122,7 +122,7 @@ pub mod safe_structure {
     use screeps::{HasPosition, Position, Store, Structure};
     use serde::{Deserialize, Serialize};
 
-    use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{CheckedIDs, GetCheckedID, IDKind, UncheckedIDs}, utils::EasyStructure};
+    use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, utils::EasyStructure};
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
     #[serde(bound(deserialize = "EasyStructure<I> : DO"))]
@@ -153,7 +153,7 @@ pub mod safe_structure {
     pub trait ConsumerStructureReqs = Into<Structure> + HasStore + Transferable;
     impl ConsumerStructure {
         pub fn new<S: ConsumerStructureReqs>(structure: S) -> Self {
-            Self(EasyStructure::new(structure.into().check_id()), PhantomData)
+            Self(EasyStructure::new(structure.into().into_checked()), PhantomData)
         }
     }
 
@@ -164,7 +164,7 @@ pub mod safe_structure {
     pub trait ProviderStructureReqs = Into<Structure> + HasStore + Withdrawable;
     impl ProviderStructure {
         pub fn new<S: ProviderStructureReqs>(structure: S) -> Self {
-            Self(EasyStructure::new(structure.into().check_id()), PhantomData)
+            Self(EasyStructure::new(structure.into().into_checked()), PhantomData)
         }
     }
 
