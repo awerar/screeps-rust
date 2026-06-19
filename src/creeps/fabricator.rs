@@ -5,7 +5,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, IntoCheckedID, TryIntoCheckedID, UncheckedIDs}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{check::{DO, Check, CheckFrom}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, IntoCheckedID, TryIntoCheckedID, UncheckedIDs}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
@@ -21,9 +21,9 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
         Ok(match us {
             FabricatorCreep::Idle => Self::Idle,
             FabricatorCreep::CollectingFor(task) => 
-                task.try_check().map_or(FabricatorCreep::Idle, FabricatorCreep::CollectingFor),
+                task.check().map_or(FabricatorCreep::Idle, FabricatorCreep::CollectingFor),
             FabricatorCreep::Performing(task) => 
-                task.try_check().map_or(FabricatorCreep::Idle, FabricatorCreep::Performing),
+                task.check().map_or(FabricatorCreep::Idle, FabricatorCreep::Performing),
         })
     }
 }
@@ -44,19 +44,19 @@ pub struct FabricatorTask<I: IDKind = CheckedIDs> {
     pos: Position
 }
 
-impl TryFromUnchecked for FabricatorTask {
+impl CheckFrom for FabricatorTask {
     type Unchecked = FabricatorTask<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
         Ok(Self { 
             task_type: match us.task_type {
                 FabricatorTaskType::Building(id) => 
-                    FabricatorTaskType::Building(id.try_check()?),
+                    FabricatorTaskType::Building(id.check()?),
                 FabricatorTaskType::Repairing(id) => 
-                    FabricatorTaskType::Repairing(id.try_check()?),
+                    FabricatorTaskType::Repairing(id.check()?),
                 FabricatorTaskType::UpgradingController(id) => 
-                    FabricatorTaskType::UpgradingController(id.try_check()?),
+                    FabricatorTaskType::UpgradingController(id.check()?),
             }, 
             start_time: us.start_time, 
             pos: us.pos 

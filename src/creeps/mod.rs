@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked, deserialize_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{check::{DO, Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -15,7 +15,7 @@ pub mod virtual_creep;
 
 #[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
 pub struct Creeps(
-    #[serde(deserialize_with = "deserialize_check")]
+    #[serde(deserialize_with = "deserialize_filter_check")]
     pub HashMap<CheckedID<Creep>, CreepData>
 );
 
@@ -26,13 +26,13 @@ pub struct CreepData<I: IDKind = CheckedIDs> {
     pub home: RoomName
 }
 
-impl TryFromUnchecked for CreepData {
+impl CheckFrom for CreepData {
     type Unchecked = CreepData<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
         Ok(Self {
-            role: us.role.try_check()?,
+            role: us.role.check()?,
             home: us.home
         })
     }
@@ -83,18 +83,18 @@ pub enum CreepRole<I: IDKind = CheckedIDs> {
     Scrap(I::ID<StructureSpawn>),
 }
 
-impl TryFromUnchecked for CreepRole {
+impl CheckFrom for CreepRole {
     type Unchecked = CreepRole<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
         Ok(match us {
-            Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.try_check()?),
+            Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.check()?),
             Self::Unchecked::Flagship(state) => Self::Flagship(state),
             Self::Unchecked::Truck(state) => Self::Truck(state),
             Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
-            Self::Unchecked::Tugboat(tugged, spawn) => Self::Tugboat(tugged.try_check()?, spawn.try_check()?),
-            Self::Unchecked::Scrap(state) => Self::Scrap(state.try_check()?),
+            Self::Unchecked::Tugboat(tugged, spawn) => Self::Tugboat(tugged.check()?, spawn.check()?),
+            Self::Unchecked::Scrap(state) => Self::Scrap(state.check()?),
         })
     }
 }

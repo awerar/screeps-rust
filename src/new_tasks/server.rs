@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::check::{TryCheck, TryFromUnchecked};
+use crate::check::{Check, CheckFrom};
 
 /*
 Requirements:

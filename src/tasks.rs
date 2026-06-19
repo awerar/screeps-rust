@@ -6,7 +6,7 @@ use screeps::{Creep, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked}, ids::{CheckedIDs, DumbID, IDKind, UncheckedIDs}};
+use crate::{check::{DO, Check, CheckFrom}, ids::{CheckedIDs, DumbID, IDKind, UncheckedIDs}};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound(serialize = "D: Serialize", deserialize = "D: DO, DumbID<Creep, I> : DO + Eq + Hash"))]
@@ -24,7 +24,7 @@ impl<'de, D : DO> Deserialize<'de> for TaskData<D> {
 
         let (safe_creeps, unsafe_contributions): (HashMap<_, _>, Vec<_>) = raw.creeps.into_iter()
             .partition_map(|(creep, creep_data)| {
-                if let Ok(creep) = creep.try_check() {
+                if let Ok(creep) = creep.check() {
                     Either::Left((creep, creep_data))
                 } else {
                     Either::Right(creep_data.contribution)
@@ -75,13 +75,13 @@ pub struct TaskServer<R, D, const TIMEOUT: u32 = 5>(
 pub fn prune_deserialize_taskserver<'de, R, D, De>(deserializer: De) -> Result<TaskServer<R, D>, De::Error>
 where
     De: Deserializer<'de>,
-    R: TryFromUnchecked + Eq + Hash,
+    R: CheckFrom + Eq + Hash,
     R::Unchecked: DeserializeOwned + Eq + Hash + Any,
     TaskData<D> : DeserializeOwned,
     D : Any
 {
     let raw = TaskServer::<R::Unchecked, D>::deserialize(deserializer)?;
-    Ok(TaskServer(raw.0.into_iter().filter_map(|(k, v)| Some((k.try_check().ok()?, v))).collect()))
+    Ok(TaskServer(raw.0.into_iter().filter_map(|(k, v)| Some((k.check().ok()?, v))).collect()))
 }
 
 impl<R, D> Default for TaskServer<R, D> {

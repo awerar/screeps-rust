@@ -6,7 +6,7 @@ use screeps::{Position, RoomName};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{callbacks::Callbacks, check::TryCheck, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, ids::UncheckedIDs, movement::MovementMemory};
+use crate::{callbacks::Callbacks, check::Check, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, ids::UncheckedIDs, movement::MovementMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -70,5 +70,5 @@ impl Memory {
 
 fn deserialize_prune_incoming_creeps<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<(String, CreepData)>, D::Error> {
     let raw = Vec::<(String, CreepData<UncheckedIDs>)>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| Some((k, v.try_check().ok()?))).collect())
+    Ok(raw.into_iter().filter_map(|(k, v)| Some((k, v.check().ok()?))).collect())
 }

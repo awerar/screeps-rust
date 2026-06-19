@@ -3,7 +3,7 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::TryCheck, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{check::Check, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep<I: IDKind = CheckedIDs> {
@@ -20,7 +20,7 @@ impl<'de> Deserialize<'de> for FlagshipCreep {
             FlagshipCreep::Idle => Self::Idle,
             FlagshipCreep::GoingTo(pos) => Self::GoingTo(pos),
             FlagshipCreep::Claiming(pos, controller) => 
-                controller.try_check().map(|controller| Self::Claiming(pos, controller))
+                controller.check().map(|controller| Self::Claiming(pos, controller))
                     .unwrap_or(Self::GoingTo(pos)),
         })
     }

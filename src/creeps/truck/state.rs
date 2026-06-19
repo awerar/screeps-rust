@@ -3,7 +3,7 @@ use screeps::{Creep, HasPosition, Position, ResourceType};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{break_dererable, break_move, check::{DO, TryCheck, TryFromUnchecked}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, UncheckedIDs}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
+use crate::{break_dererable, break_move, check::{DO, Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, UncheckedIDs}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
 #[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
@@ -20,10 +20,10 @@ impl<'de> Deserialize<'de> for TruckCreep {
         Ok(match us {
             TruckCreep::Idle => Self::Idle,
             TruckCreep::Performing(x) => 
-                x.try_check().map_or(Self::Idle, Self::Performing),
+                x.check().map_or(Self::Idle, Self::Performing),
             TruckCreep::StoringAway => Self::StoringAway,
             TruckCreep::FillingUpFor(x) => 
-                x.try_check().map_or(Self::Idle, Self::FillingUpFor),
+                x.check().map_or(Self::Idle, Self::FillingUpFor),
         })
     }
 }
@@ -35,14 +35,14 @@ pub enum TruckTask<I: IDKind = CheckedIDs> {
     ProvidingTo(ConsumerTruckStop<I>)
 }
 
-impl TryFromUnchecked for TruckTask {
+impl CheckFrom for TruckTask {
     type Unchecked = TruckTask<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
         Ok(match us {
-            Self::Unchecked::CollectingFrom(x) => Self::CollectingFrom(x.try_check()?),
-            Self::Unchecked::ProvidingTo(x) => Self::ProvidingTo(x.try_check()?),
+            Self::Unchecked::CollectingFrom(x) => Self::CollectingFrom(x.check()?),
+            Self::Unchecked::ProvidingTo(x) => Self::ProvidingTo(x.check()?),
         })
     }
 }

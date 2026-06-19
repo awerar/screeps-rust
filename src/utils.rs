@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{ObjectId, Position, Structure, StructureObject};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{check::{TryCheck, TryFromUnchecked}, ids::{CheckedID, CheckedIDs, IDKind, UncheckedIDs}};
+use crate::{check::{Check, CheckFrom}, ids::{CheckedID, CheckedIDs, IDKind, UncheckedIDs}};
 
 pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
     (-1..=1).cartesian_product(-1..=1)
@@ -28,12 +28,12 @@ impl<'de> Deserialize<'de> for EasyStructure<UncheckedIDs> {
     }
 }
 
-impl TryFromUnchecked for EasyStructure {
+impl CheckFrom for EasyStructure {
     type Unchecked = EasyStructure<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
-        Ok(EasyStructure::new(us.0.try_check()?))
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+        Ok(EasyStructure::new(us.0.check()?))
     }
 }
 

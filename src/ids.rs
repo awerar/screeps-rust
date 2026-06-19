@@ -5,7 +5,7 @@ use screeps::{Creep, ObjectId, SharedCreepProperties, game};
 use serde::{Deserialize, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasId, MaybeHasId}};
+use crate::{check::{DO, Check, CheckFrom}, domain_traits::{HasId, MaybeHasId}};
 
 // TODO: CheckedID currently handles two things:
 // Make sure that entities have an id
@@ -96,11 +96,11 @@ impl<T: MaybeHasId> TryIntoCheckedID for T {
     }
 }
 
-impl<T: JsCast + screeps::MaybeHasId> TryFromUnchecked for CheckedID<T> {
+impl<T: JsCast + screeps::MaybeHasId> CheckFrom for CheckedID<T> {
     type Unchecked = ObjectId<T>;
     type Err = ();
     
-    fn try_from_unchecked(uc: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(uc: Self::Unchecked) -> Result<Self, ()> {
         uc.resolve().ok_or(()).map(|entity| CheckedID { id: uc, inner: Rc::new(entity) })
     }
 }
@@ -134,11 +134,11 @@ impl DumbID<Creep> {
     }
 }
 
-impl<T> TryFromUnchecked for DumbID<T> where ObjectId<T> : TryCheck<CheckedID<T>> {
+impl<T> CheckFrom for DumbID<T> where ObjectId<T> : Check<CheckedID<T>> {
     type Unchecked = DumbID<T, UncheckedIDs>;
-    type Err = <ObjectId<T> as TryCheck<CheckedID<T>>>::Err;
+    type Err = <ObjectId<T> as Check<CheckedID<T>>>::Err;
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(Self(us.0.try_check()?))
+    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(Self(us.0.check()?))
     }
 }

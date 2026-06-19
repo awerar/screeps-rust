@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{DO, TryCheck, TryFromUnchecked}, creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, ids::{CheckedIDs, IDKind, UncheckedIDs}};
+use crate::{check::{DO, Check, CheckFrom}, creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, ids::{CheckedIDs, IDKind, UncheckedIDs}};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(bound(deserialize = "I::ID<Ruin> : DO, I::ID<Resource> : DO, I::ID<Tombstone> : DO, ProviderStructure<I> : DO, I::ID<Creep> : DO"))]
@@ -16,17 +16,17 @@ pub enum ProviderTruckStop<I: IDKind = CheckedIDs> {
     Creep(I::ID<Creep>)
 }
 
-impl TryFromUnchecked for ProviderTruckStop {
+impl CheckFrom for ProviderTruckStop {
     type Unchecked = ProviderTruckStop<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
         Ok(match us {
-            Self::Unchecked::Ruin(x) => Self::Ruin(x.try_check()?),
-            Self::Unchecked::Resource(x) => Self::Resource(x.try_check()?),
-            Self::Unchecked::Tombstone(x) => Self::Tombstone(x.try_check()?),
-            Self::Unchecked::Structure(x) => Self::Structure(x.try_check()?),
-            Self::Unchecked::Creep(x) => Self::Creep(x.try_check()?),
+            Self::Unchecked::Ruin(x) => Self::Ruin(x.check()?),
+            Self::Unchecked::Resource(x) => Self::Resource(x.check()?),
+            Self::Unchecked::Tombstone(x) => Self::Tombstone(x.check()?),
+            Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
+            Self::Unchecked::Creep(x) => Self::Creep(x.check()?),
         })
     }
 }
@@ -77,14 +77,14 @@ pub enum ConsumerTruckStop<I: IDKind = CheckedIDs> {
     Creep(I::ID<Creep>)
 }
 
-impl TryFromUnchecked for ConsumerTruckStop {
+impl CheckFrom for ConsumerTruckStop {
     type Unchecked = ConsumerTruckStop<UncheckedIDs>;
     type Err = ();
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
         Ok(match us {
-            Self::Unchecked::Structure(x) => Self::Structure(x.try_check()?),
-            Self::Unchecked::Creep(x) => Self::Creep(x.try_check()?),
+            Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
+            Self::Unchecked::Creep(x) => Self::Creep(x.check()?),
         })
     }
 }
@@ -124,18 +124,18 @@ pub mod safe_structure {
     use screeps::{HasPosition, Position, Store, Structure};
     use serde::{Deserialize, Serialize};
 
-    use crate::{check::{DO, TryCheck, TryFromUnchecked}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, utils::EasyStructure};
+    use crate::{check::{DO, Check, CheckFrom}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, utils::EasyStructure};
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
     #[serde(bound(deserialize = "EasyStructure<I> : DO"))]
     pub struct SafeStructure<T, I: IDKind = CheckedIDs>(EasyStructure<I>, PhantomData<T>);
 
-    impl<T> TryFromUnchecked for SafeStructure<T> {
+    impl<T> CheckFrom for SafeStructure<T> {
         type Unchecked = SafeStructure<T, UncheckedIDs>;
         type Err = ();
     
-        fn try_from_unchecked(us: Self::Unchecked) -> Result<Self, ()> {
-            Ok(SafeStructure(us.0.try_check()?, PhantomData))
+        fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+            Ok(SafeStructure(us.0.check()?, PhantomData))
         }
     }
 
