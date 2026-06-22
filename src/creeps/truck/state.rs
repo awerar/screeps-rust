@@ -1,13 +1,14 @@
+use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{Creep, HasPosition, Position, ResourceType};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{break_dererable, break_move, check::{DO, Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, UncheckedIDs}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
+use crate::{break_dererable, break_move, check::{Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{WithId, Checked, Handle, CheckState, Unchecked}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
-#[serde(bound(deserialize = "TruckTask<I> : DO, ConsumerTruckStop<I> : DO"))]
-pub enum TruckCreep<I: IDKind = CheckedIDs> {
+#[derive(Debug, Default, EnumDisplay)]
+#[derive_where(Serialize, Deserialize, Clone; TruckTask<I>, ConsumerTruckStop<I>)]
+pub enum TruckCreep<I: CheckState = Checked> {
     #[default] Idle,
     Performing(TruckTask<I>),
     StoringAway,
@@ -16,7 +17,7 @@ pub enum TruckCreep<I: IDKind = CheckedIDs> {
 
 impl<'de> Deserialize<'de> for TruckCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let us = TruckCreep::<UncheckedIDs>::deserialize(deserializer)?;
+        let us = TruckCreep::<Unchecked>::deserialize(deserializer)?;
         Ok(match us {
             TruckCreep::Idle => Self::Idle,
             TruckCreep::Performing(x) => 
@@ -28,15 +29,15 @@ impl<'de> Deserialize<'de> for TruckCreep {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "ProviderTruckStop<I> : DO, ConsumerTruckStop<I> : DO"))]
-pub enum TruckTask<I: IDKind = CheckedIDs> {
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; ProviderTruckStop<I>, ConsumerTruckStop<I>)]
+pub enum TruckTask<I: CheckState = Checked> {
     CollectingFrom(ProviderTruckStop<I>),
     ProvidingTo(ConsumerTruckStop<I>)
 }
 
 impl CheckFrom for TruckTask {
-    type Unchecked = TruckTask<UncheckedIDs>;
+    type Unchecked = TruckTask<Unchecked>;
     type Err = ();
 
     fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
@@ -56,14 +57,14 @@ impl TruckCreep {
         }
     }
 
-    pub fn update(mut self, creep: &CheckedID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
+    pub fn update(mut self, creep: &WithId<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
         self = self.validate_task(&creep.dumb_id(), coordinator);
 
         let mut virtual_creep = VirtualCreep::new(creep.clone());
         update_many(self, |state| state.execute_and_finish_task_on_err(&mut virtual_creep, home, movement, coordinator))
     }
 
-    fn validate_task(self, creep: &DumbID<Creep>, coordinator: &mut TruckCoordinator) -> Self {
+    fn validate_task(self, creep: &Handle<WithId<Creep>>, coordinator: &mut TruckCoordinator) -> Self {
         let Some(task) = self.task() else { return self; };
 
         if !coordinator.heartbeat(creep, &task) { return Self::Idle }
@@ -72,12 +73,12 @@ impl TruckCreep {
         self
     }
 
-    fn fail(creep: &DumbID<Creep>, task: &TruckTask, coordinator: &mut TruckCoordinator) -> Self {
+    fn fail(creep: &Handle<WithId<Creep>>, task: &TruckTask, coordinator: &mut TruckCoordinator) -> Self {
         coordinator.finish(creep, task, false);
         Self::Idle
     }
 
-    fn succeed(creep: &DumbID<Creep>, task: &TruckTask, coordinator: &mut TruckCoordinator) -> Self {
+    fn succeed(creep: &Handle<WithId<Creep>>, task: &TruckTask, coordinator: &mut TruckCoordinator) -> Self {
         coordinator.finish(creep, task, true);
         Self::Idle
     }

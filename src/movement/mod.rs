@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, 
 
 use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::{check::{TriviallyChecked, deserialize_filter_check}, commands::{Command, pop_command}, ids::{CheckedID, IntoCheckedID}};
+use crate::{check::{TriviallyChecked, deserialize_filter_check}, commands::{Command, pop_command}, ids::{ById, IntoWithId, WithId}};
 
 pub mod requests;
 mod simplifier;
@@ -12,20 +12,20 @@ thread_local! {
     static SELECTED: RefCell<HashSet<ObjectId<Creep>>> = RefCell::new(HashSet::new());
 }
 
-fn has_selected(creep: &CheckedID<Creep>) -> bool {
+fn has_selected(creep: &WithId<Creep>) -> bool {
     SELECTED.with_borrow_mut(|selected| {
         if pop_command(Command::VisualizeMovement { creep: creep.name() }) {
-            selected.insert(creep.id);
+            selected.insert(creep.id());
         }
 
-        selected.contains(&creep.id)
+        selected.contains(&creep.id())
     })
 }
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
     #[serde(deserialize_with = "deserialize_filter_check")]
-    paths: HashMap<CheckedID<Creep>, CachedPath>
+    paths: HashMap<WithId<Creep>, CachedPath>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -50,7 +50,7 @@ impl MoveTarget {
 }
 
 struct SpawningID {
-    spawn: CheckedID<StructureSpawn>,
+    spawn: ById<StructureSpawn>,
     spawning: Spawning
 }
 

@@ -1,15 +1,16 @@
 use anyhow::anyhow;
 use derive_deref::Deref;
+use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType, Room, SharedCreepProperties, Structure, StructureController, StructureObject, controller_downgrade, find, game};
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{check::{DO, Check, CheckFrom}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{CheckedID, CheckedIDs, DumbID, IDKind, IntoCheckedID, TryIntoCheckedID, UncheckedIDs}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{WithId, Checked, Handle, CheckState, IntoWithId, Unchecked}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, EnumDisplay)]
-#[serde(bound(deserialize = "FabricatorTask<I> : DO, FabricatorTask<I> : DO"))]
-pub enum FabricatorCreep<I: IDKind = CheckedIDs> {
+#[derive(Debug, Default, EnumDisplay)]
+#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<I>)]
+pub enum FabricatorCreep<I: CheckState = Checked> {
     #[default] Idle,
     CollectingFor(FabricatorTask<I>),
     Performing(FabricatorTask<I>)
@@ -17,7 +18,7 @@ pub enum FabricatorCreep<I: IDKind = CheckedIDs> {
 
 impl<'de> Deserialize<'de> for FabricatorCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let us = FabricatorCreep::<UncheckedIDs>::deserialize(deserializer)?;
+        let us = FabricatorCreep::<Unchecked>::deserialize(deserializer)?;
         Ok(match us {
             FabricatorCreep::Idle => Self::Idle,
             FabricatorCreep::CollectingFor(task) => 
@@ -28,24 +29,24 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "BuildTask<I> : DO, RepairTask<I> : DO, UpgradeTask<I> : DO"))]
-pub enum FabricatorTaskType<I: IDKind = CheckedIDs> {
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; BuildTask<I>, RepairTask<I>, UpgradeTask<I>)]
+pub enum FabricatorTaskType<I: CheckState = Checked> {
     Building(BuildTask<I>),
     Repairing(RepairTask<I>),
     UpgradingController(UpgradeTask<I>)
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "FabricatorTaskType<I> : DO"))]
-pub struct FabricatorTask<I: IDKind = CheckedIDs> {
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; FabricatorTaskType<I>)]
+pub struct FabricatorTask<I: CheckState = Checked> {
     task_type: FabricatorTaskType<I>,
     start_time: u32,
     pos: Position
 }
 
 impl CheckFrom for FabricatorTask {
-    type Unchecked = FabricatorTask<UncheckedIDs>;
+    type Unchecked = FabricatorTask<Unchecked>;
     type Err = ();
 
     fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
@@ -72,9 +73,9 @@ derive_percentage! { struct HealthPercentage(f32); }
 derive_percentage! { struct DowngradePercentage(f32); }
 derive_percentage! { struct StorageFillPercentage(f32); }
 
-type BuildTask<I = CheckedIDs> = <I as IDKind>::ID<ConstructionSite>;
-type RepairTask<I = CheckedIDs> = <I as IDKind>::ID<Structure>;
-type UpgradeTask<I = CheckedIDs> = <I as IDKind>::ID<StructureController>;
+type BuildTask<I = Checked> = <I as CheckState>::Repr<WithId<ConstructionSite>>;
+type RepairTask<I = Checked> = <I as CheckState>::Repr<Structure>;
+type UpgradeTask<I = Checked> = <I as CheckState>::Repr<StructureController>;
 
 const REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.75);
 const EMERGENCY_REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.5);
@@ -88,7 +89,7 @@ impl FabricatorCreep {
     pub fn is_consumer(&self) -> bool { matches!(self, Self::CollectingFor(_) | Self::Performing(_)) }
     pub fn is_provider(&self) -> bool { matches!(self, Self::Idle) }
 
-    pub fn update(self, creep: &CheckedID<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &WithId<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 
         match self {
@@ -135,7 +136,7 @@ impl FabricatorCreep {
     }
 
     #[expect(clippy::unnecessary_wraps)]
-    fn fail_task(creep: &CheckedID<Creep>, task: &FabricatorTask, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
+    fn fail_task(creep: &WithId<Creep>, task: &FabricatorTask, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
         coordinator.finish_task(&creep.dumb_id(), task, false);
         Ok(Transition::Continue(FabricatorCreep::Idle))
     }
@@ -221,7 +222,7 @@ impl FabricatorCoordinator {
         self.builds.set_tasks(room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
             .map(|site| {
                 (
-                    site.clone().try_into_checked().unwrap(),
+                    site.clone().with_id().unwrap(),
                     site.progress_total() - site.progress(),
                     site.pos()
                 )
@@ -254,7 +255,7 @@ impl FabricatorCoordinator {
         )]);
     }
 
-    fn assign_task(&mut self, creep: &CheckedID<Creep>) -> Option<FabricatorTask> {
+    fn assign_task(&mut self, creep: &WithId<Creep>) -> Option<FabricatorTask> {
         self.assign_emergency_upgrade(creep).map(FabricatorTaskType::UpgradingController)
             .or_else(|| self.assign_repair(creep).map(FabricatorTaskType::Repairing))
             .or_else(|| self.assign_build(creep).map(FabricatorTaskType::Building))
@@ -262,7 +263,7 @@ impl FabricatorCoordinator {
             .map(FabricatorTask::new)
     }
 
-    fn assign_repair(&mut self, creep: &CheckedID<Creep>) -> Option<RepairTask> {
+    fn assign_repair(&mut self, creep: &WithId<Creep>) -> Option<RepairTask> {
         let contribution = get_creep_work_count(creep) * 100;
         self.repairs.assign_task(creep.dumb_id(), contribution, |tasks| {
             let emergency_repair = tasks.clone().into_iter()
@@ -276,7 +277,7 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn assign_build(&mut self, creep: &CheckedID<Creep>) -> Option<BuildTask> {
+    fn assign_build(&mut self, creep: &WithId<Creep>) -> Option<BuildTask> {
         let contribution = get_creep_work_count(creep) * 5;
         self.builds.assign_task(creep.dumb_id(), contribution, |tasks| {
             tasks.into_iter()
@@ -284,7 +285,7 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn assign_emergency_upgrade(&mut self, creep: &CheckedID<Creep>) -> Option<UpgradeTask> {
+    fn assign_emergency_upgrade(&mut self, creep: &WithId<Creep>) -> Option<UpgradeTask> {
         let contribution = get_creep_work_count(creep) * 2;
         self.upgrades.assign_task(creep.dumb_id(), contribution, |tasks| {
             tasks.into_iter()
@@ -292,7 +293,7 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn assign_upgrade(&mut self, creep: &CheckedID<Creep>) -> Option<UpgradeTask> {
+    fn assign_upgrade(&mut self, creep: &WithId<Creep>) -> Option<UpgradeTask> {
         let contribution = get_creep_work_count(creep) * 2;
         self.upgrades.assign_task(creep.dumb_id(), contribution, |tasks| {
             tasks.into_iter()
@@ -301,7 +302,7 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn heartbeat_task(&mut self, creep: &DumbID<Creep>, task: &FabricatorTask) -> bool {
+    fn heartbeat_task(&mut self, creep: &Handle<WithId<Creep>>, task: &FabricatorTask) -> bool {
         match &task.task_type {
             FabricatorTaskType::Building(build) => 
                 self.builds.heartbeat_task(creep, build),
@@ -312,7 +313,7 @@ impl FabricatorCoordinator {
         }
     }
 
-    fn finish_task(&mut self, creep: &DumbID<Creep>, task: &FabricatorTask, success: bool) {
+    fn finish_task(&mut self, creep: &Handle<WithId<Creep>>, task: &FabricatorTask, success: bool) {
         match &task.task_type {
             FabricatorTaskType::Building(build) => 
                 self.builds.finish_task(creep, build, success),

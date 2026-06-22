@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{ObjectId, Position, Structure, StructureObject};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{check::{Check, CheckFrom}, ids::{CheckedID, CheckedIDs, IDKind, UncheckedIDs}};
+use crate::{check::{Check, CheckFrom}, ids::{ById, CheckState, Checked, Unchecked}};
 
 pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
     (-1..=1).cartesian_product(-1..=1)
@@ -13,23 +13,23 @@ pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
         .map(move |offset| pos + offset)
 }
 
-#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
-pub struct EasyStructure<I: IDKind = CheckedIDs>(I::ID<Structure>, #[derive_where(skip)] Option<StructureObject>);
+#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone; I::Repr<Structure>)]
+pub struct EasyStructure<I: CheckState = Checked>(I::Repr<Structure>, #[derive_where(skip)] Option<StructureObject>);
 
-impl<I: IDKind> Serialize for EasyStructure<I> {
+impl<I: CheckState> Serialize for EasyStructure<I> where I::Repr::<Structure> : Serialize {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        I::ID::<Structure>::serialize(&self.0, serializer)
+        I::Repr::<Structure>::serialize(&self.0, serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for EasyStructure<UncheckedIDs> {
+impl<'de> Deserialize<'de> for EasyStructure<Unchecked> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Self(ObjectId::<Structure>::deserialize(deserializer)?, None))
     }
 }
 
 impl CheckFrom for EasyStructure {
-    type Unchecked = EasyStructure<UncheckedIDs>;
+    type Unchecked = EasyStructure<Unchecked>;
     type Err = ();
 
     fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
@@ -38,9 +38,9 @@ impl CheckFrom for EasyStructure {
 }
 
 impl EasyStructure {
-    pub fn new(structure: CheckedID<Structure>) -> Self {
-        let structure_object = StructureObject::from(structure.as_ref().clone());
-        Self(structure, Some(structure_object))
+    pub fn new(structure: Structure) -> Self {
+        let structure_object = StructureObject::from(structure.clone());
+        Self(ById(structure), Some(structure_object))
     }
 
     pub fn structure_object(&self) -> &StructureObject {

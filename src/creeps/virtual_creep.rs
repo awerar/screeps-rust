@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source};
 use thiserror::Error;
 
-use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, ids::{DumbID, CheckedID}};
+use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, ids::{Handle, WithId}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -111,7 +111,7 @@ During this tick we will only remove up to [total_resources] resources and only 
 */
 
 pub struct VirtualCreep {
-    creep: CheckedID<Creep>,
+    creep: WithId<Creep>,
 
     free_capacity: u32, // Free capacity left this tick
     total_resources: u32, // Used capacity left this tick
@@ -126,7 +126,7 @@ pub struct VirtualCreep {
 }
 
 impl VirtualCreep {
-    pub fn new(creep: CheckedID<Creep>) -> Self {
+    pub fn new(creep: WithId<Creep>) -> Self {
         VirtualCreep { 
             free_capacity: creep.free_capacity(None),
             total_resources: creep.used_capacity(None),
@@ -139,8 +139,8 @@ impl VirtualCreep {
         }
     }
 
-    pub fn id(&self) -> DumbID<Creep> {
-        DumbID::new(self.creep.clone())
+    pub fn id(&self) -> Handle<WithId<Creep>> {
+        Handle::new(self.creep.clone())
     }
 
     pub fn pos(&self) -> Position {
@@ -314,7 +314,7 @@ impl VirtualCreep {
     }
 
     // Transfer from other creep into this creep
-    pub fn transfer_from(&mut self, target: &CheckedID<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn transfer_from(&mut self, target: &WithId<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
         let amount = amount.unwrap_or(self.free_capacity).min(target.used_capacity(Some(ty)));
         self.add_resource(ty, amount)?;
         target.transfer(&*self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;

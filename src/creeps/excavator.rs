@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn, Transferable};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, ids::CheckedID, statemachine::Transition};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, ids::WithId, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -55,7 +55,7 @@ impl EnergyDestination {
         !matches!(self, Self::ConstructionSite(_))
     }
 
-    fn recieve(&self, creep: &CheckedID<Creep>) {
+    fn recieve(&self, creep: &WithId<Creep>) {
         match self {
             EnergyDestination::ConstructionSite(site) => 
                 creep.build(site).ok(),
@@ -68,7 +68,7 @@ impl EnergyDestination {
     }
 }
 
-fn work_count(creep: &CheckedID<Creep>) -> u32 {
+fn work_count(creep: &WithId<Creep>) -> u32 {
     creep.body().iter().filter(|bodypart| bodypart.part() == Part::Work).count() as u32
 }
 
@@ -84,7 +84,7 @@ fn work_count(creep: &CheckedID<Creep>) -> u32 {
 */
 
 impl ExcavatorCreep {
-    pub fn update(self, creep: &CheckedID<Creep>, source: &CheckedID<Source>, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &WithId<Creep>, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
 

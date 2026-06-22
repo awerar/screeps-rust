@@ -1,60 +1,103 @@
-use std::{fmt::Debug, hash::Hash, ops::Deref, rc::Rc};
+use std::{fmt::Debug, hash::Hash, ops::Deref};
 
+use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
-use screeps::{Creep, ObjectId, SharedCreepProperties, game};
+use screeps::{Creep, ObjectId, game, SharedCreepProperties};
 use serde::{Deserialize, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
-use crate::{check::{DO, Check, CheckFrom}, domain_traits::{HasId, MaybeHasId}};
+use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, IdReqs, MaybeHasId}};
 
-// TODO: CheckedID currently handles two things:
-// Make sure that entities have an id
-// Make sure that ids have a entity
-// We could split this into two
-// struct CheckedId<T> -- Used by for example creeps to always have an id
-// Something else to deserialize and serialize things with ids
-
-pub trait IDKind {
-    type ID<T>: Serialize + Debug + Clone + PartialEq + Eq + PartialOrd + Ord + Hash;
+pub trait CheckState {
+    type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct CheckedIDs {}
-impl IDKind for CheckedIDs {
-    type ID<T> = CheckedID<T>;
+pub struct Checked {}
+impl CheckState for Checked {
+    type Repr<T: HasId> = ById<T>;
 }
 
 #[derive(Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct UncheckedIDs {}
-impl IDKind for UncheckedIDs {
-    type ID<T> = ObjectId<T>;
+pub struct Unchecked {}
+impl CheckState for Unchecked {
+    type Repr<T: HasId> = T::Id;
 }
 
-#[derive_where(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct CheckedID<T> {
-    pub id: ObjectId<T>,
-    #[derive_where(skip)] inner: Rc<T>
-}
+#[derive(Deref, DerefMut)]
+pub struct ById<T: HasId>(pub T);
 
-impl<T: HasId> CheckedID<T> {
-    pub fn new(entity: T) -> Self {
-        CheckedID { id: entity.id(), inner: Rc::new(entity) }
+impl<T: HasId> Serialize for ById<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.id().serialize(serializer)
     }
 }
 
-impl<T: MaybeHasId> CheckedID<T> {
-    pub fn try_new(entity: T) -> Option<Self> {
-        Some(CheckedID { id: entity.try_id()?, inner: Rc::new(entity) })
+impl<T: HasId + Clone> Clone for ById<T> {
+    fn clone(&self) -> Self {
+        ById(self.0.clone())
     }
 }
 
-impl<T> AsRef<T> for CheckedID<T> {
+impl<T: HasId> Hash for ById<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.id().hash(state);
+    }
+}
+
+impl<T: HasId> Eq for ById<T> {}
+impl<T: HasId> PartialEq for ById<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id() == other.0.id()
+    }
+}
+
+impl<T: HasId> PartialOrd for ById<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: HasId> Ord for ById<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id().cmp(&other.id())
+    }
+}
+
+impl<T: HasId> Debug for ById<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id().fmt(f)
+    }
+}
+
+#[derive_where(Clone; Id: Clone, T: Clone)]
+#[derive_where(Debug, PartialEq, Eq, Hash, Ord, PartialOrd; Id)]
+pub struct WithId<T, Id = ObjectId<T>> {
+    id: Id,
+    #[derive_where(skip)] inner: T
+}
+
+impl<T, Id: IdReqs> HasId for WithId<T, Id> {
+    type Id = Id;
+
+    fn id(&self) -> Self::Id {
+        self.id.clone()
+    }
+}
+
+impl<T: MaybeHasId> WithId<T, T::Id> {
+    pub fn new(entity: T) -> Option<Self> {
+        Some(WithId { id: entity.try_id()?, inner: entity })
+    }
+}
+
+impl<T, Id> AsRef<T> for WithId<T, Id> {
     fn as_ref(&self) -> &T {
         &self.inner
     }
 }
 
-impl<T> Deref for CheckedID<T> {
+impl<T, Id> Deref for WithId<T, Id> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -62,83 +105,64 @@ impl<T> Deref for CheckedID<T> {
     }
 }
 
-impl<T> Serialize for CheckedID<T> {
+impl<T, Id: Serialize> Serialize for WithId<T, Id> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.id.serialize(serializer)
     }
 }
 
-impl CheckedID<Creep> {
-    pub fn from_name(name: String) -> Option<CheckedID<Creep>> {
-        Self::from_creep(game::creeps().get(name)?)
-    }
-
-    pub fn from_creep(creep: Creep) -> Option<CheckedID<Creep>> {
-        Some(CheckedID { id: creep.try_id()?, inner: Rc::new(creep) })
-    }
-
-    pub fn creeps() -> impl Iterator<Item = CheckedID<Creep>> {
-        game::creeps().values().filter_map(Self::from_creep)
+impl WithId<Creep> {
+    pub fn creeps() -> impl Iterator<Item = WithId<Creep>> {
+        game::creeps().values().filter_map(Self::new)
     }
 }
 
-pub trait IntoCheckedID: Sized { fn into_checked(self) -> CheckedID<Self>;}
-impl<T: HasId> IntoCheckedID for T {
-    fn into_checked(self) -> CheckedID<Self> {
-        CheckedID::new(self)
+pub trait IntoWithId<O>: Sized { fn with_id(self) -> Option<WithId<Self, O>>;}
+impl<T: MaybeHasId> IntoWithId<T::Id> for T {
+    fn with_id(self) -> Option<WithId<Self, T::Id>> {
+        WithId::new(self)
     }
 }
 
-pub trait TryIntoCheckedID: Sized { fn try_into_checked(self) -> Option<CheckedID<Self>>;}
-impl<T: MaybeHasId> TryIntoCheckedID for T {
-    fn try_into_checked(self) -> Option<CheckedID<Self>> {
-        CheckedID::try_new(self)
-    }
-}
-
-impl<T: JsCast + screeps::MaybeHasId> CheckFrom for CheckedID<T> {
+impl<T: JsCast + screeps::MaybeHasId> CheckFrom for WithId<T> {
     type Unchecked = ObjectId<T>;
     type Err = ();
     
     fn check_from(uc: Self::Unchecked) -> Result<Self, ()> {
-        uc.resolve().ok_or(()).map(|entity| CheckedID { id: uc, inner: Rc::new(entity) })
+        uc.resolve().ok_or(()).map(|entity| WithId { id: uc, inner: entity })
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
-#[serde(bound(deserialize = "I::ID<T> : DO", serialize = ""))]
-pub struct DumbID<T, I : IDKind = CheckedIDs>(I::ID<T>);
+#[derive_where(Serialize, Deserialize; S::Repr<T>)]
+#[derive_where(Clone; S::Repr<T>)]
+#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[serde(transparent)]
+pub struct Handle<T: HasId, S: CheckState = Checked>(S::Repr<T>);
 
-impl<T> From<CheckedID<T>> for DumbID<T> {
-    fn from(id: CheckedID<T>) -> Self {
-        DumbID::new(id)
+impl<T: HasId> Handle<T> {
+    pub fn new(x: T) -> Self {
+        Self(ById(x))
     }
 }
 
-impl<T> CheckedID<T> {
-    pub fn dumb_id(&self) -> DumbID<T> {
-        self.clone().into()
+pub trait IntoHandle: HasId { fn handle(x: Self) -> Handle<Self>; }
+impl<T: HasId> IntoHandle for T {
+    fn handle(x: Self) -> Handle<Self> {
+        Handle::new(x)
     }
 }
 
-impl<T> DumbID<T> {
-    pub fn new(id: CheckedID<T>) -> Self {
-        Self(id)
-    }
-}
-
-impl DumbID<Creep> {
+impl Handle<WithId<Creep>> {
     pub fn name(&self) -> String {
         self.0.name()
     }
 }
 
-impl<T> CheckFrom for DumbID<T> where ObjectId<T> : Check<CheckedID<T>> {
-    type Unchecked = DumbID<T, UncheckedIDs>;
-    type Err = <ObjectId<T> as Check<CheckedID<T>>>::Err;
+impl<T: HasId> CheckFrom for Handle<T> where T::Id : Check<T> {
+    type Unchecked = Handle<T, Unchecked>;
+    type Err = <T::Id as Check<T>>::Err;
 
     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(Self(us.0.check()?))
+        Ok(Self::new(us.0.check()?))
     }
 }

@@ -1,26 +1,27 @@
 use std::{any::Any, collections::{HashMap, HashSet, hash_map}, fmt::Debug, hash::Hash};
 
+use derive_where::derive_where;
 use itertools::{Either, Itertools};
 use log::warn;
 use screeps::{Creep, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{DO, Check, CheckFrom}, ids::{CheckedIDs, DumbID, IDKind, UncheckedIDs}};
+use crate::{check::{Check, CheckFrom}, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(bound(serialize = "D: Serialize", deserialize = "D: DO, DumbID<Creep, I> : DO + Eq + Hash"))]
-struct TaskData<D, I : IDKind = CheckedIDs> {
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize; Handle<WithId<Creep>, I>, D)]
+struct TaskData<D, I : CheckState = Checked> {
     target: TaskAmount,
     pending: TaskAmount,
     data: D,
 
-    creeps: HashMap<DumbID<Creep, I>, CreepData>
+    creeps: HashMap<Handle<WithId<Creep>, I>, CreepData>
 }
 
-impl<'de, D : DO> Deserialize<'de> for TaskData<D> {
+impl<'de, D : DeserializeOwned> Deserialize<'de> for TaskData<D> {
     fn deserialize<De: Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
-        let raw = TaskData::<D, UncheckedIDs>::deserialize(deserializer)?;
+        let raw = TaskData::<D, Unchecked>::deserialize(deserializer)?;
 
         let (safe_creeps, unsafe_contributions): (HashMap<_, _>, Vec<_>) = raw.creeps.into_iter()
             .partition_map(|(creep, creep_data)| {
@@ -65,7 +66,7 @@ pub type TaskAmount = u32;
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound(serialize = "R: Serialize + Any, TaskData<D> : Serialize"))]
-#[serde(bound(deserialize = "R: DO + Eq + Hash + Any, TaskData<D> : DO, D : Any"))]
+#[serde(bound(deserialize = "R: DeserializeOwned + Eq + Hash + Any, TaskData<D> : DeserializeOwned, D : Any"))]
 pub struct TaskServer<R, D, const TIMEOUT: u32 = 5>(
     #[serde(with = "any_key_map")] 
     HashMap<R, TaskData<D>>
@@ -107,21 +108,21 @@ impl<T : Hash + Eq + Clone, D, const TIMEOUT: u32> TaskServer<T, D, TIMEOUT> {
         }
     }
 
-    pub fn start_task(&mut self, creep: DumbID<Creep>, task: &T, contribution: TaskAmount) -> bool {
+    pub fn start_task(&mut self, creep: Handle<WithId<Creep>>, task: &T, contribution: TaskAmount) -> bool {
         let Some(task_data) = self.0.get_mut(task) else { return false };
         task_data.creeps.insert(creep, CreepData { contribution, last_heartbeat: game::time() });
         task_data.pending += contribution;
         true
     }
 
-    pub fn heartbeat_task(&mut self, creep: &DumbID<Creep>, task: &T) -> bool {
+    pub fn heartbeat_task(&mut self, creep: &Handle<WithId<Creep>>, task: &T) -> bool {
         let Some(task_data) = self.0.get_mut(task) else { return false };
         let Some(creep) = task_data.creeps.get_mut(creep) else { return false };
         creep.last_heartbeat = game::time();
         true
     }
 
-    pub fn finish_task(&mut self, creep: &DumbID<Creep>, task: &T, success: bool) {
+    pub fn finish_task(&mut self, creep: &Handle<WithId<Creep>>, task: &T, success: bool) {
         let Some(task_data) = self.0.get_mut(task) else { return };
         let Some(creep_data) = task_data.creeps.remove(creep) else { return };
 
@@ -134,7 +135,7 @@ impl<T : Hash + Eq + Clone, D, const TIMEOUT: u32> TaskServer<T, D, TIMEOUT> {
         self.0.remove(task);
     }
 
-    pub fn assign_task<F>(&mut self, creep: DumbID<Creep>, contribution: TaskAmount, picker: F) -> Option<T>
+    pub fn assign_task<F>(&mut self, creep: Handle<WithId<Creep>>, contribution: TaskAmount, picker: F) -> Option<T>
         where for<'a> F : FnOnce(Vec<(&'a T, TaskAmount, &'a D)>) -> Option<(&'a T, TaskAmount, &'a D)>
     {
         let task = { picker(self.get_avaliable_tasks().collect())?.0.clone() };

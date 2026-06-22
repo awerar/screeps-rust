@@ -1,8 +1,6 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash};
 
-use serde::{Deserialize, Deserializer, de::DeserializeOwned};
-
-pub trait DO = DeserializeOwned;
+use serde::{Deserialize, Deserializer};
 
 // ==== Check traits ====
 pub trait TriviallyChecked {}

@@ -1,11 +1,12 @@
 use std::{collections::HashMap, fmt::Debug, mem};
 
 use derive_deref::{Deref, DerefMut};
+use derive_where::derive_where;
 use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{check::{DO, Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{WithId, Checked, CheckState, IntoWithId, Unchecked}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -16,18 +17,18 @@ pub mod virtual_creep;
 #[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
 pub struct Creeps(
     #[serde(deserialize_with = "deserialize_filter_check")]
-    pub HashMap<CheckedID<Creep>, CreepData>
+    pub HashMap<WithId<Creep>, CreepData>
 );
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(bound(deserialize="CreepRole<I> : DeserializeOwned"))]
-pub struct CreepData<I: IDKind = CheckedIDs> {
+pub struct CreepData<I: CheckState = Checked> {
     pub role: CreepRole<I>,
     pub home: RoomName
 }
 
 impl CheckFrom for CreepData {
-    type Unchecked = CreepData<UncheckedIDs>;
+    type Unchecked = CreepData<Unchecked>;
     type Err = ();
 
     fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
@@ -72,19 +73,19 @@ impl CreepData {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(bound(deserialize = "I::ID<Source> : DO, I::ID<Creep> : DO, I::ID<StructureSpawn> : DO"))]
-pub enum CreepRole<I: IDKind = CheckedIDs> {
-    Excavator(ExcavatorCreep, I::ID<Source>),
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; I::Repr<Source>, I::Repr<WithId<Creep>>, I::Repr<StructureSpawn>)]
+pub enum CreepRole<I: CheckState = Checked> {
+    Excavator(ExcavatorCreep, I::Repr<Source>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
     Fabricator(FabricatorCreep),
-    Tugboat(I::ID<Creep>, I::ID<StructureSpawn>),
-    Scrap(I::ID<StructureSpawn>),
+    Tugboat(I::Repr<WithId<Creep>>, I::Repr<StructureSpawn>),
+    Scrap(I::Repr<StructureSpawn>),
 }
 
 impl CheckFrom for CreepRole {
-    type Unchecked = CreepRole<UncheckedIDs>;
+    type Unchecked = CreepRole<Unchecked>;
     type Err = ();
 
     fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
@@ -112,7 +113,7 @@ impl CreepRole {
     }
 }
 
-fn do_recycle(creep: &CheckedID<Creep>, movement: &mut MovementRequests, spawn: &CheckedID<StructureSpawn>) {
+fn do_recycle(creep: &WithId<Creep>, movement: &mut MovementRequests, spawn: &StructureSpawn) {
     if movement.move_creep_to(creep, spawn.pos(), 1).in_range() {
         spawn.recycle_creep(creep).ok();
     }
@@ -121,7 +122,7 @@ fn do_recycle(creep: &CheckedID<Creep>, movement: &mut MovementRequests, spawn: 
 pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
     use CreepRole::*;
 
-    let update_creeps: Vec<_> = CheckedID::creeps()
+    let update_creeps: Vec<_> = WithId::creeps()
         .filter(|creep| !creep.spawning())
         .filter(|creep| {
             if !mem.creeps.contains_key(creep) {

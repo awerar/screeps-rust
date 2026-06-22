@@ -1,4 +1,7 @@
-use screeps::{ObjectId, ResourceType};
+use std::{fmt::Debug, hash::Hash};
+
+use screeps::ResourceType;
+use serde::{Serialize, de::DeserializeOwned};
 
 pub trait HasStore {
     fn store(&self) -> screeps::Store;
@@ -50,12 +53,18 @@ impl<T: screeps::Withdrawable + screeps::HasStore> Withdrawable for T {
     fn withdrawable(&self) -> &dyn screeps::Withdrawable { self }
 }
 
+pub trait IdReqs = DeserializeOwned + Serialize + Hash + Eq + Ord + Clone + Copy + Debug;
+
 pub trait HasId: Sized {
-    fn id(&self) -> ObjectId<Self>;
+    type Id: IdReqs;
+
+    fn id(&self) -> Self::Id;
 }
 
 pub trait MaybeHasId: Sized {
-    fn try_id(&self) -> Option<ObjectId<Self>>;
+    type Id: IdReqs;
+
+    fn try_id(&self) -> Option<Self::Id>;
 }
 
 pub mod screeps_objects {
@@ -67,7 +76,17 @@ pub mod screeps_objects {
         ($($ty:ty),* $(,)?) => {
             $(
                 impl HasId for $ty {
-                    fn id(&self) -> ObjectId<Self> { screeps::HasId::id(&self) }
+                    type Id = ObjectId<Self>;
+                    fn id(&self) -> Self::Id { screeps::HasId::id(&self) }
+                }
+
+                impl $crate::check::CheckFrom for $ty {
+                    type Unchecked = ObjectId<$ty>;
+                    type Err = ();
+
+                    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
+                        us.resolve().ok_or(())
+                    }
                 }
             )*
         };
@@ -77,7 +96,8 @@ pub mod screeps_objects {
         ($($ty:ty),* $(,)?) => {
             $(
                 impl MaybeHasId for $ty {
-                    fn try_id(&self) -> Option<ObjectId<Self>> { screeps::MaybeHasId::try_id(&self) }
+                    type Id = ObjectId<Self>;
+                    fn try_id(&self) -> Option<Self::Id> { screeps::MaybeHasId::try_id(&self) }
                 }
             )*
         };
@@ -97,5 +117,6 @@ pub mod screeps_objects {
 }
 
 impl<T: HasId> MaybeHasId for T {
-    fn try_id(&self) -> Option<ObjectId<Self>> { Some(self.id()) }
+    type Id = T::Id;
+    fn try_id(&self) -> Option<Self::Id> { Some(self.id()) }
 }

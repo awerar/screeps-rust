@@ -3,7 +3,7 @@ use std::{iter, mem, ops::{Add, Mul}, sync::LazyLock};
 use log::{error, info, warn};
 use screeps::{Creep, Part, RoomName, StructureSpawn, find, game, prelude::*};
 
-use crate::{check::Check, colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckedID, IntoCheckedID}, memory::Memory, names::get_new_creep_name};
+use crate::{check::Check, colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::EnergyStoreAccessors, ids::{WithId, IntoWithId}, memory::Memory, names::get_new_creep_name};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -77,7 +77,7 @@ struct CreepPrototype {
 }
 
 impl CreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: &CheckedID<Creep>) -> Option<Self> {
+    fn try_from_existing(mem: &Memory, creep: &WithId<Creep>) -> Option<Self> {
         let creep_data = mem.creeps.get(creep)?;
 
         Some(Self {
@@ -118,7 +118,7 @@ impl SpawnerData {
         let room = spawn.room()?;
         let spawning = spawn.spawning()
             .and_then(|spawning| {
-                let creep = CheckedID::from_name(spawning.name().into())?;
+                let creep = WithId::from_name(spawning.name().into())?;
                 let prototype = CreepPrototype::try_from_existing(mem, &creep)?;
 
                 Some((prototype, spawning.remaining_time()))
@@ -175,7 +175,7 @@ impl SpawnSchedule {
             spawners: game::spawns().values()
                 .filter_map(|spawn| SpawnerData::try_from(mem, &spawn))
                 .collect(),
-            already_spawned: CheckedID::creeps()
+            already_spawned: WithId::creeps()
                 .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
                 .collect()
         }
@@ -226,7 +226,7 @@ impl SpawnSchedule {
 
 pub fn handle_incoming_creeps(mem: &mut Memory) {
     for (name, data) in mem::take(&mut mem.incoming_creeps) {
-        let Some(creep) = CheckedID::from_name(name) else { error!("Invalid incoming creep"); continue; };
+        let Some(creep) = WithId::from_name(name) else { error!("Invalid incoming creep"); continue; };
         mem.creeps.insert(creep, data);
     }
 }
@@ -365,13 +365,13 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (energy / 50) as usize)
 }
 
-pub struct TugboatRequests(Vec<CheckedID<Creep>>);
+pub struct TugboatRequests(Vec<WithId<Creep>>);
 impl TugboatRequests {
     pub fn new() -> Self {
         Self(Vec::new())
     }
 
-    pub fn add_request_for(&mut self, tugged: CheckedID<Creep>) {
+    pub fn add_request_for(&mut self, tugged: WithId<Creep>) {
         self.0.push(tugged);
     }
 }

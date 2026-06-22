@@ -3,31 +3,31 @@ use screeps::{Creep, Position, StructureController, action_error_codes::ClaimCon
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, ids::{CheckedID, CheckedIDs, IDKind, IntoCheckedID, UncheckedIDs}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{check::Check, ids::{CheckState, Checked, ById, Unchecked, WithId}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
-pub enum FlagshipCreep<I: IDKind = CheckedIDs> {
+pub enum FlagshipCreep<I: CheckState = Checked> {
     #[default]
     Idle,
     GoingTo(Position),
-    Claiming(Position, I::ID<StructureController>)
+    Claiming(Position, I::Repr<StructureController>)
 }
 
 impl<'de> Deserialize<'de> for FlagshipCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let us = FlagshipCreep::<UncheckedIDs>::deserialize(deserializer)?;
+        let us = FlagshipCreep::<Unchecked>::deserialize(deserializer)?;
         Ok(match us {
             FlagshipCreep::Idle => Self::Idle,
             FlagshipCreep::GoingTo(pos) => Self::GoingTo(pos),
             FlagshipCreep::Claiming(pos, controller) => 
-                controller.check().map(|controller| Self::Claiming(pos, controller))
+                controller.check().map(ById).map(|controller| Self::Claiming(pos, controller))
                     .unwrap_or(Self::GoingTo(pos)),
         })
     }
 }
 
 impl FlagshipCreep {
-    pub fn update(self, creep: &CheckedID<Creep>, movement: &mut MovementRequests, claim_requests: &mut ClaimRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &WithId<Creep>, movement: &mut MovementRequests, claim_requests: &mut ClaimRequests) -> anyhow::Result<Transition<Self>> {
         use FlagshipCreep::*;
         use Transition::*;
 
@@ -42,7 +42,7 @@ impl FlagshipCreep {
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name()
                     && let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Continue(Claiming(*target, controller.into_checked())))
+                        return Ok(Continue(Claiming(*target, ById(controller))))
                     }
 
                 let _ = movement.move_creep_to(creep, *target, 0);
