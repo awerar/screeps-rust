@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use crate::{check::Check, ids::{CheckState, Checked, ById, Unchecked, WithId}, memory::ClaimRequests, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
-pub enum FlagshipCreep<I: CheckState = Checked> {
+pub enum FlagshipCreep<S: CheckState = Checked> {
     #[default]
     Idle,
     GoingTo(Position),
-    Claiming(Position, I::Repr<StructureController>)
+    Claiming(Position, S::Repr<StructureController>)
 }
 
 impl<'de> Deserialize<'de> for FlagshipCreep {

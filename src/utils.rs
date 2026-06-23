@@ -13,12 +13,12 @@ pub fn adjacent_positions(pos: Position) -> impl Iterator<Item = Position> {
         .map(move |offset| pos + offset)
 }
 
-#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone; I::Repr<Structure>)]
-pub struct EasyStructure<I: CheckState = Checked>(I::Repr<Structure>, #[derive_where(skip)] Option<StructureObject>);
+#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone; S::Repr<Structure>)]
+pub struct EasyStructure<S: CheckState = Checked>(S::Repr<Structure>, #[derive_where(skip)] Option<StructureObject>);
 
-impl<I: CheckState> Serialize for EasyStructure<I> where I::Repr::<Structure> : Serialize {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        I::Repr::<Structure>::serialize(&self.0, serializer)
+impl<S: CheckState> Serialize for EasyStructure<S> where S::Repr::<Structure> : Serialize {
+    fn serialize<Se: Serializer>(&self, serializer: Se) -> Result<Se::Ok, Se::Error> {
+        S::Repr::<Structure>::serialize(&self.0, serializer)
     }
 }
 

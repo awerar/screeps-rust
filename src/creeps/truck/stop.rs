@@ -7,13 +7,13 @@ use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombst
 use crate::{check::{Check, CheckFrom}, creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, ids::{ById, CheckState, Checked, Unchecked, WithId}};
 
 #[derive_where(Debug, PartialEq, Eq, Hash)]
-#[derive_where(Serialize, Deserialize, Clone; I::Repr<Ruin>, I::Repr<Resource>, I::Repr<Tombstone>, ProviderStructure<I>, I::Repr<WithId<Creep>>)]
-pub enum ProviderTruckStop<I: CheckState = Checked> {
-    Ruin(I::Repr<Ruin>),
-    Resource(I::Repr<Resource>),
-    Tombstone(I::Repr<Tombstone>),
-    Structure(ProviderStructure<I>),
-    Creep(I::Repr<WithId<Creep>>)
+#[derive_where(Serialize, Deserialize, Clone; S::Repr<Ruin>, S::Repr<Resource>, S::Repr<Tombstone>, ProviderStructure<S>, S::Repr<WithId<Creep>>)]
+pub enum ProviderTruckStop<S: CheckState = Checked> {
+    Ruin(S::Repr<Ruin>),
+    Resource(S::Repr<Resource>),
+    Tombstone(S::Repr<Tombstone>),
+    Structure(ProviderStructure<S>),
+    Creep(S::Repr<WithId<Creep>>)
 }
 
 impl CheckFrom for ProviderTruckStop {
@@ -71,10 +71,10 @@ impl ProviderTruckStop {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-#[derive_where(Serialize, Deserialize, Clone; ConsumerStructure<I>, I::Repr<WithId<Creep>>)]
-pub enum ConsumerTruckStop<I: CheckState = Checked> {
-    Structure(ConsumerStructure<I>),
-    Creep(I::Repr<WithId<Creep>>)
+#[derive_where(Serialize, Deserialize, Clone; ConsumerStructure<S>, S::Repr<WithId<Creep>>)]
+pub enum ConsumerTruckStop<S: CheckState = Checked> {
+    Structure(ConsumerStructure<S>),
+    Creep(S::Repr<WithId<Creep>>)
 }
 
 impl CheckFrom for ConsumerTruckStop {
@@ -127,8 +127,8 @@ use screeps::{HasPosition, Position, Store, Structure};
 
     use crate::{check::{Check, CheckFrom}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{Checked, CheckState, Unchecked}, utils::EasyStructure};
 
-    #[derive_where(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash; EasyStructure<I>)]
-    pub struct SafeStructure<T, I: CheckState = Checked>(EasyStructure<I>, PhantomData<T>);
+    #[derive_where(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash; EasyStructure<S>)]
+    pub struct SafeStructure<T, S: CheckState = Checked>(EasyStructure<S>, PhantomData<T>);
 
     impl<T> CheckFrom for SafeStructure<T> {
         type Unchecked = SafeStructure<T, Unchecked>;
@@ -142,8 +142,8 @@ use screeps::{HasPosition, Position, Store, Structure};
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)] pub struct Consumer;
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)] pub struct Provider;
 
-    pub type ConsumerStructure<I = Checked> = SafeStructure<Consumer, I>;
-    pub type ProviderStructure<I = Checked> = SafeStructure<Provider, I>;
+    pub type ConsumerStructure<S = Checked> = SafeStructure<Consumer, S>;
+    pub type ProviderStructure<S = Checked> = SafeStructure<Provider, S>;
 
     impl<T> SafeStructure<T> {
         pub fn pos(&self) -> Position { self.0.pos() }

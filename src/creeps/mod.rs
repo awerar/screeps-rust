@@ -21,9 +21,9 @@ pub struct Creeps(
 );
 
 #[derive(Debug)]
-#[derive_where(Deserialize, Serialize, Clone; CreepRole<I>)]
-pub struct CreepData<I: CheckState = Checked> {
-    pub role: CreepRole<I>,
+#[derive_where(Deserialize, Serialize, Clone; CreepRole<S>)]
+pub struct CreepData<S: CheckState = Checked> {
+    pub role: CreepRole<S>,
     pub home: RoomName
 }
 
@@ -74,14 +74,14 @@ impl CreepData {
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; I::Repr<Source>, I::Repr<WithId<Creep>>, I::Repr<StructureSpawn>)]
-pub enum CreepRole<I: CheckState = Checked> {
-    Excavator(ExcavatorCreep, I::Repr<Source>),
+#[derive_where(Serialize, Deserialize, Clone; S::Repr<Source>, S::Repr<WithId<Creep>>, S::Repr<StructureSpawn>)]
+pub enum CreepRole<S: CheckState = Checked> {
+    Excavator(ExcavatorCreep, S::Repr<Source>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
     Fabricator(FabricatorCreep),
-    Tugboat(I::Repr<WithId<Creep>>, I::Repr<StructureSpawn>),
-    Scrap(I::Repr<StructureSpawn>),
+    Tugboat(S::Repr<WithId<Creep>>, S::Repr<StructureSpawn>),
+    Scrap(S::Repr<StructureSpawn>),
 }
 
 impl CheckFrom for CreepRole {

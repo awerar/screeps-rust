@@ -7,12 +7,12 @@ use anyhow::Result;
 use crate::{break_dererable, break_move, check::{Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{WithId, Checked, Handle, CheckState, Unchecked, IntoHandle}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
 
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; TruckTask<I>, ConsumerTruckStop<I>)]
-pub enum TruckCreep<I: CheckState = Checked> {
+#[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>)]
+pub enum TruckCreep<S: CheckState = Checked> {
     #[default] Idle,
-    Performing(TruckTask<I>),
+    Performing(TruckTask<S>),
     StoringAway,
-    FillingUpFor(ConsumerTruckStop<I>)
+    FillingUpFor(ConsumerTruckStop<S>)
 }
 
 impl<'de> Deserialize<'de> for TruckCreep {
@@ -30,10 +30,10 @@ impl<'de> Deserialize<'de> for TruckCreep {
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; ProviderTruckStop<I>, ConsumerTruckStop<I>)]
-pub enum TruckTask<I: CheckState = Checked> {
-    CollectingFrom(ProviderTruckStop<I>),
-    ProvidingTo(ConsumerTruckStop<I>)
+#[derive_where(Serialize, Deserialize, Clone; ProviderTruckStop<S>, ConsumerTruckStop<S>)]
+pub enum TruckTask<S: CheckState = Checked> {
+    CollectingFrom(ProviderTruckStop<S>),
+    ProvidingTo(ConsumerTruckStop<S>)
 }
 
 impl CheckFrom for TruckTask {

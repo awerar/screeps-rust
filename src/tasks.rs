@@ -10,13 +10,13 @@ use serde_json_any_key::any_key_map;
 use crate::{check::{Check, CheckFrom}, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize; Handle<WithId<Creep>, I>, D)]
-struct TaskData<D, I : CheckState = Checked> {
+#[derive_where(Serialize, Deserialize; Handle<WithId<Creep>, S>, D)]
+struct TaskData<D, S : CheckState = Checked> {
     target: TaskAmount,
     pending: TaskAmount,
     data: D,
 
-    creeps: HashMap<Handle<WithId<Creep>, I>, CreepData>
+    creeps: HashMap<Handle<WithId<Creep>, S>, CreepData>
 }
 
 impl<'de, D : DeserializeOwned> Deserialize<'de> for TaskData<D> {

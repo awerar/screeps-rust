@@ -9,11 +9,11 @@ use derive_alias::derive_alias;
 use crate::{check::{Check, CheckFrom}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{ById, CheckState, Checked, Handle, IntoHandle, IntoWithId, Unchecked, WithId}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<I>)]
-pub enum FabricatorCreep<I: CheckState = Checked> {
+#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<S>)]
+pub enum FabricatorCreep<S: CheckState = Checked> {
     #[default] Idle,
-    CollectingFor(FabricatorTask<I>),
-    Performing(FabricatorTask<I>)
+    CollectingFor(FabricatorTask<S>),
+    Performing(FabricatorTask<S>)
 }
 
 impl<'de> Deserialize<'de> for FabricatorCreep {
@@ -30,17 +30,17 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; BuildTask<I>, RepairTask<I>, UpgradeTask<I>)]
-pub enum FabricatorTaskType<I: CheckState = Checked> {
-    Building(BuildTask<I>),
-    Repairing(RepairTask<I>),
-    UpgradingController(UpgradeTask<I>)
+#[derive_where(Serialize, Deserialize, Clone; BuildTask<S>, RepairTask<S>, UpgradeTask<S>)]
+pub enum FabricatorTaskType<S: CheckState = Checked> {
+    Building(BuildTask<S>),
+    Repairing(RepairTask<S>),
+    UpgradingController(UpgradeTask<S>)
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; FabricatorTaskType<I>)]
-pub struct FabricatorTask<I: CheckState = Checked> {
-    task_type: FabricatorTaskType<I>,
+#[derive_where(Serialize, Deserialize, Clone; FabricatorTaskType<S>)]
+pub struct FabricatorTask<S: CheckState = Checked> {
+    task_type: FabricatorTaskType<S>,
     start_time: u32,
     pos: Position
 }
@@ -73,9 +73,9 @@ derive_percentage! { struct HealthPercentage(f32); }
 derive_percentage! { struct DowngradePercentage(f32); }
 derive_percentage! { struct StorageFillPercentage(f32); }
 
-type BuildTask<I = Checked> = <I as CheckState>::Repr<WithId<ConstructionSite>>;
-type RepairTask<I = Checked> = <I as CheckState>::Repr<Structure>;
-type UpgradeTask<I = Checked> = <I as CheckState>::Repr<StructureController>;
+type BuildTask<S = Checked> = <S as CheckState>::Repr<WithId<ConstructionSite>>;
+type RepairTask<S = Checked> = <S as CheckState>::Repr<Structure>;
+type UpgradeTask<S = Checked> = <S as CheckState>::Repr<StructureController>;
 
 const REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.75);
 const EMERGENCY_REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.5);
