@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, 
 
 use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::{check::{TriviallyChecked, deserialize_filter_check}, commands::{Command, pop_command}, ids::{ById, IntoWithId, WithId}};
+use crate::{check::{TriviallyChecked, deserialize_filter_check}, commands::{Command, pop_command}, ids::{ById, WithId}, domain_traits::HasId};
 
 pub mod requests;
 mod simplifier;
@@ -57,7 +57,7 @@ struct SpawningID {
 impl SpawningID {
     fn new(spawn: &StructureSpawn) -> Option<Self> {
         Some(Self {
-            spawn: spawn.clone().into_checked(),
+            spawn: ById(spawn.clone()),
             spawning: spawn.spawning()?,
         })
     }

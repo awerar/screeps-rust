@@ -4,9 +4,9 @@ use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
 use log::warn;
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{WithId, Checked, CheckState, IntoWithId, Unchecked}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -20,8 +20,8 @@ pub struct Creeps(
     pub HashMap<WithId<Creep>, CreepData>
 );
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-#[serde(bound(deserialize="CreepRole<I> : DeserializeOwned"))]
+#[derive(Debug)]
+#[derive_where(Deserialize, Serialize, Clone; CreepRole<I>)]
 pub struct CreepData<I: CheckState = Checked> {
     pub role: CreepRole<I>,
     pub home: RoomName
@@ -64,9 +64,9 @@ impl CreepData {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(ExcavatorCreep::default(), source.into_checked()) 
+                CreepRole::Excavator(ExcavatorCreep::default(), ById(source)) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).into_checked())
+            _ => CreepRole::Scrap(ById(get_recycle_spawn(creep, &home)))
         };
         
         Some(CreepData::new(home.name, role))

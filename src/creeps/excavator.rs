@@ -117,7 +117,7 @@ impl ExcavatorCreep {
                 }
 
                 if can_harvest {
-                    creep.harvest(&**source).ok();
+                    creep.harvest(source).ok();
                 }
 
                 if !matches!(energy_dest, EnergyDestination::Container(_))

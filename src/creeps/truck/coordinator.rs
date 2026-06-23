@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{WithId, Handle, IntoWithId}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop, safe_structure::{ConsumerStructure, ProviderStructure}}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, Handle, WithId}, tasks::{TaskAmount, TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -34,11 +34,11 @@ impl TruckCoordinator {
     }
 
     fn update_providers(&mut self, plan: &ColonyPlan, room: &Room, provider_creeps: Vec<WithId<Creep>>) {
-        let dropped_resources = room.find(find::DROPPED_RESOURCES, None).into_iter().map(IntoWithId::into_checked).map(ProviderTruckStop::Resource);
-        let tombstones = room.find(find::TOMBSTONES, None).into_iter().map(IntoWithId::into_checked).map(ProviderTruckStop::Tombstone);
-        let ruins = room.find(find::RUINS, None).into_iter().map(IntoWithId::into_checked).map(ProviderTruckStop::Ruin);
+        let dropped_resources = room.find(find::DROPPED_RESOURCES, None).into_iter().map(ById).map(ProviderTruckStop::Resource);
+        let tombstones = room.find(find::TOMBSTONES, None).into_iter().map(ById).map(ProviderTruckStop::Tombstone);
+        let ruins = room.find(find::RUINS, None).into_iter().map(ById).map(ProviderTruckStop::Ruin);
 
-        let creep_providers = provider_creeps.into_iter().map(ProviderTruckStop::Creep);
+        let creep_providers = provider_creeps.into_iter().map(ById).map(ProviderTruckStop::Creep);
         let center_link = plan.center.link.resolve().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
         let unlinked_source_containers = plan.unlinked_source_containers().0.into_iter().filter_map(|x| x.resolve()).map(ProviderStructure::new).map(ProviderTruckStop::Structure);
         
@@ -56,7 +56,7 @@ impl TruckCoordinator {
     }
 
     fn update_consumers(&mut self, plan: &ColonyPlan, consumer_creeps: Vec<WithId<Creep>>) {
-        let creep_consumers = consumer_creeps.into_iter().map(ConsumerTruckStop::Creep);
+        let creep_consumers = consumer_creeps.into_iter().map(ById).map(ConsumerTruckStop::Creep);
 
         let center_spawn = plan.center.spawn.resolve().map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
         let center_extensions = plan.center.extensions.iter().filter_map(ResolvableStructureRef::resolve).map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);

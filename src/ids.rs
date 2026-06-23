@@ -70,6 +70,15 @@ impl<T: HasId> Debug for ById<T> {
     }
 }
 
+impl<T: HasId + CheckFrom<Unchecked = T::Id>> CheckFrom for ById<T> {
+    type Unchecked = T::Id;
+    type Err = T::Err;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        uc.check().map(ById)
+    }
+}
+
 #[derive_where(Clone; Id: Clone, T: Clone)]
 #[derive_where(Debug, PartialEq, Eq, Hash, Ord, PartialOrd; Id)]
 pub struct WithId<T, Id = ObjectId<T>> {
@@ -81,7 +90,7 @@ impl<T, Id: IdReqs> HasId for WithId<T, Id> {
     type Id = Id;
 
     fn id(&self) -> Self::Id {
-        self.id.clone()
+        self.id
     }
 }
 
@@ -145,10 +154,10 @@ impl<T: HasId> Handle<T> {
     }
 }
 
-pub trait IntoHandle: HasId { fn handle(x: Self) -> Handle<Self>; }
+pub trait IntoHandle: HasId { fn handle(self) -> Handle<Self>; }
 impl<T: HasId> IntoHandle for T {
-    fn handle(x: Self) -> Handle<Self> {
-        Handle::new(x)
+    fn handle(self) -> Handle<Self> {
+        Handle::new(self)
     }
 }
 

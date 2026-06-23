@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer};
 
 // ==== Check traits ====
 pub trait TriviallyChecked {}
+impl TriviallyChecked for String {}
 
 pub trait CheckFrom: Sized {
     type Unchecked;

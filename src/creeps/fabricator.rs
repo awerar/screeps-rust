@@ -6,7 +6,7 @@ use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, ResourceType
 use serde::{Serialize, Deserialize};
 use derive_alias::derive_alias;
 
-use crate::{check::{Check, CheckFrom}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{WithId, Checked, Handle, CheckState, IntoWithId, Unchecked}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyBuffer, ColonyView}, domain_traits::{EnergyStoreAccessors, Withdrawable}, ids::{ById, CheckState, Checked, Handle, IntoHandle, IntoWithId, Unchecked, WithId}, movement::requests::MovementRequests, statemachine::Transition, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; FabricatorTask<I>)]
@@ -102,7 +102,7 @@ impl FabricatorCreep {
                 Ok(Break(self))
             },
             Self::CollectingFor(ref task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(&creep.dumb_id(), task) { return Self::fail_task(creep, task, coordinator) }
+                if task.has_timed_out() || !coordinator.heartbeat_task(&creep.clone().handle(), task) { return Self::fail_task(creep, task, coordinator) }
 
                 if creep.used_energy_capacity() > 0 {
                     return Ok(Continue(Self::Performing(task.clone())))
@@ -119,7 +119,7 @@ impl FabricatorCreep {
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                if task.has_timed_out() || !coordinator.heartbeat_task(&creep.dumb_id(), task) { return Self::fail_task(creep, task, coordinator) }
+                if task.has_timed_out() || !coordinator.heartbeat_task(&creep.clone().handle(), task) { return Self::fail_task(creep, task, coordinator) }
 
                 let creep_energy = creep.used_energy_capacity();
                 if creep_energy == 0 {
@@ -137,7 +137,7 @@ impl FabricatorCreep {
 
     #[expect(clippy::unnecessary_wraps)]
     fn fail_task(creep: &WithId<Creep>, task: &FabricatorTask, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
-        coordinator.finish_task(&creep.dumb_id(), task, false);
+        coordinator.finish_task(&creep.clone().handle(), task, false);
         Ok(Transition::Continue(FabricatorCreep::Idle))
     }
 }
@@ -167,7 +167,7 @@ impl FabricatorTask {
             FabricatorTaskType::Building(site) => 
                 Ok(creep.build(site)?),
             FabricatorTaskType::Repairing(structure) => {
-                let structure_object = StructureObject::from(structure.as_ref().clone());
+                let structure_object = StructureObject::from((**structure).clone());
                 let repairable = structure_object.as_repairable().ok_or(anyhow!("Structure is not repairable"))?;
                 Ok(creep.repair(repairable)?)
             },
@@ -211,7 +211,7 @@ impl FabricatorCoordinator {
             .filter_map(|structure| {
                 let repairable = structure.as_repairable()?;
                 Some((
-                    structure.as_structure().clone().into_checked(), 
+                    ById(structure.as_structure().clone()), 
                     repairable.hits_max() - repairable.hits(),
                     (structure.pos(), 
                     HealthPercentage(repairable.hits() as f32 / repairable.hits_max() as f32))
@@ -222,7 +222,7 @@ impl FabricatorCoordinator {
         self.builds.set_tasks(room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
             .map(|site| {
                 (
-                    site.clone().with_id().unwrap(),
+                    ById(site.clone().with_id().unwrap()),
                     site.progress_total() - site.progress(),
                     site.pos()
                 )
@@ -248,7 +248,7 @@ impl FabricatorCoordinator {
         });
 
         self.upgrades.set_tasks(vec![(
-            controller.into_checked(), 
+            ById(controller), 
             u32::MAX,
             (DowngradePercentage(downgrade_percentage),
             storage_fill_percentage.map(StorageFillPercentage))
@@ -265,7 +265,7 @@ impl FabricatorCoordinator {
 
     fn assign_repair(&mut self, creep: &WithId<Creep>) -> Option<RepairTask> {
         let contribution = get_creep_work_count(creep) * 100;
-        self.repairs.assign_task(creep.dumb_id(), contribution, |tasks| {
+        self.repairs.assign_task(creep.clone().handle(), contribution, |tasks| {
             let emergency_repair = tasks.clone().into_iter()
                 .filter(|(_, _, (_, percentage))| *percentage <= EMERGENCY_REPAIR_PERCENTAGE)
                 .min_by(|(_, _, (_, p1)), (_, _, (_, p2))| p1.total_cmp(p2));
@@ -279,7 +279,7 @@ impl FabricatorCoordinator {
 
     fn assign_build(&mut self, creep: &WithId<Creep>) -> Option<BuildTask> {
         let contribution = get_creep_work_count(creep) * 5;
-        self.builds.assign_task(creep.dumb_id(), contribution, |tasks| {
+        self.builds.assign_task(creep.clone().handle(), contribution, |tasks| {
             tasks.into_iter()
                 .min_by_key(|(_, _, pos)| creep.pos().get_range_to(**pos))
         })
@@ -287,7 +287,7 @@ impl FabricatorCoordinator {
 
     fn assign_emergency_upgrade(&mut self, creep: &WithId<Creep>) -> Option<UpgradeTask> {
         let contribution = get_creep_work_count(creep) * 2;
-        self.upgrades.assign_task(creep.dumb_id(), contribution, |tasks| {
+        self.upgrades.assign_task(creep.clone().handle(), contribution, |tasks| {
             tasks.into_iter()
                 .find(|(_, _, (percentage, _))| *percentage >= CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE)
         })
@@ -295,7 +295,7 @@ impl FabricatorCoordinator {
 
     fn assign_upgrade(&mut self, creep: &WithId<Creep>) -> Option<UpgradeTask> {
         let contribution = get_creep_work_count(creep) * 2;
-        self.upgrades.assign_task(creep.dumb_id(), contribution, |tasks| {
+        self.upgrades.assign_task(creep.clone().handle(), contribution, |tasks| {
             tasks.into_iter()
                 .find(|(_, _, (_, percentage))| 
                     percentage.is_none_or(|percentage| percentage >= STORAGE_UPGRADE_CONTROLLER_THRESHOLD))

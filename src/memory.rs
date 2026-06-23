@@ -4,9 +4,9 @@ use js_sys::{JsString, Reflect};
 use log::warn;
 use screeps::{Position, RoomName};
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, check::Check, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, ids::Unchecked, movement::MovementMemory};
+use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, movement::MovementMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -28,7 +28,7 @@ pub struct Memory {
     pub creeps: Creeps,
     pub colonies: Colonies,
 
-    #[serde(deserialize_with = "deserialize_prune_incoming_creeps")]
+    #[serde(deserialize_with = "deserialize_filter_check")]
     pub incoming_creeps: Vec<(String, CreepData)>,
     pub callbacks: Callbacks,
     pub claim_requests: ClaimRequests,
@@ -66,9 +66,4 @@ impl Memory {
     pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {
         self.tick_times.iter().take(tick_count).sum::<f64>() / (tick_count.min(self.tick_times.len()) as f64)
     }
-}
-
-fn deserialize_prune_incoming_creeps<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<(String, CreepData)>, D::Error> {
-    let raw = Vec::<(String, CreepData<Unchecked>)>::deserialize(deserializer)?;
-    Ok(raw.into_iter().filter_map(|(k, v)| Some((k, v.check().ok()?))).collect())
 }

@@ -4,7 +4,7 @@ use screeps::{Creep, HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{break_dererable, break_move, check::{Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{WithId, Checked, Handle, CheckState, Unchecked}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
+use crate::{break_dererable, break_move, check::{Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{WithId, Checked, Handle, CheckState, Unchecked, IntoHandle}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<I>, ConsumerTruckStop<I>)]
@@ -58,7 +58,7 @@ impl TruckCreep {
     }
 
     pub fn update(mut self, creep: &WithId<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
-        self = self.validate_task(&creep.dumb_id(), coordinator);
+        self = self.validate_task(&creep.clone().handle(), coordinator);
 
         let mut virtual_creep = VirtualCreep::new(creep.clone());
         update_many(self, |state| state.execute_and_finish_task_on_err(&mut virtual_creep, home, movement, coordinator))
