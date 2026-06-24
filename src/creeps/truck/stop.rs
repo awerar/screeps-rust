@@ -55,13 +55,13 @@ impl ProviderTruckStop {
 
     pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<(), IntentError> { 
         match self {
-            Self::Ruin(id) => Ok(creep.withdraw(&**id, ty, None)?),
-            Self::Tombstone(id) => Ok(creep.withdraw(&**id, ty, None)?),
+            Self::Ruin(id) => Ok(creep.withdraw((**id).clone(), ty, None)?),
+            Self::Tombstone(id) => Ok(creep.withdraw((**id).clone(), ty, None)?),
             Self::Creep(id) => Ok(creep.transfer_from(id, ty, None)?),
-            Self::Structure(id) => creep.withdraw(id, ty, None),
+            Self::Structure(id) => creep.withdraw(id.clone(), ty, None),
             Self::Resource(id) => 
                 if id.resource_type() == ty { 
-                    Ok(creep.pickup(id)?) 
+                    Ok(creep.pickup((**id).clone())?) 
                 } else { 
                     Err(anyhow!("Resource pile does not contain {ty}").into()) 
                 },

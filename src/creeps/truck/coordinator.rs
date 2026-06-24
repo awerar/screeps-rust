@@ -89,7 +89,7 @@ impl TruckCoordinator {
     }
 
     pub fn assign_push_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
-        self.providers.assign_task(truck.id(), truck.next_free_capacity(), |tasks| {
+        self.providers.assign_task(truck.handle(), truck.next_free_capacity(), |tasks| {
             tasks.into_iter()
                 .filter(|(_, amount, data)| data.push_amount.is_some_and(|push_amount| *amount >= push_amount))
                 .max_by_key(|(provider, _, data)| (data.priority, Reverse(provider.pos().get_range_to(truck.pos()))))
@@ -97,14 +97,14 @@ impl TruckCoordinator {
     }
 
     pub fn assign_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
-        self.providers.assign_task(truck.id(), truck.next_free_capacity(), |tasks| {
+        self.providers.assign_task(truck.handle(), truck.next_free_capacity(), |tasks| {
             tasks.into_iter()
                 .max_by_key(|(provider, amount, data)| ((*amount).min(truck.next_free_capacity()), data.priority, Reverse(provider.pos().get_range_to(truck.pos()))))
         })
     }
 
     pub fn assign_consumer(&mut self, truck: &VirtualCreep) -> Option<ConsumerTruckStop> {
-        self.consumers.assign_task(truck.id(), truck.next_used_energy_capacity(), |tasks| {
+        self.consumers.assign_task(truck.handle(), truck.next_used_energy_capacity(), |tasks| {
             tasks.into_iter()
                 .max_by_key(|(consumer, left, priority)| (*priority, *left, Reverse(consumer.pos().get_range_to(truck.pos()))))
         })

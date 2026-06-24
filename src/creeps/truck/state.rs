@@ -4,7 +4,7 @@ use screeps::{Creep, HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{break_dererable, break_move, check::{Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{WithId, Checked, Handle, CheckState, Unchecked, IntoHandle}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
+use crate::{break_deferable, break_move, check::{Check, CheckFrom}, colony::ColonyView, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{EnergyStoreAccessors, HasStoreExt}, ids::{WithId, Checked, Handle, CheckState, Unchecked}, movement::requests::MovementRequests, statemachine::{Transition, update_many}};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>)]
@@ -57,11 +57,10 @@ impl TruckCreep {
         }
     }
 
-    pub fn update(mut self, creep: &WithId<Creep>, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
-        self = self.validate_task(&creep.clone().handle(), coordinator);
+    pub fn update(mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Self {
+        self = self.validate_task(&creep.handle(), coordinator);
 
-        let mut virtual_creep = VirtualCreep::new(creep.clone());
-        update_many(self, |state| state.execute_and_finish_task_on_err(&mut virtual_creep, home, movement, coordinator))
+        update_many(self, |state| state.execute_and_finish_task_on_err(creep, home, movement, coordinator))
     }
 
     fn validate_task(self, creep: &Handle<WithId<Creep>>, coordinator: &mut TruckCoordinator) -> Self {
@@ -88,7 +87,7 @@ impl TruckCreep {
 
         let result = self.execute(truck, home, movement, coordinator);
         if let Some(task) = task && result.is_err() {
-            coordinator.finish(&truck.id(), &task, false);
+            coordinator.finish(&truck.handle(), &task, false);
         }
 
         result
@@ -124,31 +123,31 @@ impl TruckCreep {
             Self::Performing(ref task) => {
                 match task {
                     TruckTask::CollectingFrom(_) => 
-                        if truck.next_free_capacity() == 0 { return Ok(Continue(Self::fail(&truck.id(), task, coordinator))) },
+                        if truck.next_free_capacity() == 0 { return Ok(Continue(Self::fail(&truck.handle(), task, coordinator))) },
                     TruckTask::ProvidingTo(task) => 
                         if truck.next_used_energy_capacity() == 0 { return Ok(Continue(FillingUpFor(task.clone()))) },
                 }
 
-                break_dererable!(break_move!(movement.move_vcreep_to(truck, task.pos(), 1), self), self)?;
+                break_deferable!(break_move!(movement.move_vcreep_to(truck, task.pos(), 1), self), self)?;
 
                 if truck.incoming_energy() > 0 { return Ok(Break(self)) }
-                break_dererable!(task.creep_perform(truck), self)?;
+                break_deferable!(task.creep_perform(truck), self)?;
 
-                Ok(Continue(Self::succeed(&truck.id(), task, coordinator)))
+                Ok(Continue(Self::succeed(&truck.handle(), task, coordinator)))
             },
             Self::FillingUpFor(ref consumer) => {
                 let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.used_energy_capacity() > 0) else {
-                    return Ok(Continue(Self::fail(&truck.id(), &consumer.clone().into(), coordinator)))
+                    return Ok(Continue(Self::fail(&truck.handle(), &consumer.clone().into(), coordinator)))
                 };
 
                 if truck.next_used_energy_capacity() > 0 { 
                     return Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone())))) 
                 }
 
-                break_dererable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
+                break_deferable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
 
                 if truck.outgoing() > 0 { return Ok(Break(self)) }
-                break_dererable!(truck.withdraw(buffer, ResourceType::Energy, None), self)?;
+                break_deferable!(truck.withdraw(buffer.clone(), ResourceType::Energy, None), self)?;
 
                 Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
@@ -159,10 +158,10 @@ impl TruckCreep {
                 
                 if truck.next_used_energy_capacity() == 0 { return Ok(Continue(Self::Idle)); }
 
-                break_dererable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
+                break_deferable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
                 
                 if truck.incoming_energy() > 0 { return Ok(Break(self)) }
-                break_dererable!(truck.transfer(buffer, ResourceType::Energy, None), self)?;
+                break_deferable!(truck.transfer(buffer.clone(), ResourceType::Energy, None), self)?;
 
                 Ok(Continue(Self::Idle))
             },
@@ -195,7 +194,7 @@ impl TruckTask {
             TruckTask::CollectingFrom(provider) => 
                 provider.creep_withdraw(truck, ResourceType::Energy),
             TruckTask::ProvidingTo(consumer) => 
-                truck.transfer(consumer, ResourceType::Energy, None)
+                truck.transfer(consumer.clone(), ResourceType::Energy, None)
         }
     }
 

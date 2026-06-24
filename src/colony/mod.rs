@@ -56,6 +56,7 @@ impl Colonies {
     }
 }
 
+#[derive(Clone)]
 pub enum ColonyBuffer {
     Container(StructureContainer),
     Storage(StructureStorage)

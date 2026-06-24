@@ -2,11 +2,11 @@ use std::{collections::HashMap, fmt::Debug, mem};
 
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
-use log::warn;
+use log::{error, warn};
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -142,14 +142,16 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
         let creep_data = mem.creeps.get_mut(creep).unwrap();
         let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
 
+        let mut vcreep = VirtualCreep::new(creep.clone());
+
         match &mut creep_data.role {
             Flagship(state) => 
                 transition(state, |state| state.update(creep, &mut movement, &mut mem.claim_requests)),
             Excavator(state, source) => 
-                transition(state, |state| state.update(creep, source, &home, &mut movement)),
+                transition(state, |state| state.update(&mut vcreep, source, &home, &mut movement)),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                *state = mem::take(state).update(creep, &home, &mut movement, coordinator);
+                *state = mem::take(state).update(&mut vcreep, &home, &mut movement, coordinator);
             },
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
@@ -157,6 +159,10 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             },
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged, spawn),
             Scrap(spawn) => do_recycle(creep, &mut movement, spawn),
+        }
+
+        if let Err(e) = vcreep.commit() {
+            error!("Failed to comit intents for {}: {}", creep.name(), e);
         }
     }
 

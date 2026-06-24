@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source};
 use thiserror::Error;
 
-use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, movement::requests::{MoveToResult, MovementRequests}, ids::{Handle, WithId}};
+use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -71,12 +71,12 @@ impl IntentError {
 }
 
 #[macro_export]
-macro_rules! break_dererable {
+macro_rules! break_deferable {
     ($expr:expr, $next:expr) => {
         match $expr {
-            Ok(val) => Ok(val),
-            Err(e) if e.is_deferable() => return Ok($crate::statemachine::Transition::Break($next)),
-            Err(e) => Err(e)
+            std::result::Result::Ok(val) => std::result::Result::Ok(val),
+            std::result::Result::Err(e) if e.is_deferable() => return std::result::Result::Ok($crate::statemachine::Transition::Break($next)),
+            std::result::Result::Err(e) => std::result::Result::Err(e)
         }
     };
 }
@@ -85,9 +85,9 @@ macro_rules! break_dererable {
 macro_rules! break_move {
     ($expr:expr, $next:expr) => {
         match $expr {
-            Ok(val) if !val.in_range() => return Ok($crate::statemachine::Transition::Break($next)),
-            Ok(_) => Ok(()),
-            Err(e) => Err(e)
+            std::result::Result::Ok(val) if !val.in_range() => return std::result::Result::Ok($crate::statemachine::Transition::Break($next)),
+            std::result::Result::Ok(_) => std::result::Result::Ok(()),
+            std::result::Result::Err(e) => std::result::Result::Err(e)
         }
     };
 }
@@ -122,7 +122,36 @@ pub struct VirtualCreep {
     resources: HashMap<ResourceType, u32>, // Amount left this tick per resource. Lazily initialized
     incoming_resources: HashMap<ResourceType, u32>,
     
-    intents: HashSet<IntentType>
+    intents: HashMap<IntentType, Intent>
+}
+
+trait CommitFn = FnOnce(&Creep) -> Result<()>;
+struct Intent {
+    incoming: Option<(ResourceType, u32)>,
+    outgoing: Option<(ResourceType, u32)>,
+    commit: Box<dyn CommitFn>
+}
+
+impl Intent {
+    fn new(commit: impl CommitFn + 'static) -> Self {
+        Intent { 
+            incoming: None, 
+            outgoing: None, 
+            commit: Box::new(commit) 
+        }
+    }
+
+    fn outgoing_energy(self, amount: u32) -> Self { self.outgoing(ResourceType::Energy, amount) }
+    fn outgoing(mut self, ty: ResourceType, amount: u32) -> Self {
+        self.outgoing = Some((ty, amount));
+        self
+    }
+
+    fn incoming_energy(self, amount: u32) -> Self { self.incoming(ResourceType::Energy, amount) }
+    fn incoming(mut self, ty: ResourceType, amount: u32) -> Self {
+        self.incoming = Some((ty, amount));
+        self
+    }
 }
 
 impl VirtualCreep {
@@ -135,11 +164,11 @@ impl VirtualCreep {
             resources: HashMap::new(),
             incoming_resources: HashMap::new(),
             creep,
-            intents: HashSet::new()
+            intents: HashMap::new()
         }
     }
 
-    pub fn id(&self) -> Handle<WithId<Creep>> {
+    pub fn handle(&self) -> Handle<WithId<Creep>> {
         Handle::new(self.creep.clone())
     }
 
@@ -147,8 +176,16 @@ impl VirtualCreep {
         self.creep.pos()
     }
 
+    pub fn name(&self) -> String {
+        self.creep.name()
+    }
+
+    pub fn body(&self) -> Body {
+        Body::from(&*self.creep)
+    }
+
     pub fn has_intent(&self, intent: IntentType) -> bool {
-        self.intents.contains(&intent)
+        self.intents.contains_key(&intent)
     }
 
     #[expect(unused)]
@@ -157,6 +194,14 @@ impl VirtualCreep {
         self.check_pipeline(intent, PIPELINE_A).is_ok() &&
         self.check_pipeline(intent, PIPELINE_B).is_ok()
     }
+    
+    pub fn commit(self) -> Result<()> {
+        for intent in self.intents.into_values() {
+            (intent.commit)(&self.creep)?;
+        }
+
+        Ok(())
+    }
 
     fn check_pipeline<const N: usize>(&self, intent: IntentType, pipeline: [IntentType; N]) -> Result<(), IntentError> {
         if !pipeline.contains(&intent) { return Ok(()) }
@@ -164,40 +209,25 @@ impl VirtualCreep {
         Err(IntentError::PipelineCollision { existing: *other, new: intent })
     }
 
-    fn register_intent(&mut self, intent: IntentType) -> Result<(), IntentError> {
-        if !self.intents.insert(intent) { return Err(IntentError::AlreadyScheduled(intent)) }
+    fn register_intent(&mut self, ty: IntentType, intent: Intent) -> Result<(), IntentError> {
+        if self.intents.contains_key(&ty) { return Err(IntentError::AlreadyScheduled(ty)) }
 
-        self.check_pipeline(intent, PIPELINE_A)?;
-        self.check_pipeline(intent, PIPELINE_B)?;
+        self.check_pipeline(ty, PIPELINE_A)?;
+        self.check_pipeline(ty, PIPELINE_B)?;
 
-        
+        if let Some((ty, amount)) = &intent.outgoing {
+            self.add_outgoing(*ty, *amount)?;
+        }
+
+        if let Some((ty, amount)) = &intent.incoming {
+            self.add_incoming(*ty, *amount)?;
+        }
+
+        self.intents.insert(ty, intent);
         Ok(())
     }
 
-    fn part_amount(&self, part: Part, per_part: u32) -> u32 {
-        u32::from(self.creep.get_active_bodyparts(part)) * per_part
-    }
-
-    fn get_resource(&self, ty: ResourceType) -> u32 {
-        self.resources.get(&ty).copied().unwrap_or_else(|| self.creep.used_capacity(Some(ty)))
-    }
-
-    fn add_resource(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
-        if amount > self.free_capacity { return Err(IntentError::NotEnoughCapacity { resource: ty, curr: self.free_capacity, target: amount }) }
-
-        self.free_capacity -= amount;
-        *self.incoming_resources.entry(ty).or_default() += amount;
-        self.total_incoming_resources += amount;
-
-        Ok(())
-    }
-
-    fn add_resource_capped(&mut self, ty: ResourceType, amount: u32) {
-        let amount = amount.min(self.free_capacity);
-        self.add_resource(ty, amount).unwrap();
-    }
-
-    fn remove_resource(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
+    fn add_outgoing(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
         let resource = self.resources.entry(ty).or_insert_with(|| self.creep.used_capacity(Some(ty)));
         if amount > *resource { return Err(IntentError::NotEnoughResource { resource: ty, target: amount, curr: *resource }); }
 
@@ -208,12 +238,48 @@ impl VirtualCreep {
         Ok(())
     }
 
-    fn remove_resource_capped(&mut self, ty: ResourceType, amount: u32) {
-        let amount = amount.min(self.get_resource(ty));
-        self.remove_resource(ty, amount).unwrap();
+    fn add_incoming(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
+        if amount > self.free_capacity { return Err(IntentError::NotEnoughCapacity { resource: ty, curr: self.free_capacity, target: amount }) }
+
+        self.free_capacity -= amount;
+        *self.incoming_resources.entry(ty).or_default() += amount;
+        self.total_incoming_resources += amount;
+
+        Ok(())
     }
 
-    #[expect(unused)]
+    pub fn cancel_intent(&mut self, intent: IntentType) -> bool {
+        let Some(intent) = self.intents.remove(&intent) else { return false };
+
+        if let Some((ty, amount)) = intent.incoming {
+            self.free_capacity += amount;
+            *self.incoming_resources.get_mut(&ty).unwrap() -= amount;
+            self.total_incoming_resources -= amount;
+        }
+
+        if let Some((ty, amount)) = intent.outgoing {
+            let resource = self.resources.get_mut(&ty).unwrap();
+
+            *resource += amount;
+            self.total_resources += amount;
+            self.total_outgoing_resources -= amount;
+        }
+
+        true
+    }
+
+    fn part_amount(&self, part: Part, per_part: u32) -> u32 {
+        u32::from(self.creep.get_active_bodyparts(part)) * per_part
+    }
+
+    fn get_resource(&self, ty: ResourceType) -> u32 {
+        self.resources.get(&ty).copied().unwrap_or_else(|| self.creep.used_capacity(Some(ty)))
+    }
+
+    fn get_energy(&self) -> u32 {
+        self.get_resource(ResourceType::Energy)
+    }
+
     pub fn capacity(&self) -> u32 {
         self.creep.capacity(None)
     }
@@ -265,79 +331,104 @@ impl VirtualCreep {
     pub fn next_used_energy_capacity(&self) -> u32 { self.next_used_capacity(Some(ResourceType::Energy)) }
     pub fn incoming_energy(&self) -> u32 { self.incoming(Some(ResourceType::Energy)) }
     
-    #[expect(unused)]
-    pub fn build(&mut self, target: &ConstructionSite) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Build)?;
+    pub fn build(&mut self, target: ConstructionSite) -> Result<(), IntentError> {
+        let amount = self.part_amount(Part::Work, 5)
+            .min(target.progress_total() - target.progress())
+            .min(self.get_energy());
 
-        let amount = self.part_amount(Part::Work, 5).min(target.progress_total() - target.progress());
-        self.remove_resource_capped(ResourceType::Energy, amount);
-        self.creep.build(target).map_err(anyhow::Error::new)?;
-        Ok(())
+        self.register_intent(
+            IntentType::Build,
+            Intent::new(
+                move |creep| creep.build(&target).map_err(anyhow::Error::new)
+            ).outgoing_energy(amount)
+        )
     }
 
     #[expect(unused)]
     pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Drop)?;
-
         let amount = amount.unwrap_or(self.get_resource(ty));
-        self.remove_resource(ty, amount)?;
-        self.creep.drop(ty, Some(amount)).map_err(anyhow::Error::new)?;
-        Ok(())
+
+        self.register_intent(
+            IntentType::Drop,
+            Intent::new(
+                move |creep| creep.drop(ty, Some(amount)).map_err(anyhow::Error::new)
+            ).outgoing(ty, amount)
+        )
+    }
+
+    pub fn harvest_source(&mut self, source: Source) -> Result<(), IntentError> {
+        let amount = self.part_amount(Part::Work, 2)
+            .min(source.energy())
+            .min(self.free_capacity);
+
+        self.register_intent(
+            IntentType::Harvest,
+            Intent::new(
+                move |creep| creep.harvest(&source).map_err(anyhow::Error::new)
+            ).incoming_energy(amount)
+        )
+    }
+
+    pub fn pickup(&mut self, target: Resource) -> Result<(), IntentError> {
+        let ty = target.resource_type();
+        let amount = target.amount()
+            .min(self.free_capacity);
+
+        self.register_intent(
+            IntentType::Pickup,
+            Intent::new(
+                move |creep| creep.pickup(&target).map_err(anyhow::Error::new)
+            ).incoming(ty, amount)
+        )
     }
 
     #[expect(unused)]
-    pub fn harvest_source(&mut self, source: &Source) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Harvest)?;
+    pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Result<(), IntentError> {
+        let amount = self.part_amount(Part::Work, 1)
+            .min((target.hits_max() - target.hits()).div_ceil(100))
+            .min(self.get_energy());
 
-        let amount = self.part_amount(Part::Work, 2).min(source.energy());
-        self.add_resource_capped(ResourceType::Energy, amount);
-        self.creep.harvest(source).map_err(anyhow::Error::new);
-        Ok(())
-    }
-
-    pub fn pickup(&mut self, target: &Resource) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Pickup)?;
-
-        self.add_resource_capped(target.resource_type(), target.amount());
-        self.creep.pickup(target).map_err(anyhow::Error::new)?;
-        Ok(())
-    }
-
-    #[expect(unused)]
-    pub fn repair(&mut self, target: &(impl Repairable + ?Sized)) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Repair)?;
-
-        let amount = self.part_amount(Part::Work, 1).min((target.hits_max() - target.hits()).div_ceil(100));
-        self.remove_resource_capped(ResourceType::Energy, amount);
-        self.creep.repair(target).map_err(anyhow::Error::new);
-        Ok(())
+        self.register_intent(
+            IntentType::Repair,
+            Intent::new(
+                move |creep| creep.repair(&target).map_err(anyhow::Error::new)
+            ).outgoing_energy(amount)
+        )
     }
 
     // Transfer from other creep into this creep
+    // TODO: Make this cancellable?
     pub fn transfer_from(&mut self, target: &WithId<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
-        let amount = amount.unwrap_or(self.free_capacity).min(target.used_capacity(Some(ty)));
-        self.add_resource(ty, amount)?;
+        let amount = amount.unwrap_or(self.free_capacity)
+            .min(target.used_capacity(Some(ty)));
+
+        self.add_incoming(ty, amount)?;
         target.transfer(&*self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;
         Ok(())
     }
 
-    pub fn transfer(&mut self, target: &impl Transferable, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Transfer)?;
-
-        let target_free_capacity = target.free_capacity(Some(ty));
-        let amount = amount.unwrap_or(self.get_resource(ty)).min(target_free_capacity);
-        self.remove_resource(ty, amount)?;
-        self.creep.transfer(target.transferable(), ty, Some(amount)).map_err(anyhow::Error::new)?;
-        Ok(())
+    pub fn transfer(&mut self, target: impl Transferable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+        let amount = amount.unwrap_or(self.get_resource(ty))
+            .min(target.free_capacity(Some(ty)));
+        
+        self.register_intent(
+            IntentType::Transfer,
+            Intent::new(
+                move |creep| creep.transfer(target.transferable(), ty, Some(amount)).map_err(anyhow::Error::new)
+            ).outgoing(ty, amount)
+        )
     }
 
-    pub fn withdraw(&mut self, target: &impl Withdrawable, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
-        self.register_intent(IntentType::Withdraw)?;
-
-        let amount = amount.unwrap_or(self.free_capacity).min(target.used_capacity(Some(ty)));
-        self.add_resource(ty, amount)?;
-        self.creep.withdraw(target.withdrawable(), ty, Some(amount)).map_err(anyhow::Error::new)?;
-        Ok(())
+    pub fn withdraw(&mut self, target: impl Withdrawable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+        let amount = amount.unwrap_or(self.free_capacity)
+            .min(target.used_capacity(Some(ty)));
+        
+        self.register_intent(
+            IntentType::Withdraw,
+            Intent::new(
+                move |creep| creep.withdraw(target.withdrawable(), ty, Some(amount)).map_err(anyhow::Error::new)
+            ).incoming(ty, amount)
+        )
     }
 }
 
@@ -347,7 +438,7 @@ impl MovementRequests {
 
         let result = self.move_creep_to(&creep.creep, target, range);
         if !result.in_range() {
-            creep.register_intent(IntentType::Move)?;
+            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(())))?;
         }
         
         Ok(result)
@@ -359,7 +450,7 @@ impl MovementRequests {
         
         let result = self.move_tugged_to(&creep.creep, target, range);
         if !result.in_range() {
-            creep.register_intent(IntentType::Move)?;
+            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(())))?;
         }
         
         Ok(result)

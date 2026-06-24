@@ -1,10 +1,10 @@
-use anyhow::{Ok, anyhow};
+use anyhow::{anyhow};
 use enum_display::EnumDisplay;
 use log::warn;
-use screeps::{ConstructionSite, Creep, HasId, Part, ResourceType, SharedCreepProperties, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn, Transferable};
+use screeps::{ConstructionSite, HasId, Part, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, ids::WithId, statemachine::Transition};
+use crate::{break_deferable, break_move, colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -13,40 +13,36 @@ pub enum ExcavatorCreep {
     Mining
 }
 
-trait SourceFillTarget: Transferable + screeps::HasStore {}
-impl SourceFillTarget for StructureSpawn {}
-impl SourceFillTarget for StructureLink {}
-impl SourceFillTarget for StructureExtension {}
-
 impl SourcePlan {
     pub fn get_construction_site(&self) -> Option<ConstructionSite> {
-        if let site@Some(_) = self.container.resolve_site() { return site; }
-        if let site@Some(_) = self.link.resolve_site() { return site; }
-        if let site@Some(_) = self.spawn.resolve_site() { return site; }
+        if let Some(site) = self.container.resolve_site() { return Some(site); }
+        if let Some(site) = self.link.resolve_site() { return Some(site); }
+        if let Some(site) = self.spawn.resolve_site() { return Some(site); }
         self.extensions.iter().find_map(PlannedStructureRef::resolve_site)
     }
 
-    fn get_fill_target(&self) -> Option<Box<dyn SourceFillTarget>> {
-        let mut fillables = Vec::new();
+    fn get_fill_target(&self) -> Option<EnergyDestination> {
+        let mut fillable = None;
 
-        fillables.extend(self.spawn.resolve().map(|x| Box::new(x) as Box<dyn SourceFillTarget>));
-        fillables.extend(self.extensions.resolve().into_iter().map(|x| Box::new(x) as Box<dyn SourceFillTarget>));
-        fillables.extend(self.link.resolve().map(|x| Box::new(x) as Box<dyn SourceFillTarget>));
+        fillable = fillable.or_else(|| self.spawn.resolve().filter(|x| x.free_energy_capacity() > 0).map(EnergyDestination::Spawn));
+        fillable = fillable.or_else(|| self.extensions.resolve().into_iter().filter(|x| x.free_energy_capacity() > 0).map(EnergyDestination::Extension).next());
+        fillable = fillable.or_else(|| self.link.resolve().filter(|x| x.free_energy_capacity() > 0).map(EnergyDestination::Link));
 
-        fillables.into_iter()
-            .find(|fillable| fillable.store().get_free_capacity(Some(ResourceType::Energy)) > 0)
+        fillable
     }
 
     fn get_energy_destination(&self) -> Option<EnergyDestination> {
         self.get_construction_site().map(EnergyDestination::ConstructionSite)
-            .or_else(|| self.get_fill_target().map(EnergyDestination::FillTarget))
+            .or_else(|| self.get_fill_target())
             .or_else(|| self.container.resolve().filter(|container| container.free_energy_capacity() > 0).map(EnergyDestination::Container))
     }
 }
 
 enum EnergyDestination {
     ConstructionSite(ConstructionSite),
-    FillTarget(Box<dyn SourceFillTarget>),
+    Spawn(StructureSpawn),
+    Extension(StructureExtension),
+    Link(StructureLink),
     Container(StructureContainer)
 }
 
@@ -55,21 +51,20 @@ impl EnergyDestination {
         !matches!(self, Self::ConstructionSite(_))
     }
 
-    fn recieve(&self, creep: &WithId<Creep>) {
+    fn recieve(self, creep: &mut VirtualCreep) -> Result<(), IntentError> {
         match self {
             EnergyDestination::ConstructionSite(site) => 
-                creep.build(site).ok(),
-            EnergyDestination::FillTarget(target) => 
-                creep.transfer(&**target, ResourceType::Energy, None).ok(),
+                creep.build(site.clone()),
+            EnergyDestination::Spawn(spawn) => 
+                creep.transfer(spawn, ResourceType::Energy, None),
+            EnergyDestination::Extension(extension) => 
+                creep.transfer(extension, ResourceType::Energy, None),
+            EnergyDestination::Link(link) => 
+                creep.transfer(link, ResourceType::Energy, None),
             EnergyDestination::Container(container) => 
-                creep.transfer(container, ResourceType::Energy, None).ok(),
-            
-        };
+                creep.transfer(container, ResourceType::Energy, None),   
+        }
     }
-}
-
-fn work_count(creep: &WithId<Creep>) -> u32 {
-    creep.body().iter().filter(|bodypart| bodypart.part() == Part::Work).count() as u32
 }
 
 /*
@@ -84,7 +79,7 @@ fn work_count(creep: &WithId<Creep>) -> u32 {
 */
 
 impl ExcavatorCreep {
-    pub fn update(self, creep: &WithId<Creep>, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;
         use Transition::*;
 
@@ -93,39 +88,43 @@ impl ExcavatorCreep {
         match self {
             Going => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                if movement.move_tugged_to(creep, harvest_pos, 0).in_range() {
-                    return Ok(Continue(Mining))
-                }
+                break_deferable!(break_move!(movement.move_vcreep_to(creep, harvest_pos, 0), self), self)?;
 
-                Ok(Break(self))
+                Ok(Continue(Mining))
             },
             Mining => {
-                let Some(energy_dest) = plan.get_energy_destination() else {
-                    warn!("{} has nowhere to put its energy", creep.name());
-                    return Ok(Break(self));
-                };
+                creep.harvest_source(source.clone())?;
 
-                let harvest_energy = work_count(creep) * 2;
+                let harvest_energy = (creep.body().num(Part::Work) * 2) as u32;
+                let target_energy = creep.capacity() - harvest_energy;
 
-                let mut can_harvest = true;
-                if creep.energy_capacity() < harvest_energy {
-                    energy_dest.recieve(creep);
+                let mut transferring_to_container = false;
+                if creep.next_used_energy_capacity() > target_energy {
+                    let Some(energy_dest) = plan.get_energy_destination() else {
+                        creep.cancel_intent(IntentType::Harvest);
+
+                        warn!("{} has nowhere to put its energy", creep.name());
+                        return Ok(Break(self));
+                    };
 
                     if !energy_dest.can_also_harvest() {
-                        can_harvest = false;
-                    }
-                }
-
-                if can_harvest {
-                    creep.harvest(source).ok();
-                }
-
-                if !matches!(energy_dest, EnergyDestination::Container(_))
-                    && let Some(container) = plan.container.resolve() {
-                        // Maybes makes creep drop harvested resources, which will just put into the container anyway
-                        creep.withdraw(&container, ResourceType::Energy, None).ok();
+                        creep.cancel_intent(IntentType::Harvest);
                     }
 
+                    transferring_to_container = matches!(energy_dest, EnergyDestination::Container(_));
+                    energy_dest.recieve(creep)?;
+                }
+
+                if transferring_to_container { return Ok(Break(self)) }
+
+                let container: Option<StructureContainer> = plan.container.resolve();
+                let Some(container) = container else { return Ok(Break(self)) };
+
+                let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
+                let defecit = defecit.min(container.used_energy_capacity());
+                if defecit == 0 { return Ok(Break(self)) }
+
+                creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
                 Ok(Break(self))
             }
         }
