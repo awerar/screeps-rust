@@ -285,7 +285,6 @@ impl VirtualCreep {
     }
 
     // Free capacity left this tick
-    #[expect(unused)]
     pub fn curr_free_capacity(&self) -> u32 {
         self.free_capacity
     }
@@ -444,7 +443,6 @@ impl MovementRequests {
         Ok(result)
     }
 
-    #[expect(unused)]
     pub fn move_vtugged_to(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Result<MoveToResult, IntentError> {
         if creep.has_intent(IntentType::Move) { return Err(IntentError::AlreadyScheduled(IntentType::Move)) }
         

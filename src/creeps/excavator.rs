@@ -88,7 +88,7 @@ impl ExcavatorCreep {
         match self {
             Going => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                break_deferable!(break_move!(movement.move_vcreep_to(creep, harvest_pos, 0), self), self)?;
+                break_deferable!(break_move!(movement.move_vtugged_to(creep, harvest_pos, 0), self), self)?;
 
                 Ok(Continue(Mining))
             },
@@ -121,7 +121,7 @@ impl ExcavatorCreep {
                 let Some(container) = container else { return Ok(Break(self)) };
 
                 let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
-                let defecit = defecit.min(container.used_energy_capacity());
+                let defecit = defecit.min(container.used_energy_capacity()).min(creep.curr_free_capacity());
                 if defecit == 0 { return Ok(Break(self)) }
 
                 creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
