@@ -70,7 +70,12 @@ pub trait MaybeHasId: Sized {
 pub mod screeps_objects {
     #[allow(clippy::wildcard_imports)]
     use screeps::{objects::*, ObjectId};
+    use thiserror::Error;
     use super::{HasId, MaybeHasId};
+
+    #[derive(Error, Debug)]
+    #[error("Unable to resolve {0}")]
+    pub struct IdResolutionError<T>(pub ObjectId<T>);
 
     macro_rules! has_id_entities {
         ($($ty:ty),* $(,)?) => {
@@ -82,10 +87,10 @@ pub mod screeps_objects {
 
                 impl $crate::check::CheckFrom for $ty {
                     type Unchecked = ObjectId<$ty>;
-                    type Err = ();
+                    type Err = IdResolutionError<$ty>;
 
                     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-                        us.resolve().ok_or(())
+                        us.resolve().ok_or_else(|| IdResolutionError(us))
                     }
                 }
             )*

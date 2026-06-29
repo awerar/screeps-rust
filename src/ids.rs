@@ -6,7 +6,7 @@ use screeps::{Creep, ObjectId, game, SharedCreepProperties};
 use serde::{Deserialize, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
-use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, IdReqs, MaybeHasId}};
+use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, IdReqs, MaybeHasId, screeps_objects::IdResolutionError}};
 
 pub trait CheckState {
     type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
@@ -135,10 +135,10 @@ impl<T: MaybeHasId> IntoWithId<T::Id> for T {
 
 impl<T: JsCast + screeps::MaybeHasId> CheckFrom for WithId<T> {
     type Unchecked = ObjectId<T>;
-    type Err = ();
+    type Err = IdResolutionError<T>;
     
-    fn check_from(uc: Self::Unchecked) -> Result<Self, ()> {
-        uc.resolve().ok_or(()).map(|entity| WithId { id: uc, inner: entity })
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        uc.resolve().map(|entity| WithId { id: uc, inner: entity }).ok_or(IdResolutionError(uc))
     }
 }
 

@@ -1,47 +1,70 @@
-use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
-use crate::check::{Check, CheckFrom};
+use derive_where::derive_where;
+use screeps::game;
 
-/*
-Requirements:
-- Should support arbitrary clients: creeps, spawns, rooms, logical clients
-    - A client implements hashable and eq
+use crate::check::CheckFrom;
 
-
-Questions:
-- Should a client be able to claim multiple simultaneous tasks?
-- What is a task?
-- 
-
-Minimal set of assumptions:
-- Clients are hashable IDs
-- 
-
-*/
-
-/*#[derive(Serialize, Deserialize)]
-struct TaskSpecification<Task, Meta> {
-    work_required: u32,
-    task: Task,
-    meta: Meta
+pub trait TaskKind {
+    type Task: Hash + Eq;
+    type Client: Hash + Eq + CheckFrom;
+    type TaskState;
+    type ClientState;
 }
 
-impl<Task: TryFromUnchecked, Meta: TryFromUnchecked> TryFromUnchecked for TaskSpecification<Task, Meta>
-{
-    type Unchecked = TaskSpecification<Task::Unchecked, Meta::Unchecked>;
+pub enum ClientFailure<Err> {
+    Timeout,
+    Invalid(Err)
+}
 
-    fn try_from_unchecked(us: Self::Unchecked) -> Option<Self> {
-        Some(Self {
-            work_required: us.work_required,
-            task: us.task.try_check()?,
-            meta: us.meta.try_check()?,
-        })
+pub trait TaskState<K: TaskKind<TaskState = Self>> {
+    fn complete(&mut self, client: &K::Client, cstate: K::ClientState);
+    fn fail(&mut self, failure: ClientFailure<<K::Client as CheckFrom>::Err>, cstate: K::ClientState);
+}
+
+struct ClientRecord<K: TaskKind> {
+    state: K::ClientState,
+    last_heartbeat: u32
+}
+
+#[derive_where(Serialize, Deserialize; K::TaskState, HashMap<K::Client, ClientRecord<K>>)]
+struct TaskRecord<K: TaskKind> {
+    state: K::TaskState,
+    clients: HashMap<K::Client, ClientRecord<K>>,
+}
+
+pub trait TaskPolicy<K: TaskKind> {
+    type Score;
+
+    fn score(task: &K::Task, client: &K::Client, state: K::ClientState, cstate: &K::ClientState) -> Self::Score;
+}
+
+struct TaskServer<K: TaskKind, Policy, const TIMEOUT: u32 = 5> {
+    tasks: HashMap<K::Task, TaskRecord<K>>,
+    phantom: PhantomData<Policy>
+}
+
+impl<K: TaskKind, Policy, const TIMEOUT: u32> TaskServer<K, Policy, TIMEOUT>
+where 
+    K::TaskState: TaskState<K>,
+    Policy: TaskPolicy<K>
+{
+    pub fn new() -> Self {
+        Self { tasks: HashMap::new(), phantom: PhantomData }
+    }
+
+    pub fn heartbeat(&mut self, client: &K::Client, task: &K::Task) -> bool {
+        let Some(task) = self.tasks.get_mut(task) else { return false; };
+        let Some(client_record) = task.clients.get_mut(client) else { return false };
+
+        if game::time() > client_record.last_heartbeat + TIMEOUT {
+            let client = task.clients.remove(client).unwrap();
+
+            task.state.fail(ClientFailure::Timeout, client.state);
+            false 
+        } else {
+            client_record.last_heartbeat = game::time();
+            true
+        }
     }
 }
-
-#[derive(Serialize, Deserialize)]
-struct TaskLease<Task> {
-    pending: u32,
-    last_heartbeat: u32,
-    task: Task
-}*/

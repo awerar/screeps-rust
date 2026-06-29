@@ -18,9 +18,9 @@ pub enum ProviderTruckStop<S: CheckState = Checked> {
 
 impl CheckFrom for ProviderTruckStop {
     type Unchecked = ProviderTruckStop<Unchecked>;
-    type Err = ();
+    type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
         Ok(match us {
             Self::Unchecked::Ruin(x) => Self::Ruin(ById(x.check()?)),
             Self::Unchecked::Resource(x) => Self::Resource(ById(x.check()?)),
@@ -79,9 +79,9 @@ pub enum ConsumerTruckStop<S: CheckState = Checked> {
 
 impl CheckFrom for ConsumerTruckStop {
     type Unchecked = ConsumerTruckStop<Unchecked>;
-    type Err = ();
+    type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
         Ok(match us {
             Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
             Self::Unchecked::Creep(x) => Self::Creep(ById(x.check()?)),
@@ -125,16 +125,16 @@ pub mod safe_structure {
 use screeps::{HasPosition, Position, Store, Structure};
     use serde::{Deserialize, Serialize};
 
-    use crate::{check::{Check, CheckFrom}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{Checked, CheckState, Unchecked}, utils::EasyStructure};
+    use crate::{check::{Check, CheckFrom}, domain_traits::{HasStore, Transferable, Withdrawable, screeps_objects::IdResolutionError}, ids::{CheckState, Checked, Unchecked}, utils::EasyStructure};
 
     #[derive_where(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash; EasyStructure<S>)]
     pub struct SafeStructure<T, S: CheckState = Checked>(EasyStructure<S>, PhantomData<T>);
 
     impl<T> CheckFrom for SafeStructure<T> {
         type Unchecked = SafeStructure<T, Unchecked>;
-        type Err = ();
+        type Err = IdResolutionError<Structure>;
     
-        fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+        fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
             Ok(SafeStructure(us.0.check()?, PhantomData))
         }
     }

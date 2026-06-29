@@ -5,6 +5,7 @@ use derive_where::derive_where;
 use log::{error, warn};
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
 use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
 
@@ -29,9 +30,9 @@ pub struct CreepData<S: CheckState = Checked> {
 
 impl CheckFrom for CreepData {
     type Unchecked = CreepData<Unchecked>;
-    type Err = ();
+    type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(Self {
             role: us.role.check()?,
             home: us.home
@@ -86,9 +87,9 @@ pub enum CreepRole<S: CheckState = Checked> {
 
 impl CheckFrom for CreepRole {
     type Unchecked = CreepRole<Unchecked>;
-    type Err = ();
+    type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(match us {
             Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.check()?),
             Self::Unchecked::Flagship(state) => Self::Flagship(state),

@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use derive_deref::Deref;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
@@ -47,9 +47,9 @@ pub struct FabricatorTask<S: CheckState = Checked> {
 
 impl CheckFrom for FabricatorTask {
     type Unchecked = FabricatorTask<Unchecked>;
-    type Err = ();
+    type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(Self { 
             task_type: match us.task_type {
                 FabricatorTaskType::Building(id) => 

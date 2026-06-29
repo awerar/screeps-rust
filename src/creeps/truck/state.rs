@@ -38,9 +38,9 @@ pub enum TruckTask<S: CheckState = Checked> {
 
 impl CheckFrom for TruckTask {
     type Unchecked = TruckTask<Unchecked>;
-    type Err = ();
+    type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, ()> {
+    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
         Ok(match us {
             Self::Unchecked::CollectingFrom(x) => Self::CollectingFrom(x.check()?),
             Self::Unchecked::ProvidingTo(x) => Self::ProvidingTo(x.check()?),
