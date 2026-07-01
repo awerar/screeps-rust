@@ -53,18 +53,18 @@ where
         Self { tasks: HashMap::new(), phantom: PhantomData }
     }
 
-    pub fn heartbeat(&mut self, client: &K::Client, task: &K::Task) -> bool {
-        let Some(task) = self.tasks.get_mut(task) else { return false; };
-        let Some(client_record) = task.clients.get_mut(client) else { return false };
+    pub fn heartbeat(&mut self, client: &K::Client, task: &K::Task) -> Result<(), ()> {
+        let Some(task) = self.tasks.get_mut(task) else { return Err(()); };
+        let Some(client_record) = task.clients.get_mut(client) else { return Err(()) };
 
         if game::time() > client_record.last_heartbeat + TIMEOUT {
             let client = task.clients.remove(client).unwrap();
 
             task.state.fail(ClientFailure::Timeout, client.state);
-            false 
+            Err(())
         } else {
             client_record.last_heartbeat = game::time();
-            true
+            Ok(())
         }
     }
 }

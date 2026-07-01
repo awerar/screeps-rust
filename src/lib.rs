@@ -3,6 +3,7 @@
 #![feature(int_roundings)]
 #![feature(never_type)]
 #![feature(type_changing_struct_update)]
+#![feature(impl_trait_in_assoc_type)]
 
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
