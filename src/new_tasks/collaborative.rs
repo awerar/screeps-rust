@@ -1,9 +1,9 @@
 use std::{hash::Hash, marker::PhantomData};
 
 use derive_where::derive_where;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 
-use crate::{check::{CheckFrom, FilterCheck, PairCheckError, TriviallyChecked}, ids::{CheckState, Checked, Unchecked}, new_tasks::client_registry::{ClientHandle, ClientRegistry}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError, TriviallyChecked}, ids::{CheckState, Checked}, new_tasks::client_registry::{ClientHandle, ClientRegistry}};
 
 #[derive(Serialize, Deserialize)]
 pub struct ClientData {
@@ -50,13 +50,11 @@ impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
     }
 }
 
-impl<'de, Client> Deserialize<'de> for CollaborativeClientRegistry<Client>
-where
-    Client: CheckFrom + Hash + Eq,
-    Client::Unchecked : DeserializeOwned + Hash + Eq
-{
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let uc = CollaborativeClientRegistry::<Client::Unchecked, Unchecked>::deserialize(deserializer)?;
+impl<Client: CheckFrom + Hash + Eq> FilterCheckFrom for CollaborativeClientRegistry<Client> {
+    type Unchecked = CollaborativeClientRegistry<Client::Unchecked>;
+    type Err = Client::Err;
+
+    fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (registry, errs) = uc.registry.filter_check();
 
         let mut checked = Self { 
@@ -65,12 +63,15 @@ where
             phantom: PhantomData
         };
 
+        let mut client_errs = Vec::new();
         for err in errs {
-            let PairCheckError::Key(_, client_data) = err;
+            let PairCheckError::Key(client_err, client_data) = err;
+
             checked.task_data.pending_work -= client_data.pending_work;
+            client_errs.push(client_err);
         }
 
-        Ok(checked)
+        (checked, client_errs)
     }
 }
 
