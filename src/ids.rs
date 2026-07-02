@@ -12,7 +12,7 @@ pub trait CheckState {
     type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Checked {}
 impl CheckState for Checked {
     type Repr<T: HasId> = ById<T>;

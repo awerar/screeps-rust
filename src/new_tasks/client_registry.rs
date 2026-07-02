@@ -5,7 +5,7 @@ use screeps::game;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::check::{Check, CheckFrom, FilterCheck, FilterCheckFrom};
+use crate::check::{Check, CheckFrom, FilterCheckIterator, FilterCheckFrom};
 
 const TIMEOUT: u32 = 2;
 
@@ -108,6 +108,6 @@ impl<C: CheckFrom + Hash + Eq, CD: CheckFrom> FilterCheckFrom for ClientRegistry
     type Err = <(C, CD) as CheckFrom>::Err;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        uc.into_iter().filter_check()
+        uc.into_iter().filter_check_iter()
     }
 }

@@ -39,30 +39,40 @@ impl<T: CheckFrom> Check<T> for T::Unchecked {
 }
 
 // Pair check, used for hashmap filter checks
-pub enum PairCheckError<KE, VE> {
-    Key(KE),
-    Value(VE)
+pub enum PairCheckError<K: CheckFrom, V: CheckFrom> {
+    Key(K::Err, V::Unchecked),
+    Value(K, V::Err)
 }
 
 impl<K: CheckFrom, V: CheckFrom> CheckFrom for (K, V) {
     type Unchecked = (K::Unchecked, V::Unchecked);
-    type Err = PairCheckError<K::Err, V::Err>;
+    type Err = PairCheckError<K, V>;
 
     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok((us.0.check().map_err(PairCheckError::Key)?, us.1.check().map_err(PairCheckError::Value)?))
+        let key = match us.0.check() {
+            Ok(key) => key,
+            Err(ke) => return Err(PairCheckError::Key(ke, us.1))
+        };
+
+        let value = match us.1.check() {
+            Ok(value) => value,
+            Err(ve) => return Err(PairCheckError::Value(key, ve))
+        };
+
+        Ok((key, value))
     }
 }
 
 // ==== Container implementations ====
-pub trait FilterCheck: Iterator + Sized {
-    fn filter_check<T, B>(self) -> (B, Vec<T::Err>)
+pub trait FilterCheckIterator: Iterator + Sized {
+    fn filter_check_iter<T, B>(self) -> (B, Vec<T::Err>)
     where
         T: CheckFrom<Unchecked = Self::Item>,
         B: FromIterator<T>;
 }
 
-impl<I: Iterator> FilterCheck for I {
-    fn filter_check<T, B>(self) -> (B, Vec<T::Err>)
+impl<I: Iterator> FilterCheckIterator for I {
+    fn filter_check_iter<T, B>(self) -> (B, Vec<T::Err>)
     where
         T: CheckFrom<Unchecked = Self::Item>,
         B: FromIterator<T>,
@@ -79,12 +89,26 @@ pub trait FilterCheckFrom: Sized {
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>);
 }
 
+pub trait FilterCheck<T> {
+    type Err;
+    
+    fn filter_check(self) -> (T, Vec<Self::Err>);
+}
+
+impl<T: FilterCheckFrom> FilterCheck<T> for T::Unchecked {
+    type Err = T::Err;
+
+    fn filter_check(self) -> (T, Vec<Self::Err>) {
+        T::filter_check_from(self)
+    }
+}
+
 impl<T: CheckFrom> FilterCheckFrom for Vec<T> {
     type Unchecked = Vec<T::Unchecked>;
     type Err = T::Err;
 
     fn filter_check_from(us: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        us.into_iter().filter_check()
+        us.into_iter().filter_check_iter()
     }
 }
 
@@ -93,16 +117,16 @@ impl<T: CheckFrom + Eq + Hash> FilterCheckFrom for HashSet<T> {
     type Err = T::Err;
 
     fn filter_check_from(us: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        us.into_iter().filter_check()
+        us.into_iter().filter_check_iter()
     }
 }
 
 impl <K: CheckFrom + Hash + Eq, V: CheckFrom> FilterCheckFrom for HashMap<K, V> {
     type Unchecked = HashMap<K::Unchecked, V::Unchecked>;
-    type Err = PairCheckError<K::Err, V::Err>;
+    type Err = PairCheckError<K, V>;
 
     fn filter_check_from(us: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        us.into_iter().filter_check()
+        us.into_iter().filter_check_iter()
     }
 }
 
