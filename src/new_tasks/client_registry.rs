@@ -1,11 +1,13 @@
-use std::{collections::{HashMap, hash_map}, hash::Hash};
+use std::{collections::{HashMap, hash_map}, fmt::Debug, hash::Hash};
 
 use derive_where::derive_where;
+use log::warn;
 use screeps::game;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
+use serde_json_any_key::any_key_map;
 
-use crate::check::{Check, CheckFrom, FilterCheckIterator, FilterCheckFrom};
+use crate::check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError};
 
 const TIMEOUT: u32 = 2;
 
@@ -16,9 +18,9 @@ struct ClientEntry<ClientData> {
 }
 
 #[derive(Error, Debug)]
-pub enum ClientDataCheckError<CD: CheckFrom> {
-    #[error("Timed out")] Timeout(CD),
-    #[error("Data check failed: {0}")] DataCheck(CD::Err)
+pub enum ClientDataCheckError<ClientData: CheckFrom> {
+    #[error("Timed out")] Timeout(ClientData),
+    #[error("Data check failed: {0}")] DataCheck(ClientData::Err)
 }
 
 impl<CD: CheckFrom> CheckFrom for ClientEntry<CD> {
@@ -42,8 +44,10 @@ impl<CD> ClientEntry<CD> {
     }
 }
 
-#[derive_where(Serialize, Deserialize; HashMap<Client, ClientEntry<ClientData>>)]
+#[derive_where(Serialize; Client, ClientData, Client: Hash + Eq + 'static)]
+#[derive_where(Deserialize; Client: Hash + Eq + DeserializeOwned + 'static, ClientData: DeserializeOwned + 'static)]
 pub struct ClientRegistry<Client, ClientData> {
+    #[serde(with = "any_key_map")] 
     clients: HashMap<Client, ClientEntry<ClientData>>
 }
 
@@ -103,11 +107,40 @@ impl<C, CD> ClientHandle<'_, C, CD> {
     }
 }
 
-impl<C: CheckFrom + Hash + Eq, CD: CheckFrom> FilterCheckFrom for ClientRegistry<C, CD> {
-    type Unchecked = ClientRegistry<C::Unchecked, CD::Unchecked>;
-    type Err = <(C, CD) as CheckFrom>::Err;
+#[derive(Error)]
+#[derive_where(Debug; Client, ClientData, Client::Err, ClientData::Err, ClientData::Unchecked)]
+pub enum ClientEntryCheckError<Client: CheckFrom, ClientData: CheckFrom> {
+    #[error("Client check failed: {0}")] Client(Client::Err, ClientData::Unchecked),
+    #[error("{1}")] Data(Client, ClientDataCheckError<ClientData>),
+}
+
+impl<Client, ClientData> FilterCheckFrom for ClientRegistry<Client, ClientData> 
+where
+    Client: CheckFrom + Hash + Eq + Debug,
+    ClientData: CheckFrom
+{
+    type Unchecked = ClientRegistry<Client::Unchecked, ClientData::Unchecked>;
+    type Err = ClientEntryCheckError<Client, ClientData>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        uc.into_iter().filter_check_iter()
+        let (clients, errs) = uc.clients.filter_check();
+        for err in &errs {
+            if let PairCheckError::Value(client, ClientDataCheckError::Timeout(_)) = &err {
+                warn!("{client:?} timed out");
+            }
+        }
+
+        let errs = errs.into_iter().map(|err| {
+            match err {
+                PairCheckError::Key(client_error, client_entry) => {
+                    let client_entry: ClientEntry<ClientData::Unchecked> = client_entry; 
+                    ClientEntryCheckError::Client(client_error, client_entry.data)
+                },
+                PairCheckError::Value(client, client_data_error) => 
+                    ClientEntryCheckError::Data(client, client_data_error)
+            }
+        }).collect();
+
+        (Self { clients }, errs)
     }
 }

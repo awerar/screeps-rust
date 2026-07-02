@@ -1,9 +1,10 @@
-use std::{hash::Hash, marker::PhantomData};
+use std::{fmt::Debug, hash::Hash};
 
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError, TriviallyChecked}, ids::{CheckState, Checked}, new_tasks::client_registry::{ClientHandle, ClientRegistry}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, new_tasks::client_registry::{ClientDataCheckError, ClientEntryCheckError, ClientHandle, ClientRegistry}};
 
 #[derive(Serialize, Deserialize)]
 pub struct ClientData {
@@ -18,11 +19,10 @@ pub struct TaskData {
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; ClientRegistry<Client, ClientData>, S)]
-pub struct CollaborativeClientRegistry<Client, S: CheckState = Checked> {
+#[derive_where(Serialize, Deserialize; ClientRegistry<Client, ClientData>)]
+pub struct CollaborativeClientRegistry<Client> {
     registry: ClientRegistry<Client, ClientData>,
-    task_data: TaskData,
-    phantom: PhantomData<S>
+    task_data: TaskData
 }
 
 impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
@@ -32,8 +32,7 @@ impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
             task_data: TaskData { 
                 remaining_work: required_work, 
                 pending_work: 0
-            },
-            phantom: PhantomData
+            }
         }
     }
 
@@ -50,28 +49,39 @@ impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
     }
 }
 
-impl<Client: CheckFrom + Hash + Eq> FilterCheckFrom for CollaborativeClientRegistry<Client> {
+#[derive(Error, Debug)]
+pub enum ClientCheckError<Client: CheckFrom> {
+    #[error("Timed out")] Timeout(Client),
+    #[error("Client check failed: {0}")] ClientCheck(Client::Err)
+}
+
+impl<Client: CheckFrom + Hash + Eq + Debug> FilterCheckFrom for CollaborativeClientRegistry<Client> {
     type Unchecked = CollaborativeClientRegistry<Client::Unchecked>;
-    type Err = Client::Err;
+    type Err = ClientCheckError<Client>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (registry, errs) = uc.registry.filter_check();
 
         let mut checked = Self { 
             registry,
-            task_data: uc.task_data,
-            phantom: PhantomData
+            task_data: uc.task_data
         };
 
-        let mut client_errs = Vec::new();
+        let mut new_errs = Vec::new();
         for err in errs {
-            let PairCheckError::Key(client_err, client_data) = err;
+            let (client_data, new_err) = match err {
+                ClientEntryCheckError::Client(client_err, client_data) => {
+                    (client_data, ClientCheckError::ClientCheck(client_err))
+                },
+                ClientEntryCheckError::Data(client, ClientDataCheckError::Timeout(client_data)) => 
+                    (client_data, ClientCheckError::Timeout(client)),
+            };
 
             checked.task_data.pending_work -= client_data.pending_work;
-            client_errs.push(client_err);
+            new_errs.push(new_err);
         }
 
-        (checked, client_errs)
+        (checked, new_errs)
     }
 }
 
