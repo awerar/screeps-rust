@@ -1,2 +1,2 @@
-pub mod server;
 pub mod client_registry;
+pub mod collaborative;

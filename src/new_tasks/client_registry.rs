@@ -1,15 +1,16 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::{HashMap, hash_map}, hash::Hash};
 
 use derive_where::derive_where;
-use itertools::Itertools;
 use screeps::game;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::check::{Check, CheckFrom, FilterCheck, FilterCheckFrom};
 
+const TIMEOUT: u32 = 2;
+
 #[derive(Serialize, Deserialize)]
-struct ClientEntry<ClientData, const TIMEOUT: u32> {
+struct ClientEntry<ClientData> {
     last_heartbeat: u32,
     data: ClientData
 }
@@ -20,8 +21,8 @@ pub enum ClientDataCheckError<CD: CheckFrom> {
     #[error("Data check failed: {0}")] DataCheck(CD::Err)
 }
 
-impl<CD: CheckFrom, const TIMEOUT: u32> CheckFrom for ClientEntry<CD, TIMEOUT> {
-    type Unchecked = ClientEntry<CD::Unchecked, TIMEOUT>;
+impl<CD: CheckFrom> CheckFrom for ClientEntry<CD> {
+    type Unchecked = ClientEntry<CD::Unchecked>;
     type Err = ClientDataCheckError<CD>;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
@@ -35,18 +36,18 @@ impl<CD: CheckFrom, const TIMEOUT: u32> CheckFrom for ClientEntry<CD, TIMEOUT> {
     }
 }
 
-impl<CD, const T: u32> ClientEntry<CD, T> {
+impl<CD> ClientEntry<CD> {
     pub fn new(data: CD) -> Self {
         Self { last_heartbeat: game::time(), data }
     }
 }
 
-#[derive_where(Serialize, Deserialize; HashMap<Client, ClientEntry<ClientData, TIMEOUT>>)]
-pub struct ClientRegistry<Client, ClientData, const TIMEOUT: u32 = 5> {
-    clients: HashMap<Client, ClientEntry<ClientData, TIMEOUT>>
+#[derive_where(Serialize, Deserialize; HashMap<Client, ClientEntry<ClientData>>)]
+pub struct ClientRegistry<Client, ClientData> {
+    clients: HashMap<Client, ClientEntry<ClientData>>
 }
 
-impl<C, CD, const T: u32> IntoIterator for ClientRegistry<C, CD, T> {
+impl<C, CD> IntoIterator for ClientRegistry<C, CD> {
     type Item = (C, CD);
     type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -55,7 +56,7 @@ impl<C, CD, const T: u32> IntoIterator for ClientRegistry<C, CD, T> {
     }
 }
 
-impl<C: Eq + Hash, CD, const TI: u32> FromIterator<(C, CD)> for ClientRegistry<C, CD, TI> {
+impl<C: Eq + Hash, CD> FromIterator<(C, CD)> for ClientRegistry<C, CD> {
     fn from_iter<T: IntoIterator<Item = (C, CD)>>(iter: T) -> Self {
         Self {
             clients: iter.into_iter()
@@ -66,32 +67,43 @@ impl<C: Eq + Hash, CD, const TI: u32> FromIterator<(C, CD)> for ClientRegistry<C
     }
 }
 
-impl<Client, ClientData, const TIMEOUT: u32> ClientRegistry<Client, ClientData, TIMEOUT> where Client : Hash + Eq {
+impl<Client, ClientData> ClientRegistry<Client, ClientData> where Client : Hash + Eq {
+    pub fn new() -> Self {
+        Self { clients: HashMap::new() }
+    }
+    
     pub fn add(&mut self, client: Client, data: ClientData) {
         self.clients.insert(client, ClientEntry::new(data));
     }
 
-    pub fn remove(&mut self, client: &Client) -> Option<ClientData> {
-        self.clients.remove(client).map(|x| x.data)
-    }
-
-    pub fn get(&self, client: &Client) -> Option<&ClientData> {
-        self.clients.get(client).map(|x| &x.data)
-    }
-
-    pub fn get_mut(&mut self, client: &mut Client) -> Option<&mut ClientData> {
-        self.clients.get_mut(client).map(|x| &mut x.data)
-    }
-
-    pub fn heartbeat(&mut self, client: &Client) -> bool {
-        let Some(client_record) = self.clients.get_mut(client) else { return false };
-
-        client_record.last_heartbeat = game::time();
-        true
+    pub fn heartbeat(&mut self, client: Client) -> Option<ClientHandle<'_, Client, ClientData>> {
+        match self.clients.entry(client) {
+            hash_map::Entry::Vacant(_) => None,
+            hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().last_heartbeat = game::time();
+                Some(ClientHandle(entry))
+            },
+        }
     }
 }
 
-impl<C: CheckFrom + Hash + Eq, CD: CheckFrom, const T: u32> FilterCheckFrom for ClientRegistry<C, CD, T> {
+pub struct ClientHandle<'a, Client, ClientData>(hash_map::OccupiedEntry<'a, Client, ClientEntry<ClientData>>);
+
+impl<C, CD> ClientHandle<'_, C, CD> {
+    pub fn get(&self) -> &CD {
+        &self.0.get().data
+    }
+
+    pub fn get_mut(&mut self) -> &mut CD {
+        &mut self.0.get_mut().data
+    }
+
+    pub fn remove(self) {
+        self.0.remove();
+    }
+}
+
+impl<C: CheckFrom + Hash + Eq, CD: CheckFrom> FilterCheckFrom for ClientRegistry<C, CD> {
     type Unchecked = ClientRegistry<C::Unchecked, CD::Unchecked>;
     type Err = <(C, CD) as CheckFrom>::Err;
     
