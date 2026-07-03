@@ -44,7 +44,10 @@ impl<Worker: Hash + Eq> Collaboration<Worker> {
 
     // TODO: collisions
     pub fn add(&mut self, worker: Worker, work: u32) {
-        self.registry.add(worker, PendingWork(work));
+        if let Some(PendingWork(other_work)) = self.registry.add(worker, PendingWork(work)) {
+            self.task_data.pending_work -= other_work;
+        }
+
         self.task_data.pending_work += work;
     }
 }

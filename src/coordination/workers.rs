@@ -65,8 +65,8 @@ impl<W, WD> Workers<W, WD> {
 }
 
 impl<Worker, WorkerData> Workers<Worker, WorkerData> where Worker : Hash + Eq {    
-    pub fn add(&mut self, worker: Worker, data: WorkerData) {
-        self.workers.insert(worker, WorkerState::new(data));
+    pub fn add(&mut self, worker: Worker, data: WorkerData) -> Option<WorkerData> {
+        self.workers.insert(worker, WorkerState::new(data)).map(|state| state.data)
     }
 
     pub fn heartbeat(&mut self, worker: Worker) -> Option<WorkerHandle<'_, Worker, WorkerData>> {
