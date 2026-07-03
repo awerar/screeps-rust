@@ -4,7 +4,7 @@ use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, new_tasks::client_registry::{ClientDataCheckError, ClientEntryCheckError, ClientHandle, ClientRegistry}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, new_tasks::{client_registry::{ClientDataCheckError, ClientEntryCheckError, ClientHandle, ClientRegistry}, server::UpdateableTaskData}};
 
 #[derive(Serialize, Deserialize)]
 pub struct ClientData {
@@ -25,7 +25,7 @@ pub struct CollaborativeClientRegistry<Client> {
     task_data: TaskData
 }
 
-impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
+impl<C> CollaborativeClientRegistry<C> {
     pub fn new(required_work: u32) -> Self {
         Self { 
             registry: ClientRegistry::new(),
@@ -35,7 +35,9 @@ impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
             }
         }
     }
+}
 
+impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
     pub fn heartbeat(&mut self, client: Client) -> Option<CollaborativeClientHandle<'_, Client>> {
         Some(CollaborativeClientHandle {
             client_handle: self.registry.heartbeat(client)?,
@@ -46,6 +48,19 @@ impl<Client: Hash + Eq> CollaborativeClientRegistry<Client> {
     pub fn add(&mut self, client: Client, work: u32) {
         self.registry.add(client, ClientData { pending_work: work });
         self.task_data.pending_work += work;
+    }
+}
+
+pub struct RemainingWork(pub u32);
+impl<Client> UpdateableTaskData for CollaborativeClientRegistry<Client> {
+    type Update = RemainingWork;
+
+    fn update(&mut self, update: Self::Update) {
+        self.task_data.remaining_work = update.0;
+    }
+
+    fn create(update: Self::Update) -> Self {
+        Self::new(update.0)
     }
 }
 

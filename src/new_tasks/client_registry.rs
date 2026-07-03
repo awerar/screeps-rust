@@ -71,11 +71,13 @@ impl<C: Eq + Hash, CD> FromIterator<(C, CD)> for ClientRegistry<C, CD> {
     }
 }
 
-impl<Client, ClientData> ClientRegistry<Client, ClientData> where Client : Hash + Eq {
+impl<C, CD> ClientRegistry<C, CD> {
     pub fn new() -> Self {
         Self { clients: HashMap::new() }
     }
-    
+}
+
+impl<Client, ClientData> ClientRegistry<Client, ClientData> where Client : Hash + Eq {    
     pub fn add(&mut self, client: Client, data: ClientData) {
         self.clients.insert(client, ClientEntry::new(data));
     }
@@ -88,6 +90,12 @@ impl<Client, ClientData> ClientRegistry<Client, ClientData> where Client : Hash 
                 Some(ClientHandle(entry))
             },
         }
+    }
+}
+
+impl<C, CD> Default for ClientRegistry<C, CD> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
