@@ -8,13 +8,13 @@ use crate::check::{CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError};
 
 #[derive_where(Serialize; Task, TaskData, Task: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Task: Hash + Eq + DeserializeOwned + 'static, TaskData: DeserializeOwned + 'static)]
-pub struct TaskServer<Task, TaskData> {
+pub struct Tasks<Task, TaskData> {
     #[serde(with = "any_key_map")] 
     tasks: HashMap<Task, TaskData>
 }
 
-impl<Task: Hash + Eq + Clone, TaskData: UpdateableTaskData> TaskServer<Task, TaskData> {
-    pub fn set_tasks(&mut self, new_tasks: HashMap<Task, TaskData::Update>) {
+impl<Task: Hash + Eq + Clone, TaskData: UpdateableTaskData> Tasks<Task, TaskData> {
+    pub fn set(&mut self, new_tasks: HashMap<Task, TaskData::Update>) {
         self.tasks.keys().cloned().collect::<HashSet<_>>()
             .difference(&new_tasks.keys().cloned().collect())
             .for_each(|removed_task| {
@@ -52,8 +52,8 @@ pub trait UpdateableTaskData {
     fn create(update: Self::Update) -> Self;
 }
 
-impl<Task: CheckFrom + Hash + Eq, TaskData: CheckFrom> FilterCheckFrom for TaskServer<Task, TaskData> {
-    type Unchecked = TaskServer<Task::Unchecked, TaskData::Unchecked>;
+impl<Task: CheckFrom + Hash + Eq, TaskData: CheckFrom> FilterCheckFrom for Tasks<Task, TaskData> {
+    type Unchecked = Tasks<Task::Unchecked, TaskData::Unchecked>;
     type Err = PairCheckError<Task, TaskData>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {

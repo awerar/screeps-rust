@@ -36,7 +36,7 @@ mod commands;
 mod tasks;
 mod movement;
 mod domain_traits;
-mod new_tasks;
+mod coordination;
 mod check;
 mod ids;
 
