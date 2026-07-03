@@ -2,7 +2,6 @@ use std::{fmt::Debug, hash::Hash};
 
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, new_tasks::{client_registry::{ClientDataCheckError, ClientEntryCheckError, ClientHandle, ClientRegistry}, server::UpdateableTaskData}};
 
@@ -64,10 +63,9 @@ impl<Client> UpdateableTaskData for CollaborativeClientRegistry<Client> {
     }
 }
 
-#[derive(Error, Debug)]
 pub enum ClientCheckError<Client: CheckFrom> {
-    #[error("Timed out")] Timeout(Client),
-    #[error("Client check failed: {0}")] ClientCheck(Client::Err)
+    Timeout(Client),
+    ClientCheck(Client::Err)
 }
 
 impl<Client: CheckFrom + Hash + Eq + Debug> FilterCheckFrom for CollaborativeClientRegistry<Client> {
@@ -88,7 +86,7 @@ impl<Client: CheckFrom + Hash + Eq + Debug> FilterCheckFrom for CollaborativeCli
                 ClientEntryCheckError::Client(client_err, client_data) => {
                     (client_data, ClientCheckError::ClientCheck(client_err))
                 },
-                ClientEntryCheckError::Data(client, ClientDataCheckError::Timeout(client_data)) => 
+                ClientEntryCheckError::Timeout(client, client_data) => 
                     (client_data, ClientCheckError::Timeout(client)),
             };
 

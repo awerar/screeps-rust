@@ -4,7 +4,6 @@ use derive_where::derive_where;
 use log::warn;
 use screeps::game;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use thiserror::Error;
 use serde_json_any_key::any_key_map;
 
 use crate::check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError};
@@ -17,10 +16,9 @@ struct ClientEntry<ClientData> {
     data: ClientData
 }
 
-#[derive(Error, Debug)]
 pub enum ClientDataCheckError<ClientData: CheckFrom> {
-    #[error("Timed out")] Timeout(ClientData),
-    #[error("Data check failed: {0}")] DataCheck(ClientData::Err)
+    Timeout(ClientData),
+    DataCheck(ClientData::Err)
 }
 
 impl<CD: CheckFrom> CheckFrom for ClientEntry<CD> {
@@ -115,11 +113,10 @@ impl<C, CD> ClientHandle<'_, C, CD> {
     }
 }
 
-#[derive(Error)]
-#[derive_where(Debug; Client, ClientData, Client::Err, ClientData::Err, ClientData::Unchecked)]
 pub enum ClientEntryCheckError<Client: CheckFrom, ClientData: CheckFrom> {
-    #[error("Client check failed: {0}")] Client(Client::Err, ClientData::Unchecked),
-    #[error("{1}")] Data(Client, ClientDataCheckError<ClientData>),
+    Client(Client::Err, ClientData::Unchecked),
+    Data(Client, ClientData::Err),
+    Timeout(Client, ClientData)
 }
 
 impl<Client, ClientData> FilterCheckFrom for ClientRegistry<Client, ClientData> 
@@ -144,8 +141,10 @@ where
                     let client_entry: ClientEntry<ClientData::Unchecked> = client_entry; 
                     ClientEntryCheckError::Client(client_error, client_entry.data)
                 },
-                PairCheckError::Value(client, client_data_error) => 
-                    ClientEntryCheckError::Data(client, client_data_error)
+                PairCheckError::Value(client, ClientDataCheckError::DataCheck(data_err)) => 
+                    ClientEntryCheckError::Data(client, data_err),
+                PairCheckError::Value(client, ClientDataCheckError::Timeout(data)) =>
+                    ClientEntryCheckError::Timeout(client, data)
             }
         }).collect();
 
