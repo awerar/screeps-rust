@@ -2,11 +2,11 @@ use std::{collections::{HashMap, hash_map}, fmt::Debug, hash::Hash};
 
 use derive_where::derive_where;
 use log::warn;
-use screeps::game;
+use screeps::{Creep, game};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError}, ids::{Handle, WithId}};
 
 const TIMEOUT: u32 = 2;
 
@@ -44,12 +44,12 @@ impl<WD> WorkerState<WD> {
 
 #[derive_where(Serialize; Worker, WorkerData, Worker: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Worker: Hash + Eq + DeserializeOwned + 'static, WorkerData: DeserializeOwned + 'static)]
-pub struct Workers<Worker, WorkerData> {
+pub struct Workers<WorkerData, Worker = Handle<WithId<Creep>>> {
     #[serde(with = "any_key_map")] 
     workers: HashMap<Worker, WorkerState<WorkerData>>
 }
 
-impl<W, WD> IntoIterator for Workers<W, WD> {
+impl<WD, W> IntoIterator for Workers<WD, W> {
     type Item = (W, WD);
     type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -58,13 +58,13 @@ impl<W, WD> IntoIterator for Workers<W, WD> {
     }
 }
 
-impl<W, WD> Workers<W, WD> {
+impl<WD, W> Workers<WD, W> {
     pub fn new() -> Self {
         Self { workers: HashMap::new() }
     }
 }
 
-impl<Worker, WorkerData> Workers<Worker, WorkerData> where Worker : Hash + Eq {    
+impl<WorkerData, Worker> Workers<WorkerData, Worker> where Worker : Hash + Eq {    
     pub fn add(&mut self, worker: Worker, data: WorkerData) -> Option<WorkerData> {
         self.workers.insert(worker, WorkerState::new(data)).map(|state| state.data)
     }
@@ -80,7 +80,7 @@ impl<Worker, WorkerData> Workers<Worker, WorkerData> where Worker : Hash + Eq {
     }
 }
 
-impl<C, CD> Default for Workers<C, CD> {
+impl<WD, W> Default for Workers<WD, W> {
     fn default() -> Self {
         Self::new()
     }
@@ -88,12 +88,12 @@ impl<C, CD> Default for Workers<C, CD> {
 
 pub struct WorkerHandle<'a, Worker, WorkerData>(hash_map::OccupiedEntry<'a, Worker, WorkerState<WorkerData>>);
 
-impl<C, CD> WorkerHandle<'_, C, CD> {
-    pub fn get(&self) -> &CD {
+impl<W, WD> WorkerHandle<'_, W, WD> {
+    pub fn get(&self) -> &WD {
         &self.0.get().data
     }
 
-    pub fn get_mut(&mut self) -> &mut CD {
+    pub fn get_mut(&mut self) -> &mut WD {
         &mut self.0.get_mut().data
     }
 
@@ -108,12 +108,12 @@ pub enum WorkerEntryCheckError<Worker: CheckFrom, WorkerData: CheckFrom> {
     Timeout(Worker, WorkerData)
 }
 
-impl<Worker, WorkerData> FilterCheckFrom for Workers<Worker, WorkerData> 
+impl<WorkerData, Worker> FilterCheckFrom for Workers<WorkerData, Worker> 
 where
     Worker: CheckFrom + Hash + Eq + Debug,
     WorkerData: CheckFrom
 {
-    type Unchecked = Workers<Worker::Unchecked, WorkerData::Unchecked>;
+    type Unchecked = Workers<WorkerData::Unchecked, Worker::Unchecked>;
     type Err = WorkerEntryCheckError<Worker, WorkerData>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {

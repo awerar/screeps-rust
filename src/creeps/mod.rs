@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, mem};
+use std::{collections::HashMap, fmt::Debug};
 
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
@@ -152,7 +152,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 transition(state, |state| state.update(&mut vcreep, source, &home, &mut movement)),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                *state = mem::take(state).update(&mut vcreep, &home, &mut movement, coordinator);
+                transition(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
             },
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();

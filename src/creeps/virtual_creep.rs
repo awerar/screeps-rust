@@ -125,32 +125,33 @@ pub struct VirtualCreep {
     intents: HashMap<IntentType, Intent>
 }
 
+enum IntentEffect {
+    Incoming(ResourceType, u32),
+    Outgoing(ResourceType, u32)
+}
+
+impl IntentEffect {
+    pub fn incoming_energy(amount: u32) -> Self {
+        IntentEffect::Incoming(ResourceType::Energy, amount)
+    }
+
+    pub fn outgoing_energy(amount: u32) -> Self {
+        IntentEffect::Outgoing(ResourceType::Energy, amount)
+    }
+}
+
 trait CommitFn = FnOnce(&Creep) -> Result<()>;
 struct Intent {
-    incoming: Option<(ResourceType, u32)>,
-    outgoing: Option<(ResourceType, u32)>,
+    effect: Option<IntentEffect>,
     commit: Box<dyn CommitFn>
 }
 
 impl Intent {
-    fn new(commit: impl CommitFn + 'static) -> Self {
+    fn new(commit: impl CommitFn + 'static, effect: Option<IntentEffect>) -> Self {
         Intent { 
-            incoming: None, 
-            outgoing: None, 
+            effect,
             commit: Box::new(commit) 
         }
-    }
-
-    fn outgoing_energy(self, amount: u32) -> Self { self.outgoing(ResourceType::Energy, amount) }
-    fn outgoing(mut self, ty: ResourceType, amount: u32) -> Self {
-        self.outgoing = Some((ty, amount));
-        self
-    }
-
-    fn incoming_energy(self, amount: u32) -> Self { self.incoming(ResourceType::Energy, amount) }
-    fn incoming(mut self, ty: ResourceType, amount: u32) -> Self {
-        self.incoming = Some((ty, amount));
-        self
     }
 }
 
@@ -209,22 +210,26 @@ impl VirtualCreep {
         Err(IntentError::PipelineCollision { existing: *other, new: intent })
     }
 
-    fn register_intent(&mut self, ty: IntentType, intent: Intent) -> Result<(), IntentError> {
+    fn register_intent(&mut self, ty: IntentType, intent: Intent) -> Result<u32, IntentError> {
         if self.intents.contains_key(&ty) { return Err(IntentError::AlreadyScheduled(ty)) }
 
         self.check_pipeline(ty, PIPELINE_A)?;
         self.check_pipeline(ty, PIPELINE_B)?;
 
-        if let Some((ty, amount)) = &intent.outgoing {
-            self.add_outgoing(*ty, *amount)?;
+        match &intent.effect {
+            Some(IntentEffect::Incoming(ty, amount)) => self.add_incoming(*ty, *amount)?,
+            Some(IntentEffect::Outgoing(ty, amount)) => self.add_outgoing(*ty, *amount)?,
+            None => { },
         }
 
-        if let Some((ty, amount)) = &intent.incoming {
-            self.add_incoming(*ty, *amount)?;
-        }
+        let amount = match &intent.effect {
+            Some(IntentEffect::Incoming(_, amount) | IntentEffect::Outgoing(_, amount)) => *amount,
+            None => 0,
+        };
 
         self.intents.insert(ty, intent);
-        Ok(())
+
+        Ok(amount)
     }
 
     fn add_outgoing(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
@@ -251,18 +256,20 @@ impl VirtualCreep {
     pub fn cancel_intent(&mut self, intent: IntentType) -> bool {
         let Some(intent) = self.intents.remove(&intent) else { return false };
 
-        if let Some((ty, amount)) = intent.incoming {
-            self.free_capacity += amount;
-            *self.incoming_resources.get_mut(&ty).unwrap() -= amount;
-            self.total_incoming_resources -= amount;
-        }
+        match intent.effect {
+            Some(IntentEffect::Incoming(ty, amount)) => {
+                self.free_capacity += amount;
+                *self.incoming_resources.get_mut(&ty).unwrap() -= amount;
+                self.total_incoming_resources -= amount;
+            },
+            Some(IntentEffect::Outgoing(ty, amount)) => {
+                let resource = self.resources.get_mut(&ty).unwrap();
 
-        if let Some((ty, amount)) = intent.outgoing {
-            let resource = self.resources.get_mut(&ty).unwrap();
-
-            *resource += amount;
-            self.total_resources += amount;
-            self.total_outgoing_resources -= amount;
+                *resource += amount;
+                self.total_resources += amount;
+                self.total_outgoing_resources -= amount;
+            },
+            None => { }
         }
 
         true
@@ -330,7 +337,7 @@ impl VirtualCreep {
     pub fn next_used_energy_capacity(&self) -> u32 { self.next_used_capacity(Some(ResourceType::Energy)) }
     pub fn incoming_energy(&self) -> u32 { self.incoming(Some(ResourceType::Energy)) }
     
-    pub fn build(&mut self, target: ConstructionSite) -> Result<(), IntentError> {
+    pub fn build(&mut self, target: ConstructionSite) -> Result<u32, IntentError> {
         let amount = self.part_amount(Part::Work, 5)
             .min(target.progress_total() - target.progress())
             .min(self.get_energy());
@@ -338,24 +345,26 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Build,
             Intent::new(
-                move |creep| creep.build(&target).map_err(anyhow::Error::new)
-            ).outgoing_energy(amount)
+                move |creep| creep.build(&target).map_err(anyhow::Error::new),
+                Some(IntentEffect::outgoing_energy(amount))
+            )
         )
     }
 
     #[expect(unused)]
-    pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
         let amount = amount.unwrap_or(self.get_resource(ty));
 
         self.register_intent(
             IntentType::Drop,
             Intent::new(
-                move |creep| creep.drop(ty, Some(amount)).map_err(anyhow::Error::new)
-            ).outgoing(ty, amount)
+                move |creep| creep.drop(ty, Some(amount)).map_err(anyhow::Error::new),
+                    Some(IntentEffect::Outgoing(ty, amount))
+            )
         )
     }
 
-    pub fn harvest_source(&mut self, source: Source) -> Result<(), IntentError> {
+    pub fn harvest_source(&mut self, source: Source) -> Result<u32, IntentError> {
         let amount = self.part_amount(Part::Work, 2)
             .min(source.energy())
             .min(self.free_capacity);
@@ -363,12 +372,13 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Harvest,
             Intent::new(
-                move |creep| creep.harvest(&source).map_err(anyhow::Error::new)
-            ).incoming_energy(amount)
+                move |creep| creep.harvest(&source).map_err(anyhow::Error::new),
+                Some(IntentEffect::incoming_energy(amount))
+            )
         )
     }
 
-    pub fn pickup(&mut self, target: Resource) -> Result<(), IntentError> {
+    pub fn pickup(&mut self, target: Resource) -> Result<u32, IntentError> {
         let ty = target.resource_type();
         let amount = target.amount()
             .min(self.free_capacity);
@@ -376,13 +386,14 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Pickup,
             Intent::new(
-                move |creep| creep.pickup(&target).map_err(anyhow::Error::new)
-            ).incoming(ty, amount)
+                move |creep| creep.pickup(&target).map_err(anyhow::Error::new),
+                Some(IntentEffect::Incoming(ty, amount))
+            )
         )
     }
 
     #[expect(unused)]
-    pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Result<(), IntentError> {
+    pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Result<u32, IntentError> {
         let amount = self.part_amount(Part::Work, 1)
             .min((target.hits_max() - target.hits()).div_ceil(100))
             .min(self.get_energy());
@@ -390,43 +401,46 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Repair,
             Intent::new(
-                move |creep| creep.repair(&target).map_err(anyhow::Error::new)
-            ).outgoing_energy(amount)
+                move |creep| creep.repair(&target).map_err(anyhow::Error::new),
+                Some(IntentEffect::outgoing_energy(amount))
+            )
         )
     }
 
     // Transfer from other creep into this creep
     // TODO: Make this cancellable?
-    pub fn transfer_from(&mut self, target: &WithId<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn transfer_from(&mut self, target: &WithId<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
         let amount = amount.unwrap_or(self.free_capacity)
             .min(target.used_capacity(Some(ty)));
 
         self.add_incoming(ty, amount)?;
         target.transfer(&*self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;
-        Ok(())
+        Ok(amount)
     }
 
-    pub fn transfer(&mut self, target: impl Transferable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn transfer(&mut self, target: impl Transferable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
         let amount = amount.unwrap_or(self.get_resource(ty))
             .min(target.free_capacity(Some(ty)));
         
         self.register_intent(
             IntentType::Transfer,
             Intent::new(
-                move |creep| creep.transfer(target.transferable(), ty, Some(amount)).map_err(anyhow::Error::new)
-            ).outgoing(ty, amount)
+                move |creep| creep.transfer(target.transferable(), ty, Some(amount)).map_err(anyhow::Error::new),
+                Some(IntentEffect::Outgoing(ty, amount))
+            )
         )
     }
 
-    pub fn withdraw(&mut self, target: impl Withdrawable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<(), IntentError> {
+    pub fn withdraw(&mut self, target: impl Withdrawable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
         let amount = amount.unwrap_or(self.free_capacity)
             .min(target.used_capacity(Some(ty)));
         
         self.register_intent(
             IntentType::Withdraw,
             Intent::new(
-                move |creep| creep.withdraw(target.withdrawable(), ty, Some(amount)).map_err(anyhow::Error::new)
-            ).incoming(ty, amount)
+                move |creep| creep.withdraw(target.withdrawable(), ty, Some(amount)).map_err(anyhow::Error::new),
+                Some(IntentEffect::Incoming(ty, amount))
+            )
         )
     }
 }
@@ -437,7 +451,7 @@ impl MovementRequests {
 
         let result = self.move_creep_to(&creep.creep, target, range);
         if !result.in_range() {
-            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(())))?;
+            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(()), None))?;
         }
         
         Ok(result)
@@ -448,7 +462,7 @@ impl MovementRequests {
         
         let result = self.move_tugged_to(&creep.creep, target, range);
         if !result.in_range() {
-            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(())))?;
+            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(()), None))?;
         }
         
         Ok(result)

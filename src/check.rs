@@ -1,11 +1,13 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash};
 
+use derive_deref::{Deref, DerefMut};
 use itertools::Itertools;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 // ==== Check traits ====
 pub trait TriviallyChecked {}
 impl TriviallyChecked for String {}
+impl TriviallyChecked for u32 {}
 
 pub trait CheckFrom: Sized {
     type Unchecked;
@@ -138,4 +140,15 @@ where
 {
     let raw = B::Unchecked::deserialize(deserializer)?;
     Ok(B::filter_check_from(raw).0)
+}
+
+#[derive(Clone, Copy, Serialize, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Deref, DerefMut)]
+#[serde(transparent)]
+pub struct Filtered<T>(pub T);
+impl<T> TriviallyChecked for Filtered<T> {}
+
+impl<'de, T: FilterCheckFrom> Deserialize<'de> for Filtered<T> where T::Unchecked : Deserialize<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Filtered(deserialize_filter_check(deserializer)?))
+    }
 }

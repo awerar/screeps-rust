@@ -51,7 +51,7 @@ impl EnergyDestination {
         !matches!(self, Self::ConstructionSite(_))
     }
 
-    fn recieve(self, creep: &mut VirtualCreep) -> Result<(), IntentError> {
+    fn recieve(self, creep: &mut VirtualCreep) -> Result<u32, IntentError> {
         match self {
             EnergyDestination::ConstructionSite(site) => 
                 creep.build(site.clone()),

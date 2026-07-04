@@ -1,10 +1,10 @@
 use std::hash::Hash;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use derive_where::derive_where;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 
-use crate::{check::{Check, CheckFrom}, creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, Transferable}, ids::{ById, CheckState, Checked, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom}, creeps::{truck::stop::safe_structure::{ConsumerStructure, ProviderStructure}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::{HasStore, HasStoreExt, Transferable}, ids::{ById, CheckState, Checked, Unchecked, WithId}};
 
 #[derive_where(Debug, PartialEq, Eq, Hash)]
 #[derive_where(Serialize, Deserialize, Clone; S::Repr<Ruin>, S::Repr<Resource>, S::Repr<Tombstone>, ProviderStructure<S>, S::Repr<WithId<Creep>>)]
@@ -20,14 +20,17 @@ impl CheckFrom for ProviderTruckStop {
     type Unchecked = ProviderTruckStop<Unchecked>;
     type Err = anyhow::Error;
 
-    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(match us {
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        let checked = match uc {
             Self::Unchecked::Ruin(x) => Self::Ruin(ById(x.check()?)),
             Self::Unchecked::Resource(x) => Self::Resource(ById(x.check()?)),
             Self::Unchecked::Tombstone(x) => Self::Tombstone(ById(x.check()?)),
             Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
             Self::Unchecked::Creep(x) => Self::Creep(ById(x.check()?)),
-        })
+        };
+
+        if checked.get_resource_avaliable(ResourceType::Energy) == 0 { bail!("Provider is empty"); }
+        Ok(checked)
     }
 }
 
@@ -53,7 +56,7 @@ impl ProviderTruckStop {
         }
     }
 
-    pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<(), IntentError> { 
+    pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<u32, IntentError> { 
         match self {
             Self::Ruin(id) => Ok(creep.withdraw((**id).clone(), ty, None)?),
             Self::Tombstone(id) => Ok(creep.withdraw((**id).clone(), ty, None)?),
@@ -82,10 +85,13 @@ impl CheckFrom for ConsumerTruckStop {
     type Err = anyhow::Error;
 
     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(match us {
+        let checked = match us {
             Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
             Self::Unchecked::Creep(x) => Self::Creep(ById(x.check()?)),
-        })
+        };
+
+        if checked.free_capacity(Some(ResourceType::Energy)) == 0 { bail!("Consumer has no free space") }
+        Ok(checked)
     }
 }
 

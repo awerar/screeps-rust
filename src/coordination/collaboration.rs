@@ -1,9 +1,10 @@
 use std::{fmt::Debug, hash::Hash};
 
 use derive_where::derive_where;
+use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, coordination::{workers::{WorkerStateCheckError, WorkerEntryCheckError, WorkerHandle, Workers}, tasks::UpdateableTaskData}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, ids::{Handle, WithId}};
 
 #[derive(Serialize, Deserialize)]
 struct PendingWork(u32);
@@ -16,9 +17,9 @@ pub struct TaskState {
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; Workers<Worker, PendingWork>)]
-pub struct Collaboration<Worker> {
-    registry: Workers<Worker, PendingWork>,
+#[derive_where(Serialize, Deserialize; Workers<PendingWork, Worker>)]
+pub struct Collaboration<Worker = Handle<WithId<Creep>>> {
+    registry: Workers<PendingWork, Worker>,
     task_data: TaskState
 }
 
@@ -31,6 +32,10 @@ impl<C> Collaboration<C> {
                 pending_work: 0
             }
         }
+    }
+
+    pub fn unassigned_work(&self) -> u32 {
+        self.task_data.remaining_work.saturating_sub(self.task_data.pending_work)
     }
 }
 
@@ -100,7 +105,7 @@ impl<Worker: CheckFrom + Hash + Eq + Debug> FilterCheckFrom for Collaboration<Wo
     }
 }
 
-pub struct CollaborativeWorkerHandle<'a, Worker> {
+pub struct CollaborativeWorkerHandle<'a, Worker = Handle<WithId<Creep>>> {
     task_data: &'a mut TaskState,
     worker_handle: WorkerHandle<'a, Worker, PendingWork>
 }
@@ -117,6 +122,7 @@ impl<Worker> CollaborativeWorkerHandle<'_, Worker> {
         self.worker_handle.remove();
     }
 
+    #[expect(unused)]
     pub fn remaining(&self) -> u32 {
         self.worker_handle.get().0
     }
