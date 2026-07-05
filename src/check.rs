@@ -169,29 +169,52 @@ impl<'de, T: FilterCheckFrom> Deserialize<'de> for Filtered<T> where T::Unchecke
     }
 }
 
-// Expiry
+// ==== Expiration ====
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[derive_where(PartialEq, Eq, PartialOrd, Ord; T)]
-pub struct Expiry<T, const EXPIRY: u32> {
-    pub inner: T,
-    #[derive_where(skip)] last_refresh: u32
+pub struct Expiration<const LIFETIME: u32> {
+    last_refresh: u32
 }
 
-impl<T, const EXPIRY: u32> Expiry<T, EXPIRY> {
+impl<const LIFETIME: u32> Expiration<LIFETIME> {
+    pub fn new() -> Self {
+        Self { last_refresh: game::time() }
+    }
+
     pub fn refresh(&mut self) {
         self.last_refresh = game::time();
     }
 
     pub fn time_left(&self) -> u32 {
-        (self.last_refresh + EXPIRY + 1).saturating_sub(game::time())
-    }
-
-    pub fn new(inner: T) -> Self {
-        Self { inner, last_refresh: game::time() }
+        (self.last_refresh + LIFETIME + 1).saturating_sub(game::time())
     }
 }
 
-impl<T, const E: u32> Deref for Expiry<T, E> {
+impl<const LT: u32> CheckFrom for Expiration<LT> {
+    type Unchecked = Self;
+    type Err = ();
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        if uc.time_left() == 0 { return Err(()) }
+
+        Ok(uc)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive_where(PartialEq, Eq, PartialOrd, Ord; T)]
+pub struct Expiring<T, const LIFETIME: u32> {
+    pub inner: T,
+    #[derive_where(skip)] 
+    pub expiration: Expiration<LIFETIME>
+}
+
+impl<T, const LT: u32> Expiring<T, LT> {
+    pub fn new(inner: T) -> Self {
+        Expiring { inner, expiration: Expiration::new() }
+    }
+}
+
+impl<T, const E: u32> Deref for Expiring<T, E> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -199,27 +222,27 @@ impl<T, const E: u32> Deref for Expiry<T, E> {
     }
 }
 
-impl<T, const E: u32> DerefMut for Expiry<T, E> {
+impl<T, const E: u32> DerefMut for Expiring<T, E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-pub enum ExpiryCheckError<T: CheckFrom> {
-    Expiration(T),
+pub enum ExpirationCheckError<T: CheckFrom> {
+    Expired(T),
     Inner(T::Err)
 }
 
-impl<T: CheckFrom, const EXPIRY: u32> CheckFrom for Expiry<T, EXPIRY> {
-    type Unchecked = Expiry<T::Unchecked, EXPIRY>;
-    type Err = ExpiryCheckError<T>;
+impl<T: CheckFrom, const EXPIRY: u32> CheckFrom for Expiring<T, EXPIRY> {
+    type Unchecked = Expiring<T::Unchecked, EXPIRY>;
+    type Err = ExpirationCheckError<T>;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        let inner: T = uc.inner.check().map_err(ExpiryCheckError::Inner)?;
+        let inner: T = uc.inner.check().map_err(ExpirationCheckError::Inner)?;
+        let Ok(expiration) = uc.expiration.check() else {
+            return Err(ExpirationCheckError::Expired(inner))
+        };
 
-        let checked = Expiry { inner, ..uc };
-        if checked.time_left() == 0 { return Err(ExpiryCheckError::Expiration(checked.inner)) }
-
-        Ok(checked)
+        Ok(Self { inner, expiration })
     }
 }

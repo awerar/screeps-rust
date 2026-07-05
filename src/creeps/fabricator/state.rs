@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType};
 use serde::Deserialize;
 
-use crate::{break_deferable, break_move, check::{Check, Expiry}, colony::ColonyView, coordination::collaboration::CollaborativeWorkerHandle, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::FabricatorTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{break_deferable, break_move, check::Check, colony::ColonyView, coordination::collaboration::CollaborativeWorkerHandle, creeps::{fabricator::{TaskExpiration, coordinator::FabricatorCoordinator, task::FabricatorTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
 
 // TODO: Expiration
 #[derive(Debug, Default, EnumDisplay)]
@@ -32,7 +32,7 @@ impl FabricatorCreep {
     pub fn is_consumer(&self) -> bool { matches!(self, Self::CollectingFor(_) | Self::Performing(_)) }
     pub fn is_provider(&self) -> bool { matches!(self, Self::Idle) }
 
-    fn finish_task(task_handle: CollaborativeWorkerHandle<'_, Expiry<(), {super::MAX_TASK_TICKS}>>) -> Self {
+    fn finish_task(task_handle: CollaborativeWorkerHandle<'_, TaskExpiration>) -> Self {
         task_handle.remove();
         Self::Idle
     }

@@ -1,3 +1,5 @@
+use crate::check::Expiration;
+
 use self::coordinator::{HealthPercentage, DowngradePercentage, StorageFillPercentage};
 
 mod coordinator;
@@ -13,3 +15,5 @@ const STORAGE_UPGRADE_CONTROLLER_THRESHOLD: StorageFillPercentage = StorageFillP
 
 const MAX_TASK_TICKS: u32 = 100;
 const GUESSED_CREEP_MOVE_TO_TASK_TICKS: u32 = 50;
+
+type TaskExpiration = Expiration<MAX_TASK_TICKS>;

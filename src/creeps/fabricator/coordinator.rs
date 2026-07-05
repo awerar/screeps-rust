@@ -2,7 +2,7 @@ use screeps::{HasHits, HasPosition, Part, Position, Room, controller_downgrade, 
 use serde::{Serialize, Deserialize};
 use derive_deref::Deref;
 
-use crate::{check::{Expiry, Filtered, TriviallyChecked, deserialize_filter_check}, colony::ColonyBuffer, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{fabricator::task::{BuildTask, FabricatorTask, RepairTask, UpgradeTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, TriviallyChecked, deserialize_filter_check}, colony::ColonyBuffer, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask, UpgradeTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
 
 macro_rules! def_f32_wrapper {
     ($name:ident) => {
@@ -23,11 +23,11 @@ impl OverwriteableTaskData for Option<StorageFillPercentage> {}
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    repairs: Tasks<RepairTask, ((Position, HealthPercentage), Filtered<Collaboration<Expiry<(), {super::MAX_TASK_TICKS}>>>)>,
+    repairs: Tasks<RepairTask, ((Position, HealthPercentage), Filtered<Collaboration<TaskExpiration>>)>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    builds: Tasks<BuildTask, (Position, Filtered<Collaboration<Expiry<(), {super::MAX_TASK_TICKS}>>>)>,
+    builds: Tasks<BuildTask, (Position, Filtered<Collaboration<TaskExpiration>>)>,
     #[serde(deserialize_with = "deserialize_filter_check")] // TODO: Don't make this Tasks as it is only over one task
-    upgrades: Tasks<UpgradeTask, ((DowngradePercentage, Option<StorageFillPercentage>), Filtered<Collaboration<Expiry<(), {super::MAX_TASK_TICKS}>>>)>
+    upgrades: Tasks<UpgradeTask, ((DowngradePercentage, Option<StorageFillPercentage>), Filtered<Collaboration<TaskExpiration>>)>
 }
 
 fn get_creep_work_left(creep: &VirtualCreep) -> u32 {
@@ -102,35 +102,35 @@ impl FabricatorCoordinator {
         self.repairs.iter_mut()
             .filter(|(_, ((_, percentage), _))| *percentage <= super::EMERGENCY_REPAIR_PERCENTAGE)
             .min_by(|(_, ((_, p1), _)), (_, ((_, p2), _))| p1.total_cmp(p2))
-            .added_to_collab(creep.handle(), get_creep_work_left(creep) * 100, Expiry::new(()))
+            .added_to_collab(creep.handle(), get_creep_work_left(creep) * 100, Expiration::new())
             .or_else(|| 
                 self.repairs.iter_mut()
                     .filter(|(_, ((_, percentage), _))| *percentage <= super::REPAIR_PERCENTAGE)
                     .min_by_key(|(_, ((pos, _), _))| creep.pos().get_range_to(*pos))
-                    .added_to_collab(creep.handle(), get_creep_work_left(creep) * 100, Expiry::new(()))
+                    .added_to_collab(creep.handle(), get_creep_work_left(creep) * 100, Expiration::new())
             )
     }
 
     fn assign_build(&mut self, creep: &VirtualCreep) -> Option<BuildTask> {
         self.builds.iter_mut()
             .min_by_key(|(_, (pos, _))| creep.pos().get_range_to(*pos))
-            .added_to_collab(creep.handle(), get_creep_work_left(creep) * 5, Expiry::new(()))
+            .added_to_collab(creep.handle(), get_creep_work_left(creep) * 5, Expiration::new())
     }
 
     fn assign_emergency_upgrade(&mut self, creep: &VirtualCreep) -> Option<UpgradeTask> {
         self.upgrades.iter_mut()
             .find(|(_, ((percentage, _), _))| *percentage >= super::CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE)
-            .added_to_collab(creep.handle(), get_creep_work_left(creep), Expiry::new(()))
+            .added_to_collab(creep.handle(), get_creep_work_left(creep), Expiration::new())
     }
 
     fn assign_upgrade(&mut self, creep: &VirtualCreep) -> Option<UpgradeTask> {
         self.upgrades.iter_mut()
             .find(|(_, ((_, percentage), _))| 
                 percentage.is_none_or(|percentage| percentage >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD))
-            .added_to_collab(creep.handle(), get_creep_work_left(creep), Expiry::new(()))
+            .added_to_collab(creep.handle(), get_creep_work_left(creep), Expiration::new())
     }
 
-    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &FabricatorTask) -> Option<CollaborativeWorkerHandle<'_, Expiry<(), {super::MAX_TASK_TICKS}>>> {
+    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &FabricatorTask) -> Option<CollaborativeWorkerHandle<'_, TaskExpiration>> {
         match task {
             FabricatorTask::Building(build) => 
                 self.builds.heartbeat(build, creep.handle()),
