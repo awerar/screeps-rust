@@ -42,7 +42,7 @@ pub struct TaskState {
 }
 
 #[derive_where(Serialize, Deserialize; Workers<WorkerState<WorkerData>, Worker>)]
-pub struct Collaboration<WorkerData, Worker = Handle<WithId<Creep>> > {
+pub struct Collaboration<WorkerData = (), Worker = Handle<WithId<Creep>> > {
     registry: Workers<WorkerState<WorkerData>, Worker>,
     task_data: TaskState
 }
@@ -100,7 +100,7 @@ where
     Worker: CheckFrom + Hash + Eq + HasName
 {
     type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked>;
-    type Err = WorkerEntryCheckError<Worker, WorkerData>;
+    type Err = WorkerEntryCheckError<WorkerData, Worker>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (registry, errs) = uc.registry.filter_check();
@@ -131,9 +131,9 @@ where
     }
 }
 
-pub struct CollaborativeWorkerHandle<'a, WorkerData, Worker = Handle<WithId<Creep>>> {
+pub struct CollaborativeWorkerHandle<'a, WorkerData = (), Worker = Handle<WithId<Creep>>> {
     task_data: &'a mut TaskState,
-    worker_handle: WorkerHandle<'a, Worker, WorkerState<WorkerData>>
+    worker_handle: WorkerHandle<'a, WorkerState<WorkerData>, Worker>
 }
 
 impl<WorkerData, Worker> CollaborativeWorkerHandle<'_, WorkerData, Worker> {
@@ -152,10 +152,12 @@ impl<WorkerData, Worker> CollaborativeWorkerHandle<'_, WorkerData, Worker> {
         self.worker_handle.get().pending_work
     }
 
+    #[expect(unused)]
     pub fn get(&self) -> &WorkerData {
         &self.worker_handle.get().data
     }
 
+    #[expect(unused)]
     pub fn get_mut(&mut self) -> &mut WorkerData {
         &mut self.worker_handle.get_mut().data
     }

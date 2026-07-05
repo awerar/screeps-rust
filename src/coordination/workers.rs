@@ -12,7 +12,7 @@ const TIMEOUT: u32 = 1;
 
 #[derive_where(Serialize; Worker, WorkerData, Worker: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Worker: Hash + Eq + DeserializeOwned + 'static, WorkerData: DeserializeOwned + 'static)]
-pub struct Workers<WorkerData, Worker = Handle<WithId<Creep>>> {
+pub struct Workers<WorkerData = (), Worker = Handle<WithId<Creep>>> {
     #[serde(with = "any_key_map")] 
     workers: HashMap<Worker, Expiry<WorkerData, TIMEOUT>>
 }
@@ -37,7 +37,7 @@ impl<WorkerData, Worker> Workers<WorkerData, Worker> where Worker : Hash + Eq {
         self.workers.insert(worker, Expiry::new(data)).map(|expiry| expiry.inner)
     }
 
-    pub fn heartbeat(&mut self, worker: Worker) -> Option<WorkerHandle<'_, Worker, WorkerData>> {
+    pub fn heartbeat(&mut self, worker: Worker) -> Option<WorkerHandle<'_, WorkerData, Worker>> {
         match self.workers.entry(worker) {
             hash_map::Entry::Vacant(_) => None,
             hash_map::Entry::Occupied(mut entry) => {
@@ -54,9 +54,9 @@ impl<WD, W> Default for Workers<WD, W> {
     }
 }
 
-pub struct WorkerHandle<'a, Worker, WorkerData>(hash_map::OccupiedEntry<'a, Worker, Expiry<WorkerData, TIMEOUT>>);
+pub struct WorkerHandle<'a, WorkerData = (), Worker = Handle<WithId<Creep>>>(hash_map::OccupiedEntry<'a, Worker, Expiry<WorkerData, TIMEOUT>>);
 
-impl<W, WD> WorkerHandle<'_, W, WD> {
+impl<WD, W> WorkerHandle<'_, WD, W> {
     pub fn get(&self) -> &WD {
         self.0.get()
     }
@@ -70,7 +70,7 @@ impl<W, WD> WorkerHandle<'_, W, WD> {
     }
 }
 
-pub enum WorkerEntryCheckError<Worker: CheckFrom, WorkerData: CheckFrom> {
+pub enum WorkerEntryCheckError<WorkerData: CheckFrom, Worker: CheckFrom> {
     Worker(Worker::Err, WorkerData::Unchecked),
     Data(Worker, WorkerData::Err),
     Timeout(Worker, WorkerData)
@@ -82,7 +82,7 @@ where
     WorkerData: CheckFrom
 {
     type Unchecked = Workers<WorkerData::Unchecked, Worker::Unchecked>;
-    type Err = WorkerEntryCheckError<Worker, WorkerData>;
+    type Err = WorkerEntryCheckError<WorkerData, Worker>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (workers, errs): (HashMap<Worker, _>, _) = uc.workers.filter_check();
