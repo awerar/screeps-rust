@@ -184,7 +184,7 @@ impl<const LIFETIME: u32> Expiration<LIFETIME> {
         self.last_refresh = game::time();
     }
 
-    pub fn time_left(&self) -> u32 {
+    pub fn time_left(self) -> u32 {
         (self.last_refresh + LIFETIME + 1).saturating_sub(game::time())
     }
 }

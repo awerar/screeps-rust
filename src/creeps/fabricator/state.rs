@@ -42,7 +42,7 @@ impl FabricatorCreep {
 
         match self {
             Self::Idle => {
-                if let Some(task) = coordinator.assign_task(creep) {
+                if let Some(task) = coordinator.assign_task(creep, home.buffer.as_ref()) {
                     return Ok(Continue(Self::Performing(task)))
                 }
 

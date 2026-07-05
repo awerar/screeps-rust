@@ -2,7 +2,6 @@
 #![feature(trait_alias)]
 #![feature(int_roundings)]
 #![feature(never_type)]
-#![feature(type_changing_struct_update)]
 #![feature(impl_trait_in_assoc_type)]
 
 #![allow(clippy::enum_glob_use)]
@@ -98,7 +97,7 @@ fn update_coordinators(mem: &mut Memory) {
         let creep_stops = mem.get_creep_stops(colony.name);
 
         mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, creep_stops);
-        mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room, colony.buffer);
+        mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room);
     }
 }
 
