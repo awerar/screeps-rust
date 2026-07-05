@@ -49,7 +49,7 @@ impl CheckFrom for TruckTask {
 }
 
 impl TruckCreep {
-    fn finish_task(task_handle: CollaborativeWorkerHandle<'_>) -> Self {
+    fn finish_task(task_handle: CollaborativeWorkerHandle<'_, ()>) -> Self {
         task_handle.remove();
         Self::Idle
     }

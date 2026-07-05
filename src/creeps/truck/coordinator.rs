@@ -8,9 +8,9 @@ use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colon
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub providers: Tasks<ProviderTruckStop, (ProviderTaskData, Filtered<Collaboration>)>,
+    pub providers: Tasks<ProviderTruckStop, (ProviderTaskData, Filtered<Collaboration<()>>)>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub consumers: Tasks<ConsumerTruckStop, (ConsumerTaskPriority, Filtered<Collaboration>)>
+    pub consumers: Tasks<ConsumerTruckStop, (ConsumerTaskPriority, Filtered<Collaboration<()>>)>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -79,7 +79,7 @@ impl TruckCoordinator {
         self.consumers.set_tasks(consumers.build());
     }
 
-    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &TruckTask) -> Option<CollaborativeWorkerHandle<'_>> {
+    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &TruckTask) -> Option<CollaborativeWorkerHandle<'_, ()>> {
         match task {
             TruckTask::CollectingFrom(task) => self.providers.heartbeat(task, creep.handle()),
             TruckTask::ProvidingTo(task) => self.consumers.heartbeat(task, creep.handle())
@@ -94,7 +94,7 @@ impl TruckCoordinator {
                         data.priority, 
                         Reverse(provider.pos().get_range_to(truck.pos()))
                     )
-                }).added_to_collab(truck.handle(), truck.next_free_capacity())
+                }).added_to_collab(truck.handle(), truck.next_free_capacity(), ())
     }
 
     pub fn assign_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
@@ -105,7 +105,7 @@ impl TruckCoordinator {
                     data.priority,
                     Reverse(provider.pos().get_range_to(truck.pos()))
                 )
-            }).added_to_collab(truck.handle(), truck.next_free_capacity())
+            }).added_to_collab(truck.handle(), truck.next_free_capacity(), ())
     }
 
     pub fn assign_consumer(&mut self, truck: &VirtualCreep) -> Option<ConsumerTruckStop> {
@@ -116,7 +116,7 @@ impl TruckCoordinator {
                     collab.unassigned_work(), 
                     Reverse(consumer.pos().get_range_to(truck.pos()))
                 )
-            }).added_to_collab(truck.handle(), truck.next_used_energy_capacity())
+            }).added_to_collab(truck.handle(), truck.next_used_energy_capacity(), ())
     }
 }
 

@@ -57,8 +57,12 @@ impl<Task: Hash + Eq, TaskData> Tasks<Task, TaskData> {
     }
 }
 
-impl<Task: Hash + Eq, K, Worker: Hash + Eq> Tasks<Task, (K, Filtered<Collaboration<Worker>>)> {
-    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker>> {
+impl<Task, K, WD, Worker> Tasks<Task, (K, Filtered<Collaboration<WD, Worker>>)>
+where 
+    Task: Hash + Eq,
+    Worker: Hash + Eq
+{
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WD, Worker>> {
         self.get_mut(task).and_then(|(_, collab)| collab.heartbeat(worker))
     }
 }
@@ -118,17 +122,19 @@ impl<Task: CheckFrom + Hash + Eq, TaskData: CheckFrom> FilterCheckFrom for Tasks
 pub trait AddedToCollab { 
     type Result;
     type Worker;
+    type WorkerData;
 
-    fn added_to_collab(self, client: Self::Worker, amount: u32) -> Self::Result;
+    fn added_to_collab(self, client: Self::Worker, amount: u32, data: Self::WorkerData) -> Self::Result;
 }
 
-impl<T: Clone, K, Worker: Hash + Eq> AddedToCollab for Option<(&T, &mut (K, Filtered<Collaboration<Worker>>))> {
+impl<T: Clone, K, WorkerData, Worker: Hash + Eq> AddedToCollab for Option<(&T, &mut (K, Filtered<Collaboration<WorkerData, Worker>>))> {
     type Result = Option<T>;
     type Worker = Worker;
+    type WorkerData = WorkerData;
 
-    fn added_to_collab(self, client: Self::Worker, amount: u32) -> Self::Result {
+    fn added_to_collab(self, client: Self::Worker, amount: u32, data: WorkerData) -> Self::Result {
         self.map(|(task, (_, collab))| {
-            collab.add(client, amount);
+            collab.add(client, amount, data);
             task.clone()
         })
     }

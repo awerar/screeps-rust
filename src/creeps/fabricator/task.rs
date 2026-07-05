@@ -1,23 +1,15 @@
 use anyhow::Result;
 use derive_where::derive_where;
-use screeps::{ConstructionSite, HasPosition, Position, StructureController, game};
+use screeps::{ConstructionSite, HasPosition, Position, StructureController};
 
 use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, ids::{CheckState, Checked, Unchecked, WithId}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; BuildTask<S>, RepairTask<S>, UpgradeTask<S>)]
-pub enum FabricatorTaskType<S: CheckState = Checked> {
+pub enum FabricatorTask<S: CheckState = Checked> {
     Building(BuildTask<S>),
     Repairing(RepairTask<S>),
     UpgradingController(UpgradeTask<S>)
-}
-
-#[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; FabricatorTaskType<S>)]
-pub struct FabricatorTask<S: CheckState = Checked> {
-    task_type: FabricatorTaskType<S>,
-    start_time: u32,
-    pos: Position
 }
 
 impl CheckFrom for FabricatorTask {
@@ -25,17 +17,10 @@ impl CheckFrom for FabricatorTask {
     type Err = anyhow::Error;
 
     fn check_from(us: Self::Unchecked) -> Result<Self> {
-        Ok(Self { 
-            task_type: match us.task_type {
-                FabricatorTaskType::Building(id) => 
-                    FabricatorTaskType::Building(id.check()?),
-                FabricatorTaskType::Repairing(id) => 
-                    FabricatorTaskType::Repairing(id.check()?),
-                FabricatorTaskType::UpgradingController(id) => 
-                    FabricatorTaskType::UpgradingController(id.check()?),
-            }, 
-            start_time: us.start_time, 
-            pos: us.pos 
+        Ok(match us {
+            FabricatorTask::Building(id) => Self::Building(id.check()?),
+            FabricatorTask::Repairing(id) => Self::Repairing(id.check()?),
+            FabricatorTask::UpgradingController(id) => Self::UpgradingController(id.check()?),
         })
     }
 }
@@ -45,53 +30,30 @@ pub type RepairTask<S = Checked> = RepairableStructure::<S>;
 pub type UpgradeTask<S = Checked> = <S as CheckState>::Repr<StructureController>;
 
 impl FabricatorTask {
-   pub fn new(task_type: FabricatorTaskType) -> Self {
-        Self {
-            start_time: game::time(),
-            pos: task_type.pos(),
-            task_type,
-        }
-    }
-
-    // TODO: Timeout on check instead
-    pub fn has_timed_out(&self) -> bool {
-        game::time() >= self.start_time + super::MAX_TASK_TICKS
-    }
-
     pub fn work_range(&self) -> u32 {
-        match self.task_type {
-            FabricatorTaskType::Building(_) | FabricatorTaskType::Repairing(_) => 1,
-            FabricatorTaskType::UpgradingController(_) => 3,
+        match self {
+            FabricatorTask::Building(_) | FabricatorTask::Repairing(_) => 1,
+            FabricatorTask::UpgradingController(_) => 3,
         }
     }
 
     pub fn creep_work(&self, creep: &mut VirtualCreep) -> anyhow::Result<u32, IntentError> {
-        match &self.task_type {
-            FabricatorTaskType::Building(site) => 
+        match self {
+            FabricatorTask::Building(site) => 
                 creep.build((***site).clone()),
-            FabricatorTaskType::Repairing(structure) => {
+            FabricatorTask::Repairing(structure) => {
                 creep.repair(structure.clone())
             },
-            FabricatorTaskType::UpgradingController(controller) => 
+            FabricatorTask::UpgradingController(controller) => 
                 creep.upgrade_controller((**controller).clone()),
         }
     }
 
-    pub fn task_type(&self) -> &FabricatorTaskType {
-        &self.task_type
-    }
-
     pub fn pos(&self) -> Position {
-        self.pos
-    }
-}
-
-impl FabricatorTaskType {
-    fn pos(&self) -> Position {
         match self {
-            FabricatorTaskType::Building(id) => id.pos(),
-            FabricatorTaskType::Repairing(id) => id.pos(),
-            FabricatorTaskType::UpgradingController(id) => id.pos(),
+            FabricatorTask::Building(id) => id.pos(),
+            FabricatorTask::Repairing(id) => id.pos(),
+            FabricatorTask::UpgradingController(id) => id.pos(),
         }
     }
 }

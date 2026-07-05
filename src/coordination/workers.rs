@@ -2,51 +2,19 @@ use std::{collections::{HashMap, hash_map}, hash::Hash};
 
 use derive_where::derive_where;
 use log::warn;
-use screeps::{Creep, game};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use screeps::Creep;
+use serde::de::DeserializeOwned;
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError}, domain_traits::HasName, ids::{Handle, WithId}};
+use crate::{check::{CheckFrom, Expiry, ExpiryCheckError, FilterCheck, FilterCheckFrom, PairCheckError}, domain_traits::HasName, ids::{Handle, WithId}};
 
-const TIMEOUT: u32 = 2;
-
-#[derive(Serialize, Deserialize)]
-struct WorkerState<WorkerData> {
-    last_heartbeat: u32,
-    data: WorkerData
-}
-
-pub enum WorkerStateCheckError<WorkerData: CheckFrom> {
-    Timeout(WorkerData),
-    DataCheck(WorkerData::Err)
-}
-
-impl<WD: CheckFrom> CheckFrom for WorkerState<WD> {
-    type Unchecked = WorkerState<WD::Unchecked>;
-    type Err = WorkerStateCheckError<WD>;
-
-    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        let data = uc.data.check().map_err(WorkerStateCheckError::DataCheck)?;
-        if game::time() > uc.last_heartbeat + TIMEOUT { return Err(WorkerStateCheckError::Timeout(data)) }
-
-        Ok(Self {
-            data,
-            .. uc
-        })
-    }
-}
-
-impl<WD> WorkerState<WD> {
-    pub fn new(data: WD) -> Self {
-        Self { last_heartbeat: game::time(), data }
-    }
-}
+const TIMEOUT: u32 = 1;
 
 #[derive_where(Serialize; Worker, WorkerData, Worker: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Worker: Hash + Eq + DeserializeOwned + 'static, WorkerData: DeserializeOwned + 'static)]
 pub struct Workers<WorkerData, Worker = Handle<WithId<Creep>>> {
     #[serde(with = "any_key_map")] 
-    workers: HashMap<Worker, WorkerState<WorkerData>>
+    workers: HashMap<Worker, Expiry<WorkerData, TIMEOUT>>
 }
 
 impl<WD, W> IntoIterator for Workers<WD, W> {
@@ -54,7 +22,7 @@ impl<WD, W> IntoIterator for Workers<WD, W> {
     type IntoIter = impl Iterator<Item = Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.workers.into_iter().map(|(c, cr)| (c, cr.data))
+        self.workers.into_iter().map(|(c, cr)| (c, cr.inner))
     }
 }
 
@@ -66,14 +34,14 @@ impl<WD, W> Workers<WD, W> {
 
 impl<WorkerData, Worker> Workers<WorkerData, Worker> where Worker : Hash + Eq {    
     pub fn add(&mut self, worker: Worker, data: WorkerData) -> Option<WorkerData> {
-        self.workers.insert(worker, WorkerState::new(data)).map(|state| state.data)
+        self.workers.insert(worker, Expiry::new(data)).map(|expiry| expiry.inner)
     }
 
     pub fn heartbeat(&mut self, worker: Worker) -> Option<WorkerHandle<'_, Worker, WorkerData>> {
         match self.workers.entry(worker) {
             hash_map::Entry::Vacant(_) => None,
             hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().last_heartbeat = game::time();
+                entry.get_mut().refresh();
                 Some(WorkerHandle(entry))
             },
         }
@@ -86,15 +54,15 @@ impl<WD, W> Default for Workers<WD, W> {
     }
 }
 
-pub struct WorkerHandle<'a, Worker, WorkerData>(hash_map::OccupiedEntry<'a, Worker, WorkerState<WorkerData>>);
+pub struct WorkerHandle<'a, Worker, WorkerData>(hash_map::OccupiedEntry<'a, Worker, Expiry<WorkerData, TIMEOUT>>);
 
 impl<W, WD> WorkerHandle<'_, W, WD> {
     pub fn get(&self) -> &WD {
-        &self.0.get().data
+        self.0.get()
     }
 
     pub fn get_mut(&mut self) -> &mut WD {
-        &mut self.0.get_mut().data
+        self.0.get_mut()
     }
 
     pub fn remove(self) {
@@ -119,20 +87,20 @@ where
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (workers, errs): (HashMap<Worker, _>, _) = uc.workers.filter_check();
         for err in &errs {
-            if let PairCheckError::Value(worker, WorkerStateCheckError::Timeout(_)) = &err {
+            if let PairCheckError::Value(worker, ExpiryCheckError::Expiration(_)) = &err {
                 warn!("{} timed out", worker.name());
             }
         }
 
         let errs = errs.into_iter().map(|err| {
             match err {
-                PairCheckError::Key(worker_error, worker_entry) => {
-                    let worker_entry: WorkerState<WorkerData::Unchecked> = worker_entry; 
-                    WorkerEntryCheckError::Worker(worker_error, worker_entry.data)
+                PairCheckError::Key(worker_error, worker_expiry) => {
+                    let worker_expiry: Expiry<WorkerData::Unchecked, TIMEOUT> = worker_expiry; 
+                    WorkerEntryCheckError::Worker(worker_error, worker_expiry.inner)
                 },
-                PairCheckError::Value(worker, WorkerStateCheckError::DataCheck(data_err)) => 
+                PairCheckError::Value(worker, ExpiryCheckError::Inner(data_err)) => 
                     WorkerEntryCheckError::Data(worker, data_err),
-                PairCheckError::Value(worker, WorkerStateCheckError::Timeout(data)) =>
+                PairCheckError::Value(worker, ExpiryCheckError::Expiration(data)) =>
                     WorkerEntryCheckError::Timeout(worker, data)
             }
         }).collect();

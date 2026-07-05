@@ -1,8 +1,9 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash};
+use std::{collections::{HashMap, HashSet}, hash::Hash, ops::{Deref, DerefMut}};
 
 use derive_deref::{Deref, DerefMut};
+use derive_where::derive_where;
 use itertools::Itertools;
-use screeps::Position;
+use screeps::{Position, game};
 use serde::{Deserialize, Deserializer, Serialize};
 
 // ==== Check traits ====
@@ -10,6 +11,7 @@ pub trait TriviallyChecked {}
 impl TriviallyChecked for String {}
 impl TriviallyChecked for u32 {}
 impl TriviallyChecked for Position {}
+impl TriviallyChecked for () {}
 
 pub trait CheckFrom: Sized {
     type Unchecked;
@@ -164,5 +166,60 @@ impl<T> TriviallyChecked for Filtered<T> {}
 impl<'de, T: FilterCheckFrom> Deserialize<'de> for Filtered<T> where T::Unchecked : Deserialize<'de> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Filtered(deserialize_filter_check(deserializer)?))
+    }
+}
+
+// Expiry
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive_where(PartialEq, Eq, PartialOrd, Ord; T)]
+pub struct Expiry<T, const EXPIRY: u32> {
+    pub inner: T,
+    #[derive_where(skip)] last_refresh: u32
+}
+
+impl<T, const EXPIRY: u32> Expiry<T, EXPIRY> {
+    pub fn refresh(&mut self) {
+        self.last_refresh = game::time();
+    }
+
+    pub fn time_left(&self) -> u32 {
+        (self.last_refresh + EXPIRY + 1).saturating_sub(game::time())
+    }
+
+    pub fn new(inner: T) -> Self {
+        Self { inner, last_refresh: game::time() }
+    }
+}
+
+impl<T, const E: u32> Deref for Expiry<T, E> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T, const E: u32> DerefMut for Expiry<T, E> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+pub enum ExpiryCheckError<T: CheckFrom> {
+    Expiration(T),
+    Inner(T::Err)
+}
+
+impl<T: CheckFrom, const EXPIRY: u32> CheckFrom for Expiry<T, EXPIRY> {
+    type Unchecked = Expiry<T::Unchecked, EXPIRY>;
+    type Err = ExpiryCheckError<T>;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        let inner: T = uc.inner.check().map_err(ExpiryCheckError::Inner)?;
+
+        let checked = Expiry { inner, ..uc };
+        if checked.time_left() == 0 { return Err(ExpiryCheckError::Expiration(checked.inner)) }
+
+        Ok(checked)
     }
 }

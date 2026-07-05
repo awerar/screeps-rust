@@ -4,12 +4,36 @@ use derive_where::derive_where;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, domain_traits::HasName, ids::{Handle, WithId}};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, domain_traits::HasName, ids::{Handle, WithId}};
 
 #[derive(Serialize, Deserialize)]
-struct PendingWork(u32);
+struct WorkerState<WorkerData> {
+    pending_work: u32,
+    data: WorkerData
+}
 
-impl TriviallyChecked for PendingWork {}
+struct WorkerStateCheckErr<WorkerData: CheckFrom> {
+    pending_work: u32,
+    err: WorkerData::Err
+}
+
+impl<WD: CheckFrom> CheckFrom for WorkerState<WD> {
+    type Unchecked = WorkerState<WD::Unchecked>;
+    type Err = WorkerStateCheckErr<WD>;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(Self { 
+            pending_work: uc.pending_work, 
+            data: uc.data.check()
+                .map_err(|err| 
+                    WorkerStateCheckErr { 
+                        pending_work: uc.pending_work, 
+                        err
+                    }
+                )? 
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct TaskState {
@@ -17,13 +41,13 @@ pub struct TaskState {
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; Workers<PendingWork, Worker>)]
-pub struct Collaboration<Worker = Handle<WithId<Creep>>> {
-    registry: Workers<PendingWork, Worker>,
+#[derive_where(Serialize, Deserialize; Workers<WorkerState<WorkerData>, Worker>)]
+pub struct Collaboration<WorkerData, Worker = Handle<WithId<Creep>> > {
+    registry: Workers<WorkerState<WorkerData>, Worker>,
     task_data: TaskState
 }
 
-impl<C> Collaboration<C> {
+impl<WD, W> Collaboration<WD, W> {
     pub fn new(required_work: u32) -> Self {
         Self { 
             registry: Workers::new(),
@@ -39,8 +63,8 @@ impl<C> Collaboration<C> {
     }
 }
 
-impl<Worker: Hash + Eq> Collaboration<Worker> {
-    pub fn heartbeat(&mut self, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker>> {
+impl<WorkerData, Worker: Hash + Eq> Collaboration<WorkerData, Worker> {
+    pub fn heartbeat(&mut self, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WorkerData, Worker>> {
         Some(CollaborativeWorkerHandle {
             worker_handle: self.registry.heartbeat(worker)?,
             task_data: &mut self.task_data
@@ -48,9 +72,9 @@ impl<Worker: Hash + Eq> Collaboration<Worker> {
     }
 
     // TODO: collisions
-    pub fn add(&mut self, worker: Worker, work: u32) {
-        if let Some(PendingWork(other_work)) = self.registry.add(worker, PendingWork(work)) {
-            self.task_data.pending_work -= other_work;
+    pub fn add(&mut self, worker: Worker, work: u32, data: WorkerData) {
+        if let Some(other_state) = self.registry.add(worker, WorkerState { pending_work: work, data }) {
+            self.task_data.pending_work -= other_state.pending_work;
         }
 
         self.task_data.pending_work += work;
@@ -58,7 +82,7 @@ impl<Worker: Hash + Eq> Collaboration<Worker> {
 }
 
 pub struct RemainingWork(pub u32);
-impl<Worker> UpdateableTaskData for Collaboration<Worker> {
+impl<WorkerData, Worker> UpdateableTaskData for Collaboration<WorkerData, Worker> {
     type Update = RemainingWork;
 
     fn update(&mut self, update: Self::Update) {
@@ -70,14 +94,13 @@ impl<Worker> UpdateableTaskData for Collaboration<Worker> {
     }
 }
 
-pub enum WorkerCheckError<Worker: CheckFrom> {
-    Timeout(Worker),
-    WorkerCheck(Worker::Err)
-}
-
-impl<Worker: CheckFrom + Hash + Eq + HasName> FilterCheckFrom for Collaboration<Worker> {
-    type Unchecked = Collaboration<Worker::Unchecked>;
-    type Err = WorkerCheckError<Worker>;
+impl<WorkerData, Worker> FilterCheckFrom for Collaboration<WorkerData, Worker> 
+where 
+    WorkerData: CheckFrom,
+    Worker: CheckFrom + Hash + Eq + HasName
+{
+    type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked>;
+    type Err = WorkerEntryCheckError<Worker, WorkerData>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (registry, errs) = uc.registry.filter_check();
@@ -90,14 +113,17 @@ impl<Worker: CheckFrom + Hash + Eq + HasName> FilterCheckFrom for Collaboration<
         let mut new_errs = Vec::new();
         for err in errs {
             let (pending_work, new_err) = match err {
-                WorkerEntryCheckError::Worker(worker_err, worker_data) => {
-                    (worker_data, WorkerCheckError::WorkerCheck(worker_err))
+                WorkerEntryCheckError::Worker(worker_err, worker_state) => {
+                    (worker_state.pending_work, WorkerEntryCheckError::Worker(worker_err, worker_state.data))
                 },
-                WorkerEntryCheckError::Timeout(worker, worker_data) => 
-                    (worker_data, WorkerCheckError::Timeout(worker)),
+                WorkerEntryCheckError::Data(worker, worker_state_err) => {
+                    (worker_state_err.pending_work, WorkerEntryCheckError::Data(worker, worker_state_err.err))
+                },
+                WorkerEntryCheckError::Timeout(worker, worker_state) => 
+                    (worker_state.pending_work, WorkerEntryCheckError::Timeout(worker, worker_state.data)),
             };
 
-            checked.task_data.pending_work -= pending_work.0;
+            checked.task_data.pending_work -= pending_work;
             new_errs.push(new_err);
         }
 
@@ -105,25 +131,32 @@ impl<Worker: CheckFrom + Hash + Eq + HasName> FilterCheckFrom for Collaboration<
     }
 }
 
-pub struct CollaborativeWorkerHandle<'a, Worker = Handle<WithId<Creep>>> {
+pub struct CollaborativeWorkerHandle<'a, WorkerData, Worker = Handle<WithId<Creep>>> {
     task_data: &'a mut TaskState,
-    worker_handle: WorkerHandle<'a, Worker, PendingWork>
+    worker_handle: WorkerHandle<'a, Worker, WorkerState<WorkerData>>
 }
 
-impl<Worker> CollaborativeWorkerHandle<'_, Worker> {
+impl<WorkerData, Worker> CollaborativeWorkerHandle<'_, WorkerData, Worker> {
     pub fn apply_work(&mut self, amount: u32) {
         self.task_data.pending_work = self.task_data.pending_work.saturating_sub(amount);
         self.task_data.remaining_work = self.task_data.remaining_work.saturating_sub(amount);
-        self.worker_handle.get_mut().0 = self.worker_handle.get().0.saturating_sub(amount);
+        self.worker_handle.get_mut().pending_work = self.worker_handle.get().pending_work.saturating_sub(amount);
     }
 
     pub fn remove(self) {
-        self.task_data.pending_work += self.worker_handle.get().0;
+        self.task_data.pending_work += self.worker_handle.get().pending_work;
         self.worker_handle.remove();
     }
 
-    #[expect(unused)]
     pub fn remaining(&self) -> u32 {
-        self.worker_handle.get().0
+        self.worker_handle.get().pending_work
+    }
+
+    pub fn get(&self) -> &WorkerData {
+        &self.worker_handle.get().data
+    }
+
+    pub fn get_mut(&mut self) -> &mut WorkerData {
+        &mut self.worker_handle.get_mut().data
     }
 }
