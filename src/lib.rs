@@ -39,6 +39,7 @@ mod domain_traits;
 mod coordination;
 mod check;
 mod ids;
+mod structure;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

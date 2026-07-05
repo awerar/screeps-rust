@@ -1,9 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source};
-use thiserror::Error;
+use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
 use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body};
 
@@ -50,7 +49,7 @@ const PIPELINE_B: [IntentType; 5] = [
     IntentType::RangedHeal,
 ];
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum IntentError {
     #[error("Trying to register multiple {0} intents")]
     AlreadyScheduled(IntentType),
@@ -140,18 +139,25 @@ impl IntentEffect {
     }
 }
 
-trait CommitFn = FnOnce(&Creep) -> Result<()>;
+trait CommitFn<Err = anyhow::Error> = FnOnce(&Creep) -> Result<(), Err>;
 struct Intent {
     effect: Option<IntentEffect>,
     commit: Box<dyn CommitFn>
 }
 
 impl Intent {
-    fn new(commit: impl CommitFn + 'static, effect: Option<IntentEffect>) -> Self {
+    fn new<Err>(commit: impl CommitFn<Err> + 'static, effect: Option<IntentEffect>) -> Self
+    where 
+        Err: Error + Send + Sync + 'static
+    {
         Intent { 
             effect,
-            commit: Box::new(commit) 
+            commit: Box::new(|creep| commit(creep).map_err(anyhow::Error::new)) 
         }
+    }
+
+    fn empty() -> Self {
+        Self { effect: None, commit: Box::new(|_| { Ok(()) }) }
     }
 }
 
@@ -345,7 +351,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Build,
             Intent::new(
-                move |creep| creep.build(&target).map_err(anyhow::Error::new),
+                move |creep| creep.build(&target),
                 Some(IntentEffect::outgoing_energy(amount))
             )
         )
@@ -358,7 +364,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Drop,
             Intent::new(
-                move |creep| creep.drop(ty, Some(amount)).map_err(anyhow::Error::new),
+                move |creep| creep.drop(ty, Some(amount)),
                     Some(IntentEffect::Outgoing(ty, amount))
             )
         )
@@ -372,7 +378,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Harvest,
             Intent::new(
-                move |creep| creep.harvest(&source).map_err(anyhow::Error::new),
+                move |creep| creep.harvest(&source),
                 Some(IntentEffect::incoming_energy(amount))
             )
         )
@@ -386,8 +392,22 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Pickup,
             Intent::new(
-                move |creep| creep.pickup(&target).map_err(anyhow::Error::new),
+                move |creep| creep.pickup(&target),
                 Some(IntentEffect::Incoming(ty, amount))
+            )
+        )
+    }
+
+    pub fn upgrade_controller(&mut self, target: StructureController) -> Result<u32, IntentError> {
+        let amount = self.part_amount(Part::Work, 1)
+            .min(if target.level() == 8 { 15 } else { u32::MAX })
+            .min(self.get_energy());
+
+        self.register_intent(
+            IntentType::UpgradeController, 
+            Intent::new(
+                move |creep| creep.upgrade_controller(&target), 
+                Some(IntentEffect::outgoing_energy(amount))
             )
         )
     }
@@ -401,7 +421,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Repair,
             Intent::new(
-                move |creep| creep.repair(&target).map_err(anyhow::Error::new),
+                move |creep| creep.repair(&target),
                 Some(IntentEffect::outgoing_energy(amount))
             )
         )
@@ -425,7 +445,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Transfer,
             Intent::new(
-                move |creep| creep.transfer(target.transferable(), ty, Some(amount)).map_err(anyhow::Error::new),
+                move |creep| creep.transfer(target.transferable(), ty, Some(amount)),
                 Some(IntentEffect::Outgoing(ty, amount))
             )
         )
@@ -438,7 +458,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Withdraw,
             Intent::new(
-                move |creep| creep.withdraw(target.withdrawable(), ty, Some(amount)).map_err(anyhow::Error::new),
+                move |creep| creep.withdraw(target.withdrawable(), ty, Some(amount)),
                 Some(IntentEffect::Incoming(ty, amount))
             )
         )
@@ -451,7 +471,7 @@ impl MovementRequests {
 
         let result = self.move_creep_to(&creep.creep, target, range);
         if !result.in_range() {
-            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(()), None))?;
+            creep.register_intent(IntentType::Move, Intent::empty())?;
         }
         
         Ok(result)
@@ -462,7 +482,7 @@ impl MovementRequests {
         
         let result = self.move_tugged_to(&creep.creep, target, range);
         if !result.in_range() {
-            creep.register_intent(IntentType::Move, Intent::new(|_| Ok(()), None))?;
+            creep.register_intent(IntentType::Move, Intent::empty())?;
         }
         
         Ok(result)

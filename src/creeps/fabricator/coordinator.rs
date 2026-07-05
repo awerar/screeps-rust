@@ -1,7 +1,7 @@
 use screeps::{Creep, HasPosition, Part, Position, Room, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{colony::ColonyBuffer, creeps::fabricator::{DowngradePercentage, HealthPercentage, StorageFillPercentage, task::{BuildTask, FabricatorTask, FabricatorTaskType, RepairTask, UpgradeTask}}, domain_traits::EnergyStoreAccessors, ids::{ById, Handle, IntoHandle, IntoWithId, WithId}, tasks::{TaskServer, prune_deserialize_taskserver}};
+use crate::{colony::ColonyBuffer, creeps::{fabricator::{DowngradePercentage, HealthPercentage, StorageFillPercentage, task::{BuildTask, FabricatorTask, FabricatorTaskType, RepairTask, UpgradeTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, Handle, IntoHandle, IntoWithId, WithId}, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 fn get_creep_work_count(creep: &Creep) -> u32 {
     let work_ticks_left = creep.ticks_to_live().unwrap().saturating_sub(super::GUESSED_CREEP_MOVE_TO_TASK_TICKS);
@@ -71,7 +71,7 @@ impl FabricatorCoordinator {
         )]);
     }
 
-    pub fn assign_task(&mut self, creep: &WithId<Creep>) -> Option<FabricatorTask> {
+    pub fn assign_task(&mut self, creep: &VirtualCreep) -> Option<FabricatorTask> {
         self.assign_emergency_upgrade(creep).map(FabricatorTaskType::UpgradingController)
             .or_else(|| self.assign_repair(creep).map(FabricatorTaskType::Repairing))
             .or_else(|| self.assign_build(creep).map(FabricatorTaskType::Building))

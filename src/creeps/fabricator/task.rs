@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use derive_where::derive_where;
-use screeps::{ConstructionSite, Creep, HasPosition, Position, Structure, StructureController, StructureObject, game};
+use screeps::{ConstructionSite, HasPosition, Position, Structure, StructureController, StructureObject, game};
 
-use crate::{check::{Check, CheckFrom}, ids::{CheckState, Checked, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, ids::{CheckState, Checked, Unchecked, WithId}};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; BuildTask<S>, RepairTask<S>, UpgradeTask<S>)]
@@ -53,6 +53,7 @@ impl FabricatorTask {
         }
     }
 
+    // TODO: Timeout on check instead
     pub fn has_timed_out(&self) -> bool {
         game::time() >= self.start_time + super::MAX_TASK_TICKS
     }
@@ -64,17 +65,17 @@ impl FabricatorTask {
         }
     }
 
-    pub fn creep_work(&self, creep: &Creep) -> anyhow::Result<()> {
+    pub fn creep_work(&self, creep: &mut VirtualCreep) -> anyhow::Result<u32, IntentError> {
         match &self.task_type {
             FabricatorTaskType::Building(site) => 
-                Ok(creep.build(site)?),
+                creep.build(***site),
             FabricatorTaskType::Repairing(structure) => {
                 let structure_object = StructureObject::from((**structure).clone());
                 let repairable = structure_object.as_repairable().ok_or(anyhow!("Structure is not repairable"))?;
-                Ok(creep.repair(repairable)?)
+                creep.repair(repairable)
             },
             FabricatorTaskType::UpgradingController(controller) => 
-                Ok(creep.upgrade_controller(controller)?),
+                creep.upgrade_controller(**controller),
         }
     }
 

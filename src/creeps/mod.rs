@@ -156,7 +156,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             },
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
-                transition(state, |state| state.update(creep, &home, &mut movement, coordinator));
+                transition(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
             },
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged, spawn),
             Scrap(spawn) => do_recycle(creep, &mut movement, spawn),
