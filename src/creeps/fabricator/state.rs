@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType};
 use serde::Deserialize;
 
-use crate::{break_deferable, break_move, check::Check, colony::ColonyView, coordination::collaboration::CollaborativeWorkerHandle, creeps::{fabricator::{TaskExpiration, coordinator::FabricatorCoordinator, task::FabricatorTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{break_deferable, break_move, check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::{FabricatorCoordinator, FabricatorTaskHandle}, task::FabricatorTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
 
 // TODO: Expiration
 #[derive(Debug, Default, EnumDisplay)]
@@ -32,8 +32,8 @@ impl FabricatorCreep {
     pub fn is_consumer(&self) -> bool { matches!(self, Self::CollectingFor(_) | Self::Performing(_)) }
     pub fn is_provider(&self) -> bool { matches!(self, Self::Idle) }
 
-    fn finish_task(task_handle: CollaborativeWorkerHandle<'_, TaskExpiration>) -> Self {
-        task_handle.remove();
+    fn finish_task(handle: FabricatorTaskHandle) -> Self {
+        handle.remove();
         Self::Idle
     }
 
@@ -42,14 +42,14 @@ impl FabricatorCreep {
 
         match self {
             Self::Idle => {
-                if let Some(task) = coordinator.assign_task(creep, home.buffer.as_ref()) {
+                if let Some(task) = coordinator.assign_task(creep, home) {
                     return Ok(Continue(Self::Performing(task)))
                 }
 
                 Ok(Break(self))
             },
             Self::CollectingFor(ref task) => {
-                let Some(_) = coordinator.heartbeat(creep, task) else { return Ok(Continue(Self::Idle)) };
+                if coordinator.heartbeat(creep, task).is_none() { return Ok(Continue(Self::Idle)) }
 
                 if creep.next_used_energy_capacity() > 0 {
                     return Ok(Continue(Self::Performing(task.clone())))
@@ -70,10 +70,10 @@ impl FabricatorCreep {
                     return Ok(Continue(Self::CollectingFor(task.clone())))
                 }
 
-                break_deferable!(break_move!(movement.move_vcreep_to(creep, task.pos(), task.work_range()), self), self)?;
-                handle.apply_work(break_deferable!(task.creep_work(creep), self)?);
+                break_deferable!(break_move!(movement.move_vcreep_to(creep, task.pos(home), task.work_range()), self), self)?;
+                break_deferable!(task.creep_work(creep, home, &mut handle), self)?;
 
-                if handle.remaining() > 0 { return Ok(Break(self)) }
+                if !matches!(&handle, FabricatorTaskHandle::Collab(handle) if handle.remaining() == 0) { return Ok(Break(self)) }
 
                 Ok(Continue(Self::finish_task(handle)))
             }

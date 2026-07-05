@@ -61,6 +61,10 @@ impl<WD, W> Collaboration<WD, W> {
     pub fn unassigned_work(&self) -> u32 {
         self.task_data.remaining_work.saturating_sub(self.task_data.pending_work)
     }
+
+    pub fn set_remaining_work(&mut self, remaining_work: u32) {
+        self.task_data.remaining_work = remaining_work;
+    }
 }
 
 impl<WorkerData, Worker: Hash + Eq> Collaboration<WorkerData, Worker> {
@@ -86,7 +90,7 @@ impl<WorkerData, Worker> UpdateableTaskData for Collaboration<WorkerData, Worker
     type Update = RemainingWork;
 
     fn update(&mut self, update: Self::Update) {
-        self.task_data.remaining_work = update.0;
+        self.set_remaining_work(update.0);
     }
 
     fn create(update: Self::Update) -> Self {

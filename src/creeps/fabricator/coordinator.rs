@@ -2,16 +2,21 @@ use ordered_float::OrderedFloat;
 use screeps::{HasHits, HasPosition, Part, Room, StructureController, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::ColonyBuffer, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask, UpgradeTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, Tasks}, workers::{WorkerHandle, Workers}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    repairs: Tasks<RepairTask, Filtered<Collaboration<TaskExpiration>>>,
+    pub repairs: Tasks<RepairTask, Filtered<Collaboration<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    builds: Tasks<BuildTask, Filtered<Collaboration<TaskExpiration>>>,
+    pub builds: Tasks<BuildTask, Filtered<Collaboration<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")] // TODO: Don't make this Tasks as it is only over one task
-    upgrades: Tasks<UpgradeTask, Filtered<Collaboration<TaskExpiration>>>
+    pub upgrade: Workers<TaskExpiration>
+}
+
+pub enum FabricatorTaskHandle<'a> {
+    Collab(CollaborativeWorkerHandle<'a, TaskExpiration>),
+    Upgrade(WorkerHandle<'a, TaskExpiration>)
 }
 
 fn get_creep_work_left(creep: &VirtualCreep) -> u32 {
@@ -47,7 +52,6 @@ fn storage_fill_percentage(buffer: Option<&ColonyBuffer>) -> Option<f32> {
     })
 }
 
-
 impl FabricatorCoordinator {
     pub fn update(&mut self, room: &Room) {
         self.repairs.set_tasks(
@@ -67,18 +71,13 @@ impl FabricatorCoordinator {
                     RemainingWork(site.progress_total() - site.progress())
                 ))
         );
-
-        self.upgrades.set_tasks(vec![(
-            ById(room.controller().unwrap()), 
-            RemainingWork(u32::MAX)
-        )]);
     }
 
-    pub fn assign_task(&mut self, creep: &VirtualCreep, buffer: Option<&ColonyBuffer>) -> Option<FabricatorTask> {
-        self.assign_emergency_upgrade(creep).map(FabricatorTask::UpgradingController)
+    pub fn assign_task(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> Option<FabricatorTask> {
+        self.assign_emergency_upgrade(creep, home).then_some(FabricatorTask::UpgradingController)
             .or_else(|| self.assign_repair(creep).map(FabricatorTask::Repairing))
             .or_else(|| self.assign_build(creep).map(FabricatorTask::Building))
-            .or_else(|| self.assign_upgrade(creep, buffer).map(FabricatorTask::UpgradingController))
+            .or_else(|| self.assign_upgrade(creep, home).then_some(FabricatorTask::UpgradingController))
     }
 
     fn assign_repair(&mut self, creep: &VirtualCreep) -> Option<RepairTask> {
@@ -100,27 +99,41 @@ impl FabricatorCoordinator {
             .added_to_collab(creep.handle(), get_creep_work_left(creep) * 5, Expiration::new())
     }
 
-    fn assign_emergency_upgrade(&mut self, creep: &VirtualCreep) -> Option<UpgradeTask> {
-        self.upgrades.iter_mut()
-            .find(|(task, _)| downgrade_percentage(task) >= super::CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE)
-            .added_to_collab(creep.handle(), get_creep_work_left(creep), Expiration::new())
+    fn assign_emergency_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
+        if downgrade_percentage(&home.controller) >= super::CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE {
+            self.upgrade.add(creep.handle(), Expiration::new());
+            return true;
+        }
+
+        false
     }
 
-    fn assign_upgrade(&mut self, creep: &VirtualCreep, buffer: Option<&ColonyBuffer>) -> Option<UpgradeTask> {
-        self.upgrades.iter_mut()
-            .find(|(_, _)| 
-                storage_fill_percentage(buffer).is_none_or(|x| x >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD))
-            .added_to_collab(creep.handle(), get_creep_work_left(creep), Expiration::new())
+    fn assign_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
+        if storage_fill_percentage(home.buffer.as_ref()).is_none_or(|x| x >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD) {
+            self.upgrade.add(creep.handle(), Expiration::new());
+            return true;
+        }
+
+        false
     }
 
-    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &FabricatorTask) -> Option<CollaborativeWorkerHandle<'_, TaskExpiration>> {
+    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &FabricatorTask) -> Option<FabricatorTaskHandle<'_>> {
         match task {
             FabricatorTask::Building(build) => 
-                self.builds.heartbeat(build, creep.handle()),
+                self.builds.heartbeat(build, creep.handle()).map(FabricatorTaskHandle::Collab),
             FabricatorTask::Repairing(repair) => 
-                self.repairs.heartbeat(repair, creep.handle()),
-            FabricatorTask::UpgradingController(upgrade) => 
-                self.upgrades.heartbeat(upgrade, creep.handle()),
+                self.repairs.heartbeat(repair, creep.handle()).map(FabricatorTaskHandle::Collab),
+            FabricatorTask::UpgradingController => 
+                self.upgrade.heartbeat(creep.handle()).map(FabricatorTaskHandle::Upgrade),
+        }
+    }
+}
+
+impl FabricatorTaskHandle<'_> {
+    pub fn remove(self) {
+        match self {
+            FabricatorTaskHandle::Collab(handle) => handle.remove(),
+            FabricatorTaskHandle::Upgrade(handle) => handle.remove(),
         }
     }
 }
