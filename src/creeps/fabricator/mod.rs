@@ -1,20 +1,10 @@
-use derive_deref::Deref;
-use serde::{Serialize, Deserialize};
-use derive_alias::derive_alias;
+use self::coordinator::{HealthPercentage, DowngradePercentage, StorageFillPercentage};
 
 mod coordinator;
 mod state;
 mod task;
 
 pub use self::{state::FabricatorCreep, coordinator::FabricatorCoordinator};
-
-derive_alias! {
-    derive_percentage => #[derive(Deref, Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd)]
-}
-
-derive_percentage! { struct HealthPercentage(f32); }
-derive_percentage! { struct DowngradePercentage(f32); }
-derive_percentage! { struct StorageFillPercentage(f32); }
 
 const REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.75);
 const EMERGENCY_REPAIR_PERCENTAGE: HealthPercentage = HealthPercentage(0.5);

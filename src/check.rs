@@ -2,12 +2,14 @@ use std::{collections::{HashMap, HashSet}, hash::Hash};
 
 use derive_deref::{Deref, DerefMut};
 use itertools::Itertools;
+use screeps::Position;
 use serde::{Deserialize, Deserializer, Serialize};
 
 // ==== Check traits ====
 pub trait TriviallyChecked {}
 impl TriviallyChecked for String {}
 impl TriviallyChecked for u32 {}
+impl TriviallyChecked for Position {}
 
 pub trait CheckFrom: Sized {
     type Unchecked;
@@ -66,6 +68,18 @@ impl<K: CheckFrom, V: CheckFrom> CheckFrom for (K, V) {
 }
 
 // ==== Container implementations ====
+impl<T: CheckFrom> CheckFrom for Option<T> {
+    type Unchecked = Option<T::Unchecked>;
+    type Err = T::Err;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        match uc {
+            Some(val) => Ok(Some(val.check()?)),
+            None => Ok(None),
+        }
+    }
+}
+
 pub trait FilterCheckIterator: Iterator + Sized {
     fn filter_check_iter<T, B>(self) -> (B, Vec<T::Err>)
     where

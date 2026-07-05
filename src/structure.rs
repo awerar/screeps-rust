@@ -107,6 +107,7 @@ macro_rules! def_structure_kind {
 
         pub trait $reqs_name = Into<Structure> $(+ $req)*;
 
+        #[allow(unused)]
         impl KindedStructure<$kind_name> {
             pub fn new<S: $reqs_name>(structure: S) -> Self {
                 Self(EasyStructure::new(structure.into()), PhantomData)

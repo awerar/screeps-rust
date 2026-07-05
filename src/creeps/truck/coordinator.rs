@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, Handle, WithId}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, WithId}, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -79,18 +79,10 @@ impl TruckCoordinator {
         self.consumers.set_tasks(consumers.build());
     }
 
-    pub fn heartbeat_consumer(&mut self, creep: Handle<WithId<Creep>>, task: &ConsumerTruckStop) -> Option<CollaborativeWorkerHandle<'_>> {
-        self.consumers.get_mut(task).and_then(|(_, collab)| collab.heartbeat(creep))
-    }
-
-    pub fn heartbeat_provider(&mut self, creep: Handle<WithId<Creep>>, task: &ProviderTruckStop) -> Option<CollaborativeWorkerHandle<'_>> {
-        self.providers.get_mut(task).and_then(|(_, collab)| collab.heartbeat(creep))
-    }
-
-    pub fn heartbeat(&mut self, creep: Handle<WithId<Creep>>, task: &TruckTask) -> Option<CollaborativeWorkerHandle<'_>> {
+    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &TruckTask) -> Option<CollaborativeWorkerHandle<'_>> {
         match task {
-            TruckTask::CollectingFrom(task) => self.heartbeat_provider(creep, task),
-            TruckTask::ProvidingTo(task) => self.heartbeat_consumer(creep, task)
+            TruckTask::CollectingFrom(task) => self.providers.heartbeat(task, creep.handle()),
+            TruckTask::ProvidingTo(task) => self.consumers.heartbeat(task, creep.handle())
         }
     }
 
@@ -102,10 +94,7 @@ impl TruckCoordinator {
                         data.priority, 
                         Reverse(provider.pos().get_range_to(truck.pos()))
                     )
-                }).map(|(task, (_, collab))| {
-                    collab.add(truck.handle(), truck.next_free_capacity());
-                    task.clone()
-                })
+                }).added_to_collab(truck.handle(), truck.next_free_capacity())
     }
 
     pub fn assign_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
@@ -116,10 +105,7 @@ impl TruckCoordinator {
                     data.priority,
                     Reverse(provider.pos().get_range_to(truck.pos()))
                 )
-            }).map(|(task, (_, collab))| {
-                collab.add(truck.handle(), truck.next_free_capacity());
-                task.clone()
-            })
+            }).added_to_collab(truck.handle(), truck.next_free_capacity())
     }
 
     pub fn assign_consumer(&mut self, truck: &VirtualCreep) -> Option<ConsumerTruckStop> {
@@ -130,10 +116,7 @@ impl TruckCoordinator {
                     collab.unassigned_work(), 
                     Reverse(consumer.pos().get_range_to(truck.pos()))
                 )
-            }).map(|(task, (_, collab))| {
-                collab.add(truck.handle(), truck.next_free_capacity());
-                task.clone()
-            })
+            }).added_to_collab(truck.handle(), truck.next_used_energy_capacity())
     }
 }
 

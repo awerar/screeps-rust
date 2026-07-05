@@ -1,10 +1,11 @@
 use std::{collections::{HashMap, HashSet, hash_map}, hash::Hash};
 
 use derive_where::derive_where;
+use screeps::Position;
 use serde::de::DeserializeOwned;
 use serde_json_any_key::any_key_map;
 
-use crate::check::{CheckFrom, FilterCheck, FilterCheckFrom, Filtered, PairCheckError};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, Filtered, PairCheckError}, coordination::collaboration::{Collaboration, CollaborativeWorkerHandle}};
 
 #[derive_where(Serialize; Task, TaskData, Task: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Task: Hash + Eq + DeserializeOwned + 'static, TaskData: DeserializeOwned + 'static)]
@@ -56,6 +57,12 @@ impl<Task: Hash + Eq, TaskData> Tasks<Task, TaskData> {
     }
 }
 
+impl<Task: Hash + Eq, K, Worker: Hash + Eq> Tasks<Task, (K, Filtered<Collaboration<Worker>>)> {
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker>> {
+        self.get_mut(task).and_then(|(_, collab)| collab.heartbeat(worker))
+    }
+}
+
 pub trait UpdateableTaskData {
     type Update;
 
@@ -84,6 +91,7 @@ impl<A: UpdateableTaskData, B: UpdateableTaskData> UpdateableTaskData for (A, B)
 }
 
 pub trait OverwriteableTaskData {}
+impl OverwriteableTaskData for Position {}
 
 impl<T: OverwriteableTaskData> UpdateableTaskData for T {
     type Update = Self;
@@ -104,5 +112,24 @@ impl<Task: CheckFrom + Hash + Eq, TaskData: CheckFrom> FilterCheckFrom for Tasks
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (tasks, errs) = uc.tasks.filter_check();
         (Self { tasks }, errs)
+    }
+}
+
+pub trait AddedToCollab { 
+    type Result;
+    type Worker;
+
+    fn added_to_collab(self, client: Self::Worker, amount: u32) -> Self::Result;
+}
+
+impl<T: Clone, K, Worker: Hash + Eq> AddedToCollab for Option<(&T, &mut (K, Filtered<Collaboration<Worker>>))> {
+    type Result = Option<T>;
+    type Worker = Worker;
+
+    fn added_to_collab(self, client: Self::Worker, amount: u32) -> Self::Result {
+        self.map(|(task, (_, collab))| {
+            collab.add(client, amount);
+            task.clone()
+        })
     }
 }

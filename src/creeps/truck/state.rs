@@ -82,7 +82,7 @@ impl TruckCreep {
                 Ok(Break(self))
             },
             Self::Performing(ref task) => {
-                let Some(mut handle) = coordinator.heartbeat(truck.handle(), task) else { return Ok(Continue(Self::Idle)) };
+                let Some(mut handle) = coordinator.heartbeat(truck, task) else { return Ok(Continue(Self::Idle)) };
 
                 match task {
                     TruckTask::CollectingFrom(_) => 
@@ -99,7 +99,7 @@ impl TruckCreep {
                 Ok(Continue(Self::finish_task(handle)))
             },
             Self::FillingUpFor(ref consumer) => {
-                let Some(mut handle) = coordinator.heartbeat_consumer(truck.handle(), consumer) else { return Ok(Continue(Self::Idle)) };
+                let Some(mut handle) = coordinator.consumers.heartbeat(consumer, truck.handle()) else { return Ok(Continue(Self::Idle)) };
 
                 let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.used_energy_capacity() > 0) else {
                     return Ok(Continue(Self::finish_task(handle)))
