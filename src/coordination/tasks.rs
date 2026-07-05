@@ -67,6 +67,16 @@ where
     }
 }
 
+impl<Task, WD, Worker> Tasks<Task, Filtered<Collaboration<WD, Worker>>>
+where 
+    Task: Hash + Eq,
+    Worker: Hash + Eq
+{
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WD, Worker>> {
+        self.get_mut(task).and_then(|collab| collab.heartbeat(worker))
+    }
+}
+
 pub trait UpdateableTaskData {
     type Update;
 
@@ -134,6 +144,19 @@ impl<T: Clone, K, WorkerData, Worker: Hash + Eq> AddedToCollab for Option<(&T, &
 
     fn added_to_collab(self, client: Self::Worker, amount: u32, data: WorkerData) -> Self::Result {
         self.map(|(task, (_, collab))| {
+            collab.add(client, amount, data);
+            task.clone()
+        })
+    }
+}
+
+impl<T: Clone, WorkerData, Worker: Hash + Eq> AddedToCollab for Option<(&T, &mut Filtered<Collaboration<WorkerData, Worker>>)> {
+    type Result = Option<T>;
+    type Worker = Worker;
+    type WorkerData = WorkerData;
+
+    fn added_to_collab(self, client: Self::Worker, amount: u32, data: WorkerData) -> Self::Result {
+        self.map(|(task, collab)| {
             collab.add(client, amount, data);
             task.clone()
         })
