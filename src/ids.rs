@@ -160,6 +160,7 @@ impl<T: HasId> Handle<T> {
     }
 }
 
+#[expect(unused)]
 pub trait IntoHandle: HasId { fn handle(self) -> Handle<Self>; }
 impl<T: HasId> IntoHandle for T {
     fn handle(self) -> Handle<Self> {

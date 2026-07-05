@@ -33,7 +33,6 @@ mod pathfinding;
 mod visuals;
 mod statemachine;
 mod commands;
-mod tasks;
 mod movement;
 mod domain_traits;
 mod coordination;
