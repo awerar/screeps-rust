@@ -7,7 +7,7 @@ use screeps::{Creep, game};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{Check, CheckFrom}, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize; Handle<WithId<Creep>, S>, D)]

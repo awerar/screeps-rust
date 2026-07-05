@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, ops::Deref};
 
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
-use screeps::{Creep, ObjectId, game, SharedCreepProperties};
+use screeps::{Creep, ObjectId, game};
 use serde::{Deserialize, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
@@ -164,12 +164,6 @@ pub trait IntoHandle: HasId { fn handle(self) -> Handle<Self>; }
 impl<T: HasId> IntoHandle for T {
     fn handle(self) -> Handle<Self> {
         Handle::new(self)
-    }
-}
-
-impl Handle<WithId<Creep>> {
-    pub fn name(&self) -> String {
-        self.0.name()
     }
 }
 
