@@ -1,6 +1,6 @@
 use std::{fmt::Debug, hash::Hash};
 
-use screeps::ResourceType;
+use screeps::{Creep, ResourceType, SharedCreepProperties};
 use serde::{Serialize, de::DeserializeOwned};
 
 pub trait HasStore {
@@ -51,6 +51,16 @@ pub trait Withdrawable: HasStoreExt {
 
 impl<T: screeps::Withdrawable + screeps::HasStore> Withdrawable for T {
     fn withdrawable(&self) -> &dyn screeps::Withdrawable { self }
+}
+
+pub trait HasName {
+    fn name(&self) -> String;
+}
+
+impl HasName for Creep {
+    fn name(&self) -> String {
+        SharedCreepProperties::name(self)
+    }
 }
 
 pub trait IdReqs = DeserializeOwned + Serialize + Hash + Eq + Ord + Clone + Copy + Debug;

@@ -6,7 +6,7 @@ use screeps::{Creep, ObjectId, game, SharedCreepProperties};
 use serde::{Deserialize, Serialize, Serializer};
 use wasm_bindgen::JsCast;
 
-use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, IdReqs, MaybeHasId, screeps_objects::IdResolutionError}};
+use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, HasName, IdReqs, MaybeHasId, screeps_objects::IdResolutionError}};
 
 pub trait CheckState {
     type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
@@ -120,6 +120,12 @@ impl<T, Id: Serialize> Serialize for WithId<T, Id> {
     }
 }
 
+impl<T: HasName, Id> HasName for WithId<T, Id> {
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+}
+
 impl WithId<Creep> {
     pub fn creeps() -> impl Iterator<Item = WithId<Creep>> {
         game::creeps().values().filter_map(Self::new)
@@ -163,6 +169,12 @@ impl<T: HasId> IntoHandle for T {
 
 impl Handle<WithId<Creep>> {
     pub fn name(&self) -> String {
+        self.0.name()
+    }
+}
+
+impl<T: HasId + HasName> HasName for Handle<T> {
+    fn name(&self) -> String {
         self.0.name()
     }
 }

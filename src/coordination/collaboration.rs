@@ -1,10 +1,10 @@
-use std::{fmt::Debug, hash::Hash};
+use std::hash::Hash;
 
 use derive_where::derive_where;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, ids::{Handle, WithId}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, TriviallyChecked}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, domain_traits::HasName, ids::{Handle, WithId}};
 
 #[derive(Serialize, Deserialize)]
 struct PendingWork(u32);
@@ -75,7 +75,7 @@ pub enum WorkerCheckError<Worker: CheckFrom> {
     WorkerCheck(Worker::Err)
 }
 
-impl<Worker: CheckFrom + Hash + Eq + Debug> FilterCheckFrom for Collaboration<Worker> {
+impl<Worker: CheckFrom + Hash + Eq + HasName> FilterCheckFrom for Collaboration<Worker> {
     type Unchecked = Collaboration<Worker::Unchecked>;
     type Err = WorkerCheckError<Worker>;
 

@@ -175,7 +175,7 @@ impl ProviderTasksBuilder {
 
                     (provider, (ProviderTaskData { priority: priority as u32, push_amount: config.push_amount }, RemainingWork(provide)))
                 })
-            })
+            }).filter(|(_, (_, work))| work.0 > 0)
     }
 }
 
@@ -220,7 +220,7 @@ impl ConsumerTasksBuilder {
 
                         (consumer, (ConsumerTaskPriority(priority as u32), RemainingWork(consume)))
                     })
-            })
+            }).filter(|(_, (_, work))| work.0 > 0)
     }
 }
 

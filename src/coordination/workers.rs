@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, hash_map}, fmt::Debug, hash::Hash};
+use std::{collections::{HashMap, hash_map}, hash::Hash};
 
 use derive_where::derive_where;
 use log::warn;
@@ -6,7 +6,7 @@ use screeps::{Creep, game};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError}, ids::{Handle, WithId}};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom, PairCheckError}, domain_traits::HasName, ids::{Handle, WithId}};
 
 const TIMEOUT: u32 = 2;
 
@@ -110,17 +110,17 @@ pub enum WorkerEntryCheckError<Worker: CheckFrom, WorkerData: CheckFrom> {
 
 impl<WorkerData, Worker> FilterCheckFrom for Workers<WorkerData, Worker> 
 where
-    Worker: CheckFrom + Hash + Eq + Debug,
+    Worker: CheckFrom + Hash + Eq + HasName,
     WorkerData: CheckFrom
 {
     type Unchecked = Workers<WorkerData::Unchecked, Worker::Unchecked>;
     type Err = WorkerEntryCheckError<Worker, WorkerData>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        let (workers, errs) = uc.workers.filter_check();
+        let (workers, errs): (HashMap<Worker, _>, _) = uc.workers.filter_check();
         for err in &errs {
             if let PairCheckError::Value(worker, WorkerStateCheckError::Timeout(_)) = &err {
-                warn!("{worker:?} timed out");
+                warn!("{} timed out", worker.name());
             }
         }
 
