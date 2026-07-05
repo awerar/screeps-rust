@@ -1,15 +1,7 @@
-use screeps::{Creep, HasPosition, Part, Position, Room, controller_downgrade, find};
+use screeps::{Creep, HasHits, HasPosition, Part, Position, Room, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{colony::ColonyBuffer, creeps::{fabricator::{DowngradePercentage, HealthPercentage, StorageFillPercentage, task::{BuildTask, FabricatorTask, FabricatorTaskType, RepairTask, UpgradeTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, Handle, IntoHandle, IntoWithId, WithId}, tasks::{TaskServer, prune_deserialize_taskserver}};
-
-fn get_creep_work_count(creep: &Creep) -> u32 {
-    let work_ticks_left = creep.ticks_to_live().unwrap().saturating_sub(super::GUESSED_CREEP_MOVE_TO_TASK_TICKS);
-    let work_ticks_left = work_ticks_left.min(super::MAX_TASK_TICKS);
-
-    let work_part_count = creep.body().iter().filter(|bodypart| bodypart.part() == Part::Work).count() as u32;
-    work_ticks_left * work_part_count
-}
+use crate::{colony::ColonyBuffer, creeps::{fabricator::{DowngradePercentage, HealthPercentage, StorageFillPercentage, task::{BuildTask, FabricatorTask, FabricatorTaskType, RepairTask, UpgradeTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, Handle, IntoWithId, WithId}, structure::RepairableStructure, tasks::{TaskServer, prune_deserialize_taskserver}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
@@ -21,17 +13,25 @@ pub struct FabricatorCoordinator {
     upgrades: TaskServer<UpgradeTask, (DowngradePercentage, Option<StorageFillPercentage>)>
 }
 
+fn get_creep_work_left(creep: &VirtualCreep) -> u32 {
+    let work_ticks_left = creep.ticks_to_live().unwrap().saturating_sub(super::GUESSED_CREEP_MOVE_TO_TASK_TICKS);
+    let work_ticks_left = work_ticks_left.min(super::MAX_TASK_TICKS);
+
+    let work_part_count = creep.body().num(Part::Work) as u32;
+    work_ticks_left * work_part_count
+}
+
 impl FabricatorCoordinator {
     pub fn update(&mut self, room: &Room, buffer: Option<ColonyBuffer>) {
         self.repairs.set_tasks(room.find(find::STRUCTURES, None).into_iter()
             .filter_map(|structure| {
-                let repairable = structure.as_repairable()?;
-                Some((
-                    ById(structure.as_structure().clone()), 
-                    repairable.hits_max() - repairable.hits(),
-                    (structure.pos(), 
-                    HealthPercentage(repairable.hits() as f32 / repairable.hits_max() as f32))
-                ))
+                let repairable = RepairableStructure::try_from(structure).ok()?;
+
+                let damage = repairable.hits_max() - repairable.hits();
+                let pos = repairable.pos();
+                let health_percentage =  HealthPercentage(repairable.hits() as f32 / repairable.hits_max() as f32);
+
+                Some((repairable, damage, (pos, health_percentage)))
             })
         );
 
@@ -79,9 +79,9 @@ impl FabricatorCoordinator {
             .map(FabricatorTask::new)
     }
 
-    fn assign_repair(&mut self, creep: &WithId<Creep>) -> Option<RepairTask> {
-        let contribution = get_creep_work_count(creep) * 100;
-        self.repairs.assign_task(creep.clone().handle(), contribution, |tasks| {
+    fn assign_repair(&mut self, creep: &VirtualCreep) -> Option<RepairTask> {
+        let contribution = get_creep_work_left(creep) * 100;
+        self.repairs.assign_task(creep.handle(), contribution, |tasks| {
             let emergency_repair = tasks.clone().into_iter()
                 .filter(|(_, _, (_, percentage))| *percentage <= super::EMERGENCY_REPAIR_PERCENTAGE)
                 .min_by(|(_, _, (_, p1)), (_, _, (_, p2))| p1.total_cmp(p2));
@@ -93,25 +93,25 @@ impl FabricatorCoordinator {
         })
     }
 
-    fn assign_build(&mut self, creep: &WithId<Creep>) -> Option<BuildTask> {
-        let contribution = get_creep_work_count(creep) * 5;
-        self.builds.assign_task(creep.clone().handle(), contribution, |tasks| {
+    fn assign_build(&mut self, creep: &VirtualCreep) -> Option<BuildTask> {
+        let contribution = get_creep_work_left(creep) * 5;
+        self.builds.assign_task(creep.handle(), contribution, |tasks| {
             tasks.into_iter()
                 .min_by_key(|(_, _, pos)| creep.pos().get_range_to(**pos))
         })
     }
 
-    fn assign_emergency_upgrade(&mut self, creep: &WithId<Creep>) -> Option<UpgradeTask> {
-        let contribution = get_creep_work_count(creep) * 2;
-        self.upgrades.assign_task(creep.clone().handle(), contribution, |tasks| {
+    fn assign_emergency_upgrade(&mut self, creep: &VirtualCreep) -> Option<UpgradeTask> {
+        let contribution = get_creep_work_left(creep) * 2;
+        self.upgrades.assign_task(creep.handle(), contribution, |tasks| {
             tasks.into_iter()
                 .find(|(_, _, (percentage, _))| *percentage >= super::CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE)
         })
     }
 
-    fn assign_upgrade(&mut self, creep: &WithId<Creep>) -> Option<UpgradeTask> {
-        let contribution = get_creep_work_count(creep) * 2;
-        self.upgrades.assign_task(creep.clone().handle(), contribution, |tasks| {
+    fn assign_upgrade(&mut self, creep: &VirtualCreep) -> Option<UpgradeTask> {
+        let contribution = get_creep_work_left(creep) * 2;
+        self.upgrades.assign_task(creep.handle(), contribution, |tasks| {
             tasks.into_iter()
                 .find(|(_, _, (_, percentage))| 
                     percentage.is_none_or(|percentage| percentage >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD))

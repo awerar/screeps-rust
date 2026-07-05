@@ -31,6 +31,7 @@ impl FabricatorCreep {
     pub fn is_consumer(&self) -> bool { matches!(self, Self::CollectingFor(_) | Self::Performing(_)) }
     pub fn is_provider(&self) -> bool { matches!(self, Self::Idle) }
 
+    // TODO: Check transitions
     pub fn update(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
         use Transition::*;
 

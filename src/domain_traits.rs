@@ -53,6 +53,14 @@ impl<T: screeps::Withdrawable + screeps::HasStore> Withdrawable for T {
     fn withdrawable(&self) -> &dyn screeps::Withdrawable { self }
 }
 
+pub trait Repairable {
+    fn repairable(&self) -> &dyn screeps::Repairable;
+}
+
+impl<T: screeps::Repairable> Repairable for T {
+    fn repairable(&self) -> &dyn screeps::Repairable { self }
+}
+
 pub trait HasName {
     fn name(&self) -> String;
 }

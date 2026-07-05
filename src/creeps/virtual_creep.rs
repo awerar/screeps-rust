@@ -2,9 +2,9 @@ use std::{collections::HashMap, error::Error};
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Repairable, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
+use screeps::{ConstructionSite, Creep, HasHits, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
-use crate::{domain_traits::{HasStoreExt, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -189,6 +189,10 @@ impl VirtualCreep {
 
     pub fn body(&self) -> Body {
         Body::from(&*self.creep)
+    }
+
+    pub fn ticks_to_live(&self) -> Option<u32> {
+        self.creep.ticks_to_live()
     }
 
     pub fn has_intent(&self, intent: IntentType) -> bool {
@@ -412,16 +416,17 @@ impl VirtualCreep {
         )
     }
 
-    #[expect(unused)]
     pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Result<u32, IntentError> {
+        let has_hits: &dyn HasHits = target.repairable();
+
         let amount = self.part_amount(Part::Work, 1)
-            .min((target.hits_max() - target.hits()).div_ceil(100))
+            .min((has_hits.hits_max() - has_hits.hits()).div_ceil(100))
             .min(self.get_energy());
 
         self.register_intent(
             IntentType::Repair,
             Intent::new(
-                move |creep| creep.repair(&target),
+                move |creep| creep.repair(target.repairable()),
                 Some(IntentEffect::outgoing_energy(amount))
             )
         )
