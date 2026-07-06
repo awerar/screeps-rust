@@ -91,6 +91,13 @@ macro_rules! break_move {
     };
 }
 
+#[macro_export]
+macro_rules! break_if {
+    ($expr:expr, $next:expr) => {
+        if $expr { return std::result::Result::Ok($crate::statemachine::Transition::Break($next)) }
+    };
+}
+
 
 /*
 vvv Summary by ChatGPT vvv

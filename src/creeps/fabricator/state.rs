@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType};
 use serde::Deserialize;
 
-use crate::{break_deferable, break_move, check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::{FabricatorCoordinator, FabricatorTaskHandle}, task::FabricatorTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{break_deferable, break_if, break_move, check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::{FabricatorCoordinator, FabricatorTaskHandle}, task::FabricatorTask}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
 
 // TODO: Expiration
 #[derive(Debug, Default, EnumDisplay)]
@@ -58,7 +58,8 @@ impl FabricatorCreep {
                 let Some(buffer) = &home.buffer else { return Ok(Break(self)) };
                 break_deferable!(break_move!(movement.move_vcreep_to(creep, buffer.pos(), 1), self), self)?;
 
-                if buffer.used_energy_capacity() == 0 { return Ok(Break(self)) }
+                break_if!(buffer.used_energy_capacity() == 0, self);
+                break_if!(creep.outgoing() > 0, self);
                 break_deferable!(creep.withdraw(buffer.clone(), ResourceType::Energy, None), self)?;
 
                 Ok(Continue(Self::Performing(task.clone())))
@@ -71,9 +72,11 @@ impl FabricatorCreep {
                 }
 
                 break_deferable!(break_move!(movement.move_vcreep_to(creep, task.pos(home), task.work_range()), self), self)?;
+
+                break_if!(creep.incoming_energy() > 0, self);
                 break_deferable!(task.creep_work(creep, home, &mut handle), self)?;
 
-                if !matches!(&handle, FabricatorTaskHandle::Collab(handle) if handle.remaining() == 0) { return Ok(Break(self)) }
+                break_if!(!matches!(&handle, FabricatorTaskHandle::Collab(handle) if handle.remaining() == 0), self);
 
                 Ok(Continue(Self::finish_task(handle)))
             }
