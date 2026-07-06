@@ -2,20 +2,20 @@ use ordered_float::OrderedFloat;
 use screeps::{HasHits, HasPosition, Part, Room, StructureController, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{CollaborativeCreepHandle, CreepCollaboration, RemainingWork}, expiring_map::{ExpiringCreepMap, LiveCreepHandle}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, expiring_map::{ExpiringCreepMap, LiveCreepHandle}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub repairs: Tasks<RepairTask, Filtered<CreepCollaboration<TaskExpiration>>>,
+    pub repairs: Tasks<RepairTask, Filtered<CreepAllocations<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub builds: Tasks<BuildTask, Filtered<CreepCollaboration<TaskExpiration>>>,
+    pub builds: Tasks<BuildTask, Filtered<CreepAllocations<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")]
     pub upgrade: ExpiringCreepMap<TaskExpiration> // Make workers have to reserve a portion of the tick upgrade budget
 }
 
 pub enum FabricatorTaskHandle<'a> {
-    Collab(CollaborativeCreepHandle<'a, TaskExpiration>),
+    Collab(CreepAllocationHandle<'a, TaskExpiration>),
     Upgrade(LiveCreepHandle<'a, TaskExpiration>)
 }
 
@@ -60,7 +60,7 @@ impl FabricatorCoordinator {
                     let repairable = RepairableStructure::try_from(structure).ok()?;
                     let damage = repairable.hits_max() - repairable.hits();
 
-                    Some((repairable, RemainingWork(damage)))
+                    Some((repairable, ResourceAmount(damage)))
                 })
         );
 
@@ -68,7 +68,7 @@ impl FabricatorCoordinator {
             room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
                 .map(|site| (
                     ById(site.clone().with_id().unwrap()),
-                    RemainingWork(site.progress_total() - site.progress())
+                    ResourceAmount(site.progress_total() - site.progress())
                 ))
         );
     }
@@ -101,7 +101,7 @@ impl FabricatorCoordinator {
 
     fn assign_emergency_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
         if downgrade_percentage(&home.controller) >= super::CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE {
-            self.upgrade.add(creep.handle(), Expiration::new());
+            self.upgrade.insert(creep.handle(), Expiration::new());
             return true;
         }
 
@@ -110,7 +110,7 @@ impl FabricatorCoordinator {
 
     fn assign_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
         if storage_fill_percentage(home.buffer.as_ref()).is_none_or(|x| x >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD) {
-            self.upgrade.add(creep.handle(), Expiration::new());
+            self.upgrade.insert(creep.handle(), Expiration::new());
             return true;
         }
 
@@ -132,7 +132,7 @@ impl FabricatorCoordinator {
 impl FabricatorTaskHandle<'_> {
     pub fn remove(self) {
         match self {
-            FabricatorTaskHandle::Collab(handle) => handle.remove(),
+            FabricatorTaskHandle::Collab(handle) => handle.release(),
             FabricatorTaskHandle::Upgrade(handle) => handle.remove(),
         }
     }

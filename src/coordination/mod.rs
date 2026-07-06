@@ -1,3 +1,3 @@
 pub mod expiring_map;
-pub mod collaboration;
+pub mod allocations;
 pub mod tasks;

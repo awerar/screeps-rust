@@ -12,7 +12,7 @@ use crate::{check::{CheckFrom, Expiring, ExpiringCheckError, FilterCheck, Filter
 #[derive_where(Deserialize; K: Hash + Eq + DeserializeOwned + 'static, V: DeserializeOwned + 'static, S: DeserializeOwned)]
 pub struct ExpiringMap<K, V, const TIMEOUT: u32 = 1, S: CheckState = Checked> {
     #[serde(with = "any_key_map")] 
-    keys: HashMap<K, Expiring<V, TIMEOUT, S>>
+    entries: HashMap<K, Expiring<V, TIMEOUT, S>>
 }
 
 pub type ExpiringCreepMap<V, const TIMEOUT: u32 = 1, S = Checked> = ExpiringMap<Handle<WithId<Creep>>, V, TIMEOUT, S>;
@@ -22,23 +22,23 @@ impl<K, V, const T: u32> IntoIterator for ExpiringMap<K, V, T> {
     type IntoIter = impl Iterator<Item = Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.keys.into_iter().map(|(c, cr)| (c, cr.inner))
+        self.entries.into_iter().map(|(c, cr)| (c, cr.inner))
     }
 }
 
 impl<K, V, const T: u32> ExpiringMap<K, V, T> {
     pub fn new() -> Self {
-        Self { keys: HashMap::new() }
+        Self { entries: HashMap::new() }
     }
 }
 
 impl<K, V, const T: u32> ExpiringMap<K, V, T> where K : Hash + Eq {    
-    pub fn add(&mut self, key: K, data: V) -> Option<V> {
-        self.keys.insert(key, Expiring::new(data)).map(|expiry| expiry.inner)
+    pub fn insert(&mut self, key: K, data: V) -> Option<V> {
+        self.entries.insert(key, Expiring::new(data)).map(|expiry| expiry.inner)
     }
 
     pub fn refresh(&mut self, key: K) -> Option<LiveHandle<'_, K, V, T>> {
-        match self.keys.entry(key) {
+        match self.entries.entry(key) {
             hash_map::Entry::Vacant(_) => None,
             hash_map::Entry::Occupied(mut entry) => {
                 entry.get_mut().expiration.refresh();
@@ -86,7 +86,7 @@ where
     type Err = ExpiringEntryCheckError<K, V>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
-        let (keys, errs): (HashMap<K, _>, _) = uc.keys.filter_check();
+        let (keys, errs): (HashMap<K, _>, _) = uc.entries.filter_check();
         for err in &errs {
             if let PairCheckError::Value(key, ExpiringCheckError::Expired(_)) = &err {
                 warn!("{} timed out", key.name());
@@ -106,6 +106,6 @@ where
             }
         }).collect();
 
-        (Self { keys }, errs)
+        (Self { entries: keys }, errs)
     }
 }

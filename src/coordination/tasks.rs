@@ -5,7 +5,7 @@ use screeps::Position;
 use serde::de::DeserializeOwned;
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, Filtered, PairCheckError}, coordination::collaboration::{Collaboration, CollaborativeWorkerHandle}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, Filtered, PairCheckError}, coordination::allocations::{Allocations, AllocationHandle}};
 
 #[derive_where(Serialize; Task, TaskData, Task: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Task: Hash + Eq + DeserializeOwned + 'static, TaskData: DeserializeOwned + 'static)]
@@ -57,23 +57,23 @@ impl<Task: Hash + Eq, TaskData> Tasks<Task, TaskData> {
     }
 }
 
-impl<Task, K, Worker, WD> Tasks<Task, (K, Filtered<Collaboration<Worker, WD>>)>
+impl<Task, K, Worker, WD> Tasks<Task, (K, Filtered<Allocations<Worker, WD>>)>
 where 
     Task: Hash + Eq,
     Worker: Hash + Eq
 {
-    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker, WD>> {
-        self.get_mut(task).and_then(|(_, collab)| collab.heartbeat(worker))
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<AllocationHandle<'_, Worker, WD>> {
+        self.get_mut(task).and_then(|(_, collab)| collab.refresh(worker))
     }
 }
 
-impl<Task, Worker, WD> Tasks<Task, Filtered<Collaboration<Worker, WD>>>
+impl<Task, Worker, WD> Tasks<Task, Filtered<Allocations<Worker, WD>>>
 where 
     Task: Hash + Eq,
     Worker: Hash + Eq
 {
-    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker, WD>> {
-        self.get_mut(task).and_then(|collab| collab.heartbeat(worker))
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<AllocationHandle<'_, Worker, WD>> {
+        self.get_mut(task).and_then(|collab| collab.refresh(worker))
     }
 }
 
@@ -137,27 +137,27 @@ pub trait AddedToCollab {
     fn added_to_collab(self, client: Self::Worker, amount: u32, data: Self::WorkerData) -> Self::Result;
 }
 
-impl<T: Clone, K, Worker: Hash + Eq, WorkerData> AddedToCollab for Option<(&T, &mut (K, Filtered<Collaboration<Worker, WorkerData>>))> {
+impl<T: Clone, K, Worker: Hash + Eq, WorkerData> AddedToCollab for Option<(&T, &mut (K, Filtered<Allocations<Worker, WorkerData>>))> {
     type Result = Option<T>;
     type Worker = Worker;
     type WorkerData = WorkerData;
 
     fn added_to_collab(self, client: Self::Worker, amount: u32, data: WorkerData) -> Self::Result {
         self.map(|(task, (_, collab))| {
-            collab.add(client, amount, data);
+            collab.allocate(client, amount, data);
             task.clone()
         })
     }
 }
 
-impl<T: Clone, Worker: Hash + Eq, WorkerData> AddedToCollab for Option<(&T, &mut Filtered<Collaboration<Worker, WorkerData>>)> {
+impl<T: Clone, Worker: Hash + Eq, WorkerData> AddedToCollab for Option<(&T, &mut Filtered<Allocations<Worker, WorkerData>>)> {
     type Result = Option<T>;
     type Worker = Worker;
     type WorkerData = WorkerData;
 
     fn added_to_collab(self, client: Self::Worker, amount: u32, data: WorkerData) -> Self::Result {
         self.map(|(task, collab)| {
-            collab.add(client, amount, data);
+            collab.allocate(client, amount, data);
             task.clone()
         })
     }

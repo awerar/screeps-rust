@@ -40,13 +40,13 @@ impl FabricatorTask {
         match self {
             FabricatorTask::Building(site) => {
                 let FabricatorTaskHandle::Collab(handle) = handle else { unreachable!() };
-                handle.apply_work(creep.build((***site).clone())?);
-                
+                handle.consume(creep.build((***site).clone())?);
+
                 Ok(())
             },
             FabricatorTask::Repairing(structure) => {
                 let FabricatorTaskHandle::Collab(handle) = handle else { unreachable!() };
-                handle.apply_work(creep.repair(structure.clone())?);
+                handle.consume(creep.repair(structure.clone())?);
                 
                 Ok(())
             },

@@ -3,14 +3,14 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{collaboration::{CollaborativeWorkerHandle, CreepCollaboration, RemainingWork}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, WithId}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{allocations::{AllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, WithId}, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub providers: Tasks<ProviderTruckStop, (ProviderTaskData, Filtered<CreepCollaboration>)>,
+    pub providers: Tasks<ProviderTruckStop, (ProviderTaskData, Filtered<CreepAllocations>)>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub consumers: Tasks<ConsumerTruckStop, (ConsumerTaskPriority, Filtered<CreepCollaboration>)>
+    pub consumers: Tasks<ConsumerTruckStop, (ConsumerTaskPriority, Filtered<CreepAllocations>)>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -79,7 +79,7 @@ impl TruckCoordinator {
         self.consumers.set_tasks(consumers.build());
     }
 
-    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &TruckTask) -> Option<CollaborativeWorkerHandle<'_>> {
+    pub fn heartbeat(&mut self, creep: &VirtualCreep, task: &TruckTask) -> Option<AllocationHandle<'_>> {
         match task {
             TruckTask::CollectingFrom(task) => self.providers.heartbeat(task, creep.handle()),
             TruckTask::ProvidingTo(task) => self.consumers.heartbeat(task, creep.handle())
@@ -88,7 +88,7 @@ impl TruckCoordinator {
 
     pub fn assign_push_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
         self.providers.iter_mut()
-                .filter(|(_, (data, collab))| data.push_amount.is_some_and(|push_amount| collab.unassigned_work() >= push_amount))
+                .filter(|(_, (data, collab))| data.push_amount.is_some_and(|push_amount| collab.unreserved_amount() >= push_amount))
                 .max_by_key(|(provider, (data, _))|  {
                     (
                         data.priority, 
@@ -101,7 +101,7 @@ impl TruckCoordinator {
         self.providers.iter_mut()
             .max_by_key(|(provider, (data, collab))| {
                 (
-                    collab.unassigned_work().min(truck.next_free_capacity()), 
+                    collab.unreserved_amount().min(truck.next_free_capacity()), 
                     data.priority,
                     Reverse(provider.pos().get_range_to(truck.pos()))
                 )
@@ -113,7 +113,7 @@ impl TruckCoordinator {
             .max_by_key(|(consumer, (priority, collab))| { 
                 (
                     priority.0, 
-                    collab.unassigned_work(), 
+                    collab.unreserved_amount(), 
                     Reverse(consumer.pos().get_range_to(truck.pos()))
                 )
             }).added_to_collab(truck.handle(), truck.next_used_energy_capacity(), ())
@@ -150,13 +150,13 @@ impl ProviderTasksBuilder {
         &mut self.groups.push_mut((iter.into_iter().collect(), ProviderTasksGroupConfig::default())).1
     }
 
-    fn build(self) -> impl Iterator<Item = (ProviderTruckStop, (ProviderTaskData, RemainingWork))> {
+    fn build(self) -> impl Iterator<Item = (ProviderTruckStop, (ProviderTaskData, ResourceAmount))> {
         self.groups.into_iter().rev().enumerate()
             .flat_map(|(priority, (providers, config))| {
                 providers.into_iter().map(move |provider| {
                     let provide = provider.get_resource_avaliable(ResourceType::Energy).saturating_sub(config.min_leave.unwrap_or(0));
 
-                    (provider, (ProviderTaskData { priority: priority as u32, push_amount: config.push_amount }, RemainingWork(provide)))
+                    (provider, (ProviderTaskData { priority: priority as u32, push_amount: config.push_amount }, ResourceAmount(provide)))
                 })
             }).filter(|(_, (_, work))| work.0 > 0)
     }
@@ -186,7 +186,7 @@ impl ConsumerTasksBuilder {
         &mut self.groups.push_mut((iter.into_iter().collect(), ConsumerTasksGroupConfig::default())).1
     }
 
-    fn build(self) -> impl Iterator<Item = (ConsumerTruckStop, (ConsumerTaskPriority, RemainingWork))> {
+    fn build(self) -> impl Iterator<Item = (ConsumerTruckStop, (ConsumerTaskPriority, ResourceAmount))> {
         self.groups.into_iter().rev().enumerate()
             .flat_map(|(priority, (consumers, config))| {
                 consumers.into_iter()
@@ -201,7 +201,7 @@ impl ConsumerTasksBuilder {
                         let capacity_left = consumer.free_energy_capacity();
                         let consume = config.max_fill.map_or(capacity_left, |max_fill| max_fill.saturating_sub(used));
 
-                        (consumer, (ConsumerTaskPriority(priority as u32), RemainingWork(consume)))
+                        (consumer, (ConsumerTaskPriority(priority as u32), ResourceAmount(consume)))
                     })
             }).filter(|(_, (_, work))| work.0 > 0)
     }

@@ -76,7 +76,7 @@ impl FabricatorCreep {
                 break_if!(creep.incoming_energy() > 0, self);
                 break_deferable!(task.creep_work(creep, home, &mut handle), self)?;
 
-                break_if!(!matches!(&handle, FabricatorTaskHandle::Collab(handle) if handle.remaining() == 0), self);
+                break_if!(!matches!(&handle, FabricatorTaskHandle::Collab(handle) if handle.reserved() == 0), self);
 
                 Ok(Continue(Self::finish_task(handle)))
             }

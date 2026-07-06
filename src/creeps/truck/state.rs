@@ -4,7 +4,7 @@ use screeps::{HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{break_deferable, break_if, break_move, check::{Check, CheckFrom}, colony::ColonyView, coordination::collaboration::CollaborativeCreepHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{break_deferable, break_if, break_move, check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>)]
@@ -49,8 +49,8 @@ impl CheckFrom for TruckTask {
 }
 
 impl TruckCreep {
-    fn finish_task(task_handle: CollaborativeCreepHandle<'_>) -> Self {
-        task_handle.remove();
+    fn finish_task(task_handle: CreepAllocationHandle<'_>) -> Self {
+        task_handle.release();
         Self::Idle
     }
 
@@ -94,7 +94,7 @@ impl TruckCreep {
                 break_deferable!(break_move!(movement.move_vcreep_to(truck, task.pos(), 1), self), self)?;
 
                 break_if!(truck.incoming_energy() > 0, self);
-                handle.apply_work(break_deferable!(task.creep_perform(truck), self)?);
+                handle.consume(break_deferable!(task.creep_perform(truck), self)?);
 
                 Ok(Continue(Self::finish_task(handle)))
             },
@@ -112,7 +112,7 @@ impl TruckCreep {
                 break_deferable!(break_move!(movement.move_vcreep_to(truck, buffer.pos(), 1), self), self)?;
 
                 break_if!(truck.outgoing() > 0, self);
-                handle.apply_work(break_deferable!(truck.withdraw(buffer.clone(), ResourceType::Energy, None), self)?);
+                handle.consume(break_deferable!(truck.withdraw(buffer.clone(), ResourceType::Energy, None), self)?);
 
                 Ok(Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
