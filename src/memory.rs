@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use js_sys::{JsString, Reflect};
+use js_sys::JsString;
 use log::warn;
 use screeps::{Position, RoomName};
 
@@ -12,9 +12,6 @@ extern crate serde_json_path_to_error as serde_json;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Memory {
-    #[serde(rename = "creeps")]
-    _internal_creeps: Option<serde_json::Value>,
-
     #[serde(rename = "allies")]
     _alliance_allies: Option<serde_json::Value>,
     #[serde(rename = "myData")]
@@ -24,7 +21,6 @@ pub struct Memory {
     
     pub tick_times: VecDeque<f64>,
 
-    #[serde(rename = "internal_creeps")]
     pub creeps: Creeps,
     pub colonies: Colonies,
 
@@ -40,27 +36,15 @@ pub struct Memory {
 pub type ClaimRequests = HashSet<Position>;
 
 impl Memory {
-    #[expect(clippy::used_underscore_binding)]
     pub fn screeps_deserialize() -> Self {
-        let mem = screeps::raw_memory::get();
-        let mut mem: Memory = serde_json::from_str(&String::from(mem)).unwrap_or_else(|_| {
+        serde_json::from_str(&String::from(screeps::raw_memory::get())).unwrap_or_else(|_| {
             warn!("Unable to parse raw memory. Resetting memory");
             Memory::default()
-        });
-
-        mem._internal_creeps = None; // This is deserialized separately in JS
-        mem
+        })
     }
 
-    #[expect(clippy::used_underscore_binding)]
-    pub fn screeps_serialize(&mut self) {
-        #[allow(deprecated)]
-        let new_internal_creeps = Reflect::get(&screeps::memory::ROOT, &JsString::from("creeps")).ok();
-        let new_internal_creeps: Option<serde_json::Value> = new_internal_creeps.map(|x| serde_wasm_bindgen::from_value(x).unwrap());
-        self._internal_creeps = new_internal_creeps;
-
-        let mem = serde_json::to_string(&self).unwrap();
-        screeps::raw_memory::set(&JsString::from(mem));
+    pub fn screeps_serialize(self) {
+        screeps::raw_memory::set(&JsString::from(serde_json::to_string(&self).unwrap()));
     }
 
     pub fn get_average_tick_rate_over(&self, tick_count: usize) -> f64 {

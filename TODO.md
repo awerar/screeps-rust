@@ -10,3 +10,4 @@
 - Truck sometimes stops without reason. I think because get_capacity and energy issue
 - Split files
 - Migrate other creep roles to virtual creep
+- Predictive spawning

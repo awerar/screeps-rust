@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, collections::{BinaryHeap, HashMap}, sync::LazyLock};
+use std::{collections::HashMap, sync::LazyLock};
 
 use screeps::{game};
 use serde::{Deserialize, Serialize};
@@ -24,56 +24,13 @@ impl PeriodicCallback {
     }
 }
 
-#[derive(PartialEq, Eq, Deserialize, Serialize)]
-pub enum Callback {
-    
-}
-
-impl Callback {
-    pub fn execute(self, _mem: &mut Memory) {
-        match self {
-            
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Deserialize, Serialize)]
-struct ScheduledCallback(Reverse<u32>, Callback);
-
-impl Ord for ScheduledCallback {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
-impl PartialOrd for ScheduledCallback {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 #[derive(Deserialize, Serialize, Default)]
 pub struct Callbacks{ 
-    scheduled: BinaryHeap<ScheduledCallback>,
     last_periodic: HashMap<PeriodicCallback, u32>
-}
-
-impl Callbacks {
-    #[expect(dead_code)]
-    pub fn schedule(&mut self, time: u32, callback: Callback) {
-        self.scheduled.push(ScheduledCallback(Reverse(time), callback));
-    }
 }
 
 impl Memory {
     pub fn handle_callbacks(&mut self) {
-        while let Some(callback) = self.callbacks.scheduled.peek() {
-            if game::time() < callback.0.0 { break; }
-            #[expect(unreachable_code, unused_variables)]
-            let callback = self.callbacks.scheduled.pop().unwrap();
-            callback.1.execute(self);
-        }
-
         for (callback, delay) in PERIODIC_CALLBACKS.iter() {
             let last_time = self.callbacks.last_periodic.entry(callback.clone())
                 .or_insert(0);
