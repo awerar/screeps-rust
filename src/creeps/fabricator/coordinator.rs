@@ -2,20 +2,20 @@ use ordered_float::OrderedFloat;
 use screeps::{HasHits, HasPosition, Part, Room, StructureController, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, expiring_map::{ExpiringCreepMap, LiveCreepHandle}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{CollaborativeCreepHandle, CreepCollaboration, RemainingWork}, expiring_map::{ExpiringCreepMap, LiveCreepHandle}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub repairs: Tasks<RepairTask, Filtered<Collaboration<TaskExpiration>>>,
+    pub repairs: Tasks<RepairTask, Filtered<CreepCollaboration<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub builds: Tasks<BuildTask, Filtered<Collaboration<TaskExpiration>>>,
+    pub builds: Tasks<BuildTask, Filtered<CreepCollaboration<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")]
     pub upgrade: ExpiringCreepMap<TaskExpiration> // Make workers have to reserve a portion of the tick upgrade budget
 }
 
 pub enum FabricatorTaskHandle<'a> {
-    Collab(CollaborativeWorkerHandle<'a, TaskExpiration>),
+    Collab(CollaborativeCreepHandle<'a, TaskExpiration>),
     Upgrade(LiveCreepHandle<'a, TaskExpiration>)
 }
 

@@ -3,14 +3,14 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, WithId}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{collaboration::{CollaborativeWorkerHandle, CreepCollaboration, RemainingWork}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, WithId}, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub providers: Tasks<ProviderTruckStop, (ProviderTaskData, Filtered<Collaboration>)>,
+    pub providers: Tasks<ProviderTruckStop, (ProviderTaskData, Filtered<CreepCollaboration>)>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
-    pub consumers: Tasks<ConsumerTruckStop, (ConsumerTaskPriority, Filtered<Collaboration>)>
+    pub consumers: Tasks<ConsumerTruckStop, (ConsumerTaskPriority, Filtered<CreepCollaboration>)>
 }
 
 #[derive(Serialize, Deserialize)]

@@ -36,18 +36,20 @@ impl<WD: CheckFrom> CheckFrom for WorkerState<WD> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TaskState {
+struct TaskState {
     remaining_work: u32,
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; ExpiringMap<Worker, WorkerState<WorkerData>, S>)]
-pub struct Collaboration<WorkerData = (), Worker = Handle<WithId<Creep>>, S: CheckState = Checked> {
-    registry: ExpiringMap<Worker, WorkerState<WorkerData>, S>,
+#[derive_where(Serialize, Deserialize; ExpiringMap<Worker, WorkerState<WorkerData>, 1, S>)]
+pub struct Collaboration<Worker, WorkerData = (), S: CheckState = Checked> {
+    registry: ExpiringMap<Worker, WorkerState<WorkerData>, 1, S>,
     task_data: TaskState
 }
 
-impl<WD, W> Collaboration<WD, W> {
+pub type CreepCollaboration<WorkerData = (), S = Checked> = Collaboration<Handle<WithId<Creep>>, WorkerData, S>;
+
+impl<W, WD> Collaboration<W, WD> {
     pub fn new(required_work: u32) -> Self {
         Self { 
             registry: ExpiringMap::new(),
@@ -67,8 +69,8 @@ impl<WD, W> Collaboration<WD, W> {
     }
 }
 
-impl<WorkerData, Worker: Hash + Eq> Collaboration<WorkerData, Worker> {
-    pub fn heartbeat(&mut self, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WorkerData, Worker>> {
+impl<Worker: Hash + Eq, WorkerData> Collaboration<Worker, WorkerData> {
+    pub fn heartbeat(&mut self, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker, WorkerData>> {
         Some(CollaborativeWorkerHandle {
             worker_handle: self.registry.refresh(worker)?,
             task_data: &mut self.task_data
@@ -86,7 +88,7 @@ impl<WorkerData, Worker: Hash + Eq> Collaboration<WorkerData, Worker> {
 }
 
 pub struct RemainingWork(pub u32);
-impl<WorkerData, Worker> UpdateableTaskData for Collaboration<WorkerData, Worker> {
+impl<Worker, WorkerData> UpdateableTaskData for Collaboration<Worker, WorkerData> {
     type Update = RemainingWork;
 
     fn update(&mut self, update: Self::Update) {
@@ -98,12 +100,12 @@ impl<WorkerData, Worker> UpdateableTaskData for Collaboration<WorkerData, Worker
     }
 }
 
-impl<WorkerData, Worker> FilterCheckFrom for Collaboration<WorkerData, Worker> 
+impl<Worker, WorkerData> FilterCheckFrom for Collaboration<Worker, WorkerData> 
 where 
     WorkerData: CheckFrom,
     Worker: CheckFrom + Hash + Eq + HasName
 {
-    type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked, Unchecked>;
+    type Unchecked = Collaboration<Worker::Unchecked, WorkerData::Unchecked, Unchecked>;
     type Err = ExpiringEntryCheckError<Worker, WorkerData>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
@@ -135,12 +137,14 @@ where
     }
 }
 
-pub struct CollaborativeWorkerHandle<'a, WorkerData = (), Worker = Handle<WithId<Creep>>> {
+pub struct CollaborativeWorkerHandle<'a, Worker = Handle<WithId<Creep>>, WorkerData = ()> {
     task_data: &'a mut TaskState,
     worker_handle: LiveHandle<'a, Worker, WorkerState<WorkerData>>
 }
 
-impl<WorkerData, Worker> CollaborativeWorkerHandle<'_, WorkerData, Worker> {
+pub type CollaborativeCreepHandle<'a, WorkerData = ()> = CollaborativeWorkerHandle<'a, Handle<WithId<Creep>>, WorkerData>;
+
+impl<Worker, WorkerData> CollaborativeWorkerHandle<'_, Worker, WorkerData> {
     pub fn apply_work(&mut self, amount: u32) {
         self.task_data.pending_work = self.task_data.pending_work.saturating_sub(amount);
         self.task_data.remaining_work = self.task_data.remaining_work.saturating_sub(amount);

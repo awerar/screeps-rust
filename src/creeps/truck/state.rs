@@ -4,7 +4,7 @@ use screeps::{HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{break_deferable, break_if, break_move, check::{Check, CheckFrom}, colony::ColonyView, coordination::collaboration::CollaborativeWorkerHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{break_deferable, break_if, break_move, check::{Check, CheckFrom}, colony::ColonyView, coordination::collaboration::CollaborativeCreepHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>)]
@@ -49,7 +49,7 @@ impl CheckFrom for TruckTask {
 }
 
 impl TruckCreep {
-    fn finish_task(task_handle: CollaborativeWorkerHandle<'_, ()>) -> Self {
+    fn finish_task(task_handle: CollaborativeCreepHandle<'_>) -> Self {
         task_handle.remove();
         Self::Idle
     }

@@ -57,22 +57,22 @@ impl<Task: Hash + Eq, TaskData> Tasks<Task, TaskData> {
     }
 }
 
-impl<Task, K, WD, Worker> Tasks<Task, (K, Filtered<Collaboration<WD, Worker>>)>
+impl<Task, K, Worker, WD> Tasks<Task, (K, Filtered<Collaboration<Worker, WD>>)>
 where 
     Task: Hash + Eq,
     Worker: Hash + Eq
 {
-    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WD, Worker>> {
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker, WD>> {
         self.get_mut(task).and_then(|(_, collab)| collab.heartbeat(worker))
     }
 }
 
-impl<Task, WD, Worker> Tasks<Task, Filtered<Collaboration<WD, Worker>>>
+impl<Task, Worker, WD> Tasks<Task, Filtered<Collaboration<Worker, WD>>>
 where 
     Task: Hash + Eq,
     Worker: Hash + Eq
 {
-    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WD, Worker>> {
+    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, Worker, WD>> {
         self.get_mut(task).and_then(|collab| collab.heartbeat(worker))
     }
 }
@@ -137,7 +137,7 @@ pub trait AddedToCollab {
     fn added_to_collab(self, client: Self::Worker, amount: u32, data: Self::WorkerData) -> Self::Result;
 }
 
-impl<T: Clone, K, WorkerData, Worker: Hash + Eq> AddedToCollab for Option<(&T, &mut (K, Filtered<Collaboration<WorkerData, Worker>>))> {
+impl<T: Clone, K, Worker: Hash + Eq, WorkerData> AddedToCollab for Option<(&T, &mut (K, Filtered<Collaboration<Worker, WorkerData>>))> {
     type Result = Option<T>;
     type Worker = Worker;
     type WorkerData = WorkerData;
@@ -150,7 +150,7 @@ impl<T: Clone, K, WorkerData, Worker: Hash + Eq> AddedToCollab for Option<(&T, &
     }
 }
 
-impl<T: Clone, WorkerData, Worker: Hash + Eq> AddedToCollab for Option<(&T, &mut Filtered<Collaboration<WorkerData, Worker>>)> {
+impl<T: Clone, Worker: Hash + Eq, WorkerData> AddedToCollab for Option<(&T, &mut Filtered<Collaboration<Worker, WorkerData>>)> {
     type Result = Option<T>;
     type Worker = Worker;
     type WorkerData = WorkerData;

@@ -8,18 +8,16 @@ use serde_json_any_key::any_key_map;
 
 use crate::{check::{CheckFrom, Expiring, ExpiringCheckError, FilterCheck, FilterCheckFrom, PairCheckError}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
-const TIMEOUT: u32 = 1; // TODO: Make generic
-
 #[derive_where(Serialize; K, V, S, K: Hash + Eq + 'static)]
 #[derive_where(Deserialize; K: Hash + Eq + DeserializeOwned + 'static, V: DeserializeOwned + 'static, S: DeserializeOwned)]
-pub struct ExpiringMap<K, V, S: CheckState = Checked> {
+pub struct ExpiringMap<K, V, const TIMEOUT: u32 = 1, S: CheckState = Checked> {
     #[serde(with = "any_key_map")] 
     keys: HashMap<K, Expiring<V, TIMEOUT, S>>
 }
 
-pub type ExpiringCreepMap<V, S = Checked> = ExpiringMap<Handle<WithId<Creep>>, V, S>;
+pub type ExpiringCreepMap<V, const TIMEOUT: u32 = 1, S = Checked> = ExpiringMap<Handle<WithId<Creep>>, V, TIMEOUT, S>;
 
-impl<K, V> IntoIterator for ExpiringMap<K, V> {
+impl<K, V, const T: u32> IntoIterator for ExpiringMap<K, V, T> {
     type Item = (K, V);
     type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -28,18 +26,18 @@ impl<K, V> IntoIterator for ExpiringMap<K, V> {
     }
 }
 
-impl<K, V> ExpiringMap<K, V> {
+impl<K, V, const T: u32> ExpiringMap<K, V, T> {
     pub fn new() -> Self {
         Self { keys: HashMap::new() }
     }
 }
 
-impl<K, V> ExpiringMap<K, V> where K : Hash + Eq {    
+impl<K, V, const T: u32> ExpiringMap<K, V, T> where K : Hash + Eq {    
     pub fn add(&mut self, key: K, data: V) -> Option<V> {
         self.keys.insert(key, Expiring::new(data)).map(|expiry| expiry.inner)
     }
 
-    pub fn refresh(&mut self, key: K) -> Option<LiveHandle<'_, K, V>> {
+    pub fn refresh(&mut self, key: K) -> Option<LiveHandle<'_, K, V, T>> {
         match self.keys.entry(key) {
             hash_map::Entry::Vacant(_) => None,
             hash_map::Entry::Occupied(mut entry) => {
@@ -50,16 +48,16 @@ impl<K, V> ExpiringMap<K, V> where K : Hash + Eq {
     }
 }
 
-impl<K, V> Default for ExpiringMap<K, V> {
+impl<K, V, const T: u32> Default for ExpiringMap<K, V, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub struct LiveHandle<'a, K, V>(hash_map::OccupiedEntry<'a, K, Expiring<V, TIMEOUT>>);
-pub type LiveCreepHandle<'a, V> = LiveHandle<'a, Handle<WithId<Creep>>, V>;
+pub struct LiveHandle<'a, K, V, const TIMEOUT: u32 = 1>(hash_map::OccupiedEntry<'a, K, Expiring<V, TIMEOUT>>);
+pub type LiveCreepHandle<'a, V, const TIMEOUT: u32 = 1> = LiveHandle<'a, Handle<WithId<Creep>>, V, TIMEOUT>;
 
-impl<K, V> LiveHandle<'_, K, V> {
+impl<K, V, const T: u32> LiveHandle<'_, K, V, T> {
     pub fn get(&self) -> &V {
         self.0.get()
     }
@@ -79,12 +77,12 @@ pub enum ExpiringEntryCheckError<K: CheckFrom, V: CheckFrom> {
     Expired(K, V)
 }
 
-impl<K, V> FilterCheckFrom for ExpiringMap<K, V> 
+impl<K, V, const T: u32> FilterCheckFrom for ExpiringMap<K, V, T> 
 where
     K: CheckFrom + Hash + Eq + HasName,
     V: CheckFrom
 {
-    type Unchecked = ExpiringMap<K::Unchecked, V::Unchecked, Unchecked>;
+    type Unchecked = ExpiringMap<K::Unchecked, V::Unchecked, T, Unchecked>;
     type Err = ExpiringEntryCheckError<K, V>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
