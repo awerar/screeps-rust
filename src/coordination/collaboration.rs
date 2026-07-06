@@ -4,7 +4,7 @@ use derive_where::derive_where;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, domain_traits::HasName, ids::{Handle, WithId}};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
 #[derive(Serialize, Deserialize)]
 struct WorkerState<WorkerData> {
@@ -41,9 +41,9 @@ pub struct TaskState {
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; Workers<WorkerState<WorkerData>, Worker>)]
-pub struct Collaboration<WorkerData = (), Worker = Handle<WithId<Creep>> > {
-    registry: Workers<WorkerState<WorkerData>, Worker>,
+#[derive_where(Serialize, Deserialize; Workers<WorkerState<WorkerData>, Worker, S>)]
+pub struct Collaboration<WorkerData = (), Worker = Handle<WithId<Creep>>, S: CheckState = Checked> {
+    registry: Workers<WorkerState<WorkerData>, Worker, S>,
     task_data: TaskState
 }
 
@@ -103,7 +103,7 @@ where
     WorkerData: CheckFrom,
     Worker: CheckFrom + Hash + Eq + HasName
 {
-    type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked>;
+    type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked, Unchecked>;
     type Err = WorkerEntryCheckError<WorkerData, Worker>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {

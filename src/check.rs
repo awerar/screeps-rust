@@ -1,10 +1,12 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash, ops::{Deref, DerefMut}};
+use std::{collections::{HashMap, HashSet}, hash::Hash, marker::PhantomData, ops::{Deref, DerefMut}};
 
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
 use itertools::Itertools;
-use screeps::{Position, game};
+use screeps::Position;
 use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::ids::{CheckState, Checked, Unchecked};
 
 // ==== Check traits ====
 pub trait TriviallyChecked {}
@@ -170,42 +172,47 @@ impl<'de, T: FilterCheckFrom> Deserialize<'de> for Filtered<T> where T::Unchecke
 }
 
 // ==== Expiration ====
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct Expiration<const LIFETIME: u32> {
-    last_refresh: u32
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive_where(Serialize)]
+pub struct Expiration<const LIFETIME: u32, S: CheckState = Checked> {
+    checks_left: u32,
+    phantom: PhantomData<S>
 }
 
 impl<const LIFETIME: u32> Expiration<LIFETIME> {
     pub fn new() -> Self {
-        Self { last_refresh: game::time() }
+        Self { checks_left: LIFETIME, phantom: PhantomData }
     }
 
     pub fn refresh(&mut self) {
-        self.last_refresh = game::time();
+        *self = Self::new();
     }
 
-    pub fn time_left(self) -> u32 {
-        (self.last_refresh + LIFETIME + 1).saturating_sub(game::time())
+    #[expect(unused)]
+    pub fn checks_left(self) -> u32 {
+        self.checks_left
     }
 }
 
+pub struct ExpirationCheckError;
 impl<const LT: u32> CheckFrom for Expiration<LT> {
-    type Unchecked = Self;
-    type Err = ();
+    type Unchecked = Expiration<LT, Unchecked>;
+    type Err = ExpirationCheckError;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        if uc.time_left() == 0 { return Err(()) }
-
-        Ok(uc)
+        Ok(Self { 
+            checks_left: uc.checks_left.checked_sub(1).ok_or(ExpirationCheckError)?, 
+            phantom: PhantomData
+        })
     }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[derive_where(PartialEq, Eq, PartialOrd, Ord; T)]
-pub struct Expiring<T, const LIFETIME: u32> {
+pub struct Expiring<T, const LIFETIME: u32, S: CheckState = Checked> {
     pub inner: T,
     #[derive_where(skip)] 
-    pub expiration: Expiration<LIFETIME>
+    pub expiration: Expiration<LIFETIME, S>
 }
 
 impl<T, const LT: u32> Expiring<T, LT> {
@@ -228,19 +235,19 @@ impl<T, const E: u32> DerefMut for Expiring<T, E> {
     }
 }
 
-pub enum ExpirationCheckError<T: CheckFrom> {
+pub enum ExpiringCheckError<T: CheckFrom> {
     Expired(T),
     Inner(T::Err)
 }
 
 impl<T: CheckFrom, const EXPIRY: u32> CheckFrom for Expiring<T, EXPIRY> {
-    type Unchecked = Expiring<T::Unchecked, EXPIRY>;
-    type Err = ExpirationCheckError<T>;
+    type Unchecked = Expiring<T::Unchecked, EXPIRY, Unchecked>;
+    type Err = ExpiringCheckError<T>;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        let inner: T = uc.inner.check().map_err(ExpirationCheckError::Inner)?;
+        let inner: T = uc.inner.check().map_err(ExpiringCheckError::Inner)?;
         let Ok(expiration) = uc.expiration.check() else {
-            return Err(ExpirationCheckError::Expired(inner))
+            return Err(ExpiringCheckError::Expired(inner))
         };
 
         Ok(Self { inner, expiration })

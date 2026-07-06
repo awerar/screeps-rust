@@ -6,15 +6,15 @@ use screeps::Creep;
 use serde::de::DeserializeOwned;
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{CheckFrom, Expiring, ExpirationCheckError, FilterCheck, FilterCheckFrom, PairCheckError}, domain_traits::HasName, ids::{Handle, WithId}};
+use crate::{check::{CheckFrom, Expiring, ExpiringCheckError, FilterCheck, FilterCheckFrom, PairCheckError}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
 const TIMEOUT: u32 = 1;
 
-#[derive_where(Serialize; Worker, WorkerData, Worker: Hash + Eq + 'static)]
-#[derive_where(Deserialize; Worker: Hash + Eq + DeserializeOwned + 'static, WorkerData: DeserializeOwned + 'static)]
-pub struct Workers<WorkerData = (), Worker = Handle<WithId<Creep>>> {
+#[derive_where(Serialize; Worker, WorkerData, Worker: Hash + Eq + 'static, S)]
+#[derive_where(Deserialize; Worker: Hash + Eq + DeserializeOwned + 'static, WorkerData: DeserializeOwned + 'static, S: DeserializeOwned)]
+pub struct Workers<WorkerData = (), Worker = Handle<WithId<Creep>>, S: CheckState = Checked> {
     #[serde(with = "any_key_map")] 
-    workers: HashMap<Worker, Expiring<WorkerData, TIMEOUT>>
+    workers: HashMap<Worker, Expiring<WorkerData, TIMEOUT, S>>
 }
 
 impl<WD, W> IntoIterator for Workers<WD, W> {
@@ -81,13 +81,13 @@ where
     Worker: CheckFrom + Hash + Eq + HasName,
     WorkerData: CheckFrom
 {
-    type Unchecked = Workers<WorkerData::Unchecked, Worker::Unchecked>;
+    type Unchecked = Workers<WorkerData::Unchecked, Worker::Unchecked, Unchecked>;
     type Err = WorkerEntryCheckError<WorkerData, Worker>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (workers, errs): (HashMap<Worker, _>, _) = uc.workers.filter_check();
         for err in &errs {
-            if let PairCheckError::Value(worker, ExpirationCheckError::Expired(_)) = &err {
+            if let PairCheckError::Value(worker, ExpiringCheckError::Expired(_)) = &err {
                 warn!("{} timed out", worker.name());
             }
         }
@@ -95,12 +95,12 @@ where
         let errs = errs.into_iter().map(|err| {
             match err {
                 PairCheckError::Key(worker_error, worker_expiry) => {
-                    let worker_expiry: Expiring<WorkerData::Unchecked, TIMEOUT> = worker_expiry; 
+                    let worker_expiry: Expiring<WorkerData::Unchecked, TIMEOUT, Unchecked> = worker_expiry; 
                     WorkerEntryCheckError::Worker(worker_error, worker_expiry.inner)
                 },
-                PairCheckError::Value(worker, ExpirationCheckError::Inner(data_err)) => 
+                PairCheckError::Value(worker, ExpiringCheckError::Inner(data_err)) => 
                     WorkerEntryCheckError::Data(worker, data_err),
-                PairCheckError::Value(worker, ExpirationCheckError::Expired(data)) =>
+                PairCheckError::Value(worker, ExpiringCheckError::Expired(data)) =>
                     WorkerEntryCheckError::Timeout(worker, data)
             }
         }).collect();

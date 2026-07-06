@@ -8,7 +8,7 @@ use wasm_bindgen::JsCast;
 
 use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, HasName, IdReqs, MaybeHasId, screeps_objects::IdResolutionError}};
 
-pub trait CheckState {
+pub trait CheckState: 'static {
     type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
 }
 
@@ -18,7 +18,7 @@ impl CheckState for Checked {
     type Repr<T: HasId> = ById<T>;
 }
 
-#[derive(Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Unchecked {}
 impl CheckState for Unchecked {
     type Repr<T: HasId> = T::Id;
