@@ -2,7 +2,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasHits, HasPosition, Part, Room, StructureController, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, Tasks}, workers::{WorkerHandle, Workers}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, Tasks}, expiring_map::{LiveHandle, ExpiringMap}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
@@ -10,13 +10,13 @@ pub struct FabricatorCoordinator {
     pub repairs: Tasks<RepairTask, Filtered<Collaboration<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")] 
     pub builds: Tasks<BuildTask, Filtered<Collaboration<TaskExpiration>>>,
-    #[serde(deserialize_with = "deserialize_filter_check")] // TODO: Don't make this Tasks as it is only over one task
-    pub upgrade: Workers<TaskExpiration>
+    #[serde(deserialize_with = "deserialize_filter_check")]
+    pub upgrade: ExpiringMap<TaskExpiration> // Make workers have to reserve a portion of the tick upgrade budget
 }
 
 pub enum FabricatorTaskHandle<'a> {
     Collab(CollaborativeWorkerHandle<'a, TaskExpiration>),
-    Upgrade(WorkerHandle<'a, TaskExpiration>)
+    Upgrade(LiveHandle<'a, TaskExpiration>)
 }
 
 fn get_creep_work_left(creep: &VirtualCreep) -> u32 {
@@ -124,7 +124,7 @@ impl FabricatorCoordinator {
             FabricatorTask::Repairing(repair) => 
                 self.repairs.heartbeat(repair, creep.handle()).map(FabricatorTaskHandle::Collab),
             FabricatorTask::UpgradingController => 
-                self.upgrade.heartbeat(creep.handle()).map(FabricatorTaskHandle::Upgrade),
+                self.upgrade.refresh(creep.handle()).map(FabricatorTaskHandle::Upgrade),
         }
     }
 }

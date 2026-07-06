@@ -4,7 +4,7 @@ use derive_where::derive_where;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, workers::{WorkerEntryCheckError, WorkerHandle, Workers}}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, expiring_map::{ExpiringEntryCheckError, LiveHandle, ExpiringMap}}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
 #[derive(Serialize, Deserialize)]
 struct WorkerState<WorkerData> {
@@ -41,16 +41,16 @@ pub struct TaskState {
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; Workers<WorkerState<WorkerData>, Worker, S>)]
+#[derive_where(Serialize, Deserialize; ExpiringMap<WorkerState<WorkerData>, Worker, S>)]
 pub struct Collaboration<WorkerData = (), Worker = Handle<WithId<Creep>>, S: CheckState = Checked> {
-    registry: Workers<WorkerState<WorkerData>, Worker, S>,
+    registry: ExpiringMap<WorkerState<WorkerData>, Worker, S>,
     task_data: TaskState
 }
 
 impl<WD, W> Collaboration<WD, W> {
     pub fn new(required_work: u32) -> Self {
         Self { 
-            registry: Workers::new(),
+            registry: ExpiringMap::new(),
             task_data: TaskState { 
                 remaining_work: required_work, 
                 pending_work: 0
@@ -70,7 +70,7 @@ impl<WD, W> Collaboration<WD, W> {
 impl<WorkerData, Worker: Hash + Eq> Collaboration<WorkerData, Worker> {
     pub fn heartbeat(&mut self, worker: Worker) -> Option<CollaborativeWorkerHandle<'_, WorkerData, Worker>> {
         Some(CollaborativeWorkerHandle {
-            worker_handle: self.registry.heartbeat(worker)?,
+            worker_handle: self.registry.refresh(worker)?,
             task_data: &mut self.task_data
         })
     }
@@ -104,7 +104,7 @@ where
     Worker: CheckFrom + Hash + Eq + HasName
 {
     type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked, Unchecked>;
-    type Err = WorkerEntryCheckError<WorkerData, Worker>;
+    type Err = ExpiringEntryCheckError<WorkerData, Worker>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (registry, errs) = uc.registry.filter_check();
@@ -117,14 +117,14 @@ where
         let mut new_errs = Vec::new();
         for err in errs {
             let (pending_work, new_err) = match err {
-                WorkerEntryCheckError::Worker(worker_err, worker_state) => {
-                    (worker_state.pending_work, WorkerEntryCheckError::Worker(worker_err, worker_state.data))
+                ExpiringEntryCheckError::Key(worker_err, worker_state) => {
+                    (worker_state.pending_work, ExpiringEntryCheckError::Key(worker_err, worker_state.data))
                 },
-                WorkerEntryCheckError::Data(worker, worker_state_err) => {
-                    (worker_state_err.pending_work, WorkerEntryCheckError::Data(worker, worker_state_err.err))
+                ExpiringEntryCheckError::Value(worker, worker_state_err) => {
+                    (worker_state_err.pending_work, ExpiringEntryCheckError::Value(worker, worker_state_err.err))
                 },
-                WorkerEntryCheckError::Timeout(worker, worker_state) => 
-                    (worker_state.pending_work, WorkerEntryCheckError::Timeout(worker, worker_state.data)),
+                ExpiringEntryCheckError::Expired(worker, worker_state) => 
+                    (worker_state.pending_work, ExpiringEntryCheckError::Expired(worker, worker_state.data)),
             };
 
             checked.task_data.pending_work -= pending_work;
@@ -137,7 +137,7 @@ where
 
 pub struct CollaborativeWorkerHandle<'a, WorkerData = (), Worker = Handle<WithId<Creep>>> {
     task_data: &'a mut TaskState,
-    worker_handle: WorkerHandle<'a, WorkerState<WorkerData>, Worker>
+    worker_handle: LiveHandle<'a, WorkerState<WorkerData>, Worker>
 }
 
 impl<WorkerData, Worker> CollaborativeWorkerHandle<'_, WorkerData, Worker> {
