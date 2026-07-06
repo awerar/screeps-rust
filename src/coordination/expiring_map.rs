@@ -12,12 +12,14 @@ const TIMEOUT: u32 = 1; // TODO: Make generic
 
 #[derive_where(Serialize; K, V, S, K: Hash + Eq + 'static)]
 #[derive_where(Deserialize; K: Hash + Eq + DeserializeOwned + 'static, V: DeserializeOwned + 'static, S: DeserializeOwned)]
-pub struct ExpiringMap<V = (), K = Handle<WithId<Creep>>, S: CheckState = Checked> {
+pub struct ExpiringMap<K, V, S: CheckState = Checked> {
     #[serde(with = "any_key_map")] 
     keys: HashMap<K, Expiring<V, TIMEOUT, S>>
 }
 
-impl<V, K> IntoIterator for ExpiringMap<V, K> {
+pub type ExpiringCreepMap<V, S = Checked> = ExpiringMap<Handle<WithId<Creep>>, V, S>;
+
+impl<K, V> IntoIterator for ExpiringMap<K, V> {
     type Item = (K, V);
     type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -26,18 +28,18 @@ impl<V, K> IntoIterator for ExpiringMap<V, K> {
     }
 }
 
-impl<V, K> ExpiringMap<V, K> {
+impl<K, V> ExpiringMap<K, V> {
     pub fn new() -> Self {
         Self { keys: HashMap::new() }
     }
 }
 
-impl<V, K> ExpiringMap<V, K> where K : Hash + Eq {    
+impl<K, V> ExpiringMap<K, V> where K : Hash + Eq {    
     pub fn add(&mut self, key: K, data: V) -> Option<V> {
         self.keys.insert(key, Expiring::new(data)).map(|expiry| expiry.inner)
     }
 
-    pub fn refresh(&mut self, key: K) -> Option<LiveHandle<'_, V, K>> {
+    pub fn refresh(&mut self, key: K) -> Option<LiveHandle<'_, K, V>> {
         match self.keys.entry(key) {
             hash_map::Entry::Vacant(_) => None,
             hash_map::Entry::Occupied(mut entry) => {
@@ -48,15 +50,16 @@ impl<V, K> ExpiringMap<V, K> where K : Hash + Eq {
     }
 }
 
-impl<V, K> Default for ExpiringMap<V, K> {
+impl<K, V> Default for ExpiringMap<K, V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub struct LiveHandle<'a, V = (), K = Handle<WithId<Creep>>>(hash_map::OccupiedEntry<'a, K, Expiring<V, TIMEOUT>>);
+pub struct LiveHandle<'a, K, V>(hash_map::OccupiedEntry<'a, K, Expiring<V, TIMEOUT>>);
+pub type LiveCreepHandle<'a, V> = LiveHandle<'a, Handle<WithId<Creep>>, V>;
 
-impl<V, K> LiveHandle<'_, V, K> {
+impl<K, V> LiveHandle<'_, K, V> {
     pub fn get(&self) -> &V {
         self.0.get()
     }
@@ -70,19 +73,19 @@ impl<V, K> LiveHandle<'_, V, K> {
     }
 }
 
-pub enum ExpiringEntryCheckError<V: CheckFrom, K: CheckFrom> {
+pub enum ExpiringEntryCheckError<K: CheckFrom, V: CheckFrom> {
     Key(K::Err, V::Unchecked),
     Value(K, V::Err),
     Expired(K, V)
 }
 
-impl<V, K> FilterCheckFrom for ExpiringMap<V, K> 
+impl<K, V> FilterCheckFrom for ExpiringMap<K, V> 
 where
     K: CheckFrom + Hash + Eq + HasName,
     V: CheckFrom
 {
-    type Unchecked = ExpiringMap<V::Unchecked, K::Unchecked, Unchecked>;
-    type Err = ExpiringEntryCheckError<V, K>;
+    type Unchecked = ExpiringMap<K::Unchecked, V::Unchecked, Unchecked>;
+    type Err = ExpiringEntryCheckError<K, V>;
     
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (keys, errs): (HashMap<K, _>, _) = uc.keys.filter_check();

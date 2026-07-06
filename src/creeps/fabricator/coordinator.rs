@@ -2,7 +2,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasHits, HasPosition, Part, Room, StructureController, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, tasks::{AddedToCollab, Tasks}, expiring_map::{LiveHandle, ExpiringMap}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{collaboration::{Collaboration, CollaborativeWorkerHandle, RemainingWork}, expiring_map::{ExpiringCreepMap, LiveCreepHandle}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, IntoWithId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct FabricatorCoordinator {
@@ -11,12 +11,12 @@ pub struct FabricatorCoordinator {
     #[serde(deserialize_with = "deserialize_filter_check")] 
     pub builds: Tasks<BuildTask, Filtered<Collaboration<TaskExpiration>>>,
     #[serde(deserialize_with = "deserialize_filter_check")]
-    pub upgrade: ExpiringMap<TaskExpiration> // Make workers have to reserve a portion of the tick upgrade budget
+    pub upgrade: ExpiringCreepMap<TaskExpiration> // Make workers have to reserve a portion of the tick upgrade budget
 }
 
 pub enum FabricatorTaskHandle<'a> {
     Collab(CollaborativeWorkerHandle<'a, TaskExpiration>),
-    Upgrade(LiveHandle<'a, TaskExpiration>)
+    Upgrade(LiveCreepHandle<'a, TaskExpiration>)
 }
 
 fn get_creep_work_left(creep: &VirtualCreep) -> u32 {

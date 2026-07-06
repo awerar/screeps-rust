@@ -41,9 +41,9 @@ pub struct TaskState {
     pending_work: u32
 }
 
-#[derive_where(Serialize, Deserialize; ExpiringMap<WorkerState<WorkerData>, Worker, S>)]
+#[derive_where(Serialize, Deserialize; ExpiringMap<Worker, WorkerState<WorkerData>, S>)]
 pub struct Collaboration<WorkerData = (), Worker = Handle<WithId<Creep>>, S: CheckState = Checked> {
-    registry: ExpiringMap<WorkerState<WorkerData>, Worker, S>,
+    registry: ExpiringMap<Worker, WorkerState<WorkerData>, S>,
     task_data: TaskState
 }
 
@@ -104,7 +104,7 @@ where
     Worker: CheckFrom + Hash + Eq + HasName
 {
     type Unchecked = Collaboration<WorkerData::Unchecked, Worker::Unchecked, Unchecked>;
-    type Err = ExpiringEntryCheckError<WorkerData, Worker>;
+    type Err = ExpiringEntryCheckError<Worker, WorkerData>;
 
     fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
         let (registry, errs) = uc.registry.filter_check();
@@ -137,7 +137,7 @@ where
 
 pub struct CollaborativeWorkerHandle<'a, WorkerData = (), Worker = Handle<WithId<Creep>>> {
     task_data: &'a mut TaskState,
-    worker_handle: LiveHandle<'a, WorkerState<WorkerData>, Worker>
+    worker_handle: LiveHandle<'a, Worker, WorkerState<WorkerData>>
 }
 
 impl<WorkerData, Worker> CollaborativeWorkerHandle<'_, WorkerData, Worker> {
