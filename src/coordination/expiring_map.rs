@@ -15,7 +15,7 @@ pub struct ExpiringMap<K, V, const TIMEOUT: u32 = 1, S: CheckState = Checked> {
     entries: HashMap<K, Expiring<V, TIMEOUT, S>>
 }
 
-pub type ExpiringCreepMap<V, const TIMEOUT: u32 = 1, S = Checked> = ExpiringMap<Handle<WithId<Creep>>, V, TIMEOUT, S>;
+#[expect(unused)] pub type ExpiringCreepMap<V, const TIMEOUT: u32 = 1, S = Checked> = ExpiringMap<Handle<WithId<Creep>>, V, TIMEOUT, S>;
 
 impl<K, V, const T: u32> IntoIterator for ExpiringMap<K, V, T> {
     type Item = (K, V);
@@ -55,7 +55,7 @@ impl<K, V, const T: u32> Default for ExpiringMap<K, V, T> {
 }
 
 pub struct LiveHandle<'a, K, V, const TIMEOUT: u32 = 1>(hash_map::OccupiedEntry<'a, K, Expiring<V, TIMEOUT>>);
-pub type LiveCreepHandle<'a, V, const TIMEOUT: u32 = 1> = LiveHandle<'a, Handle<WithId<Creep>>, V, TIMEOUT>;
+#[expect(unused)] pub type LiveCreepHandle<'a, V, const TIMEOUT: u32 = 1> = LiveHandle<'a, Handle<WithId<Creep>>, V, TIMEOUT>;
 
 impl<K, V, const T: u32> LiveHandle<'_, K, V, T> {
     pub fn get(&self) -> &V {

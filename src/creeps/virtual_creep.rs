@@ -91,13 +91,6 @@ macro_rules! break_move {
     };
 }
 
-#[macro_export]
-macro_rules! break_if {
-    ($expr:expr, $next:expr) => {
-        if $expr { return std::result::Result::Ok($crate::statemachine::Transition::Break($next)) }
-    };
-}
-
 
 /*
 vvv Summary by ChatGPT vvv
@@ -319,7 +312,6 @@ impl VirtualCreep {
     }
 
     // Used capacity left this tick
-    #[expect(unused)]
     pub fn curr_used_capacity(&self, ty: Option<ResourceType>) -> u32 {
         if let Some(ty) = ty {
             self.get_resource(ty)
@@ -349,7 +341,6 @@ impl VirtualCreep {
         self.total_outgoing_resources
     }
 
-    #[expect(unused)]
     pub fn curr_used_energy_capacity(&self) -> u32 { self.curr_used_capacity(Some(ResourceType::Energy)) }
     pub fn next_used_energy_capacity(&self) -> u32 { self.next_used_capacity(Some(ResourceType::Energy)) }
     pub fn incoming_energy(&self) -> u32 { self.incoming(Some(ResourceType::Energy)) }

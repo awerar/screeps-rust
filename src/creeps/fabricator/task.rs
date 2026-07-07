@@ -2,25 +2,42 @@ use anyhow::Result;
 use derive_where::derive_where;
 use screeps::{ConstructionSite, HasPosition, Position};
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{fabricator::coordinator::FabricatorTaskHandle, virtual_creep::{IntentError, VirtualCreep}}, ids::{CheckState, Checked, Unchecked, WithId}, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, creeps::{virtual_creep::{IntentError, VirtualCreep}}, ids::{CheckState, Checked, Unchecked, WithId}, structure::RepairableStructure};
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; BuildTask<S>, RepairTask<S>)]
+#[derive_where(Serialize, Deserialize, Clone; StructureTask<S>)]
 pub enum FabricatorTask<S: CheckState = Checked> {
-    Building(BuildTask<S>),
-    Repairing(RepairTask<S>),
-    UpgradingController
+    Structure(StructureTask<S>),
+    Upgrading
 }
 
 impl CheckFrom for FabricatorTask {
     type Unchecked = FabricatorTask<Unchecked>;
     type Err = anyhow::Error;
 
+    fn check_from(uc: Self::Unchecked) -> Result<Self> {
+        Ok(match uc {
+            FabricatorTask::Structure(task) => Self::Structure(task.check()?),
+            FabricatorTask::Upgrading => Self::Upgrading,
+        })
+    }
+}
+
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; BuildTask<S>, RepairTask<S>)]
+pub enum StructureTask<S: CheckState = Checked> {
+    Building(BuildTask<S>),
+    Repairing(RepairTask<S>)
+}
+
+impl CheckFrom for StructureTask {
+    type Unchecked = StructureTask<Unchecked>;
+    type Err = anyhow::Error;
+
     fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(match us {
-            FabricatorTask::Building(id) => Self::Building(id.check()?),
-            FabricatorTask::Repairing(id) => Self::Repairing(id.check()?),
-            FabricatorTask::UpgradingController => Self::UpgradingController,
+            StructureTask::Building(id) => Self::Building(id.check()?),
+            StructureTask::Repairing(id) => Self::Repairing(id.check()?)
         })
     }
 }
@@ -28,38 +45,20 @@ impl CheckFrom for FabricatorTask {
 pub type BuildTask<S = Checked> = <S as CheckState>::Repr<WithId<ConstructionSite>>;
 pub type RepairTask<S = Checked> = RepairableStructure::<S>;
 
-impl FabricatorTask {
-    pub fn work_range(&self) -> u32 {
+impl StructureTask {
+    pub fn creep_work(&self, creep: &mut VirtualCreep) -> anyhow::Result<u32, IntentError> {
         match self {
-            FabricatorTask::Building(_) | FabricatorTask::Repairing(_) => 1,
-            FabricatorTask::UpgradingController => 3,
+            StructureTask::Building(site) => 
+                creep.build((***site).clone()),
+            StructureTask::Repairing(structure) => 
+                creep.repair(structure.clone()),
         }
     }
 
-    pub fn creep_work(&self, creep: &mut VirtualCreep, home: &ColonyView<'_>, handle: &mut FabricatorTaskHandle) -> anyhow::Result<(), IntentError> {
+    pub fn pos(&self) -> Position {
         match self {
-            FabricatorTask::Building(site) => {
-                let FabricatorTaskHandle::Collab(handle) = handle else { unreachable!() };
-                handle.consume(creep.build((***site).clone())?);
-
-                Ok(())
-            },
-            FabricatorTask::Repairing(structure) => {
-                let FabricatorTaskHandle::Collab(handle) = handle else { unreachable!() };
-                handle.consume(creep.repair(structure.clone())?);
-                
-                Ok(())
-            },
-            FabricatorTask::UpgradingController => 
-                creep.upgrade_controller(home.controller.clone()).map(|_| ()),
-        }
-    }
-
-    pub fn pos(&self, home: &ColonyView<'_>) -> Position {
-        match self {
-            FabricatorTask::Building(id) => id.pos(),
-            FabricatorTask::Repairing(id) => id.pos(),
-            FabricatorTask::UpgradingController => home.controller.pos(),
+            StructureTask::Building(id) => id.pos(),
+            StructureTask::Repairing(id) => id.pos(),
         }
     }
 }

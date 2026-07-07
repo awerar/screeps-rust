@@ -47,3 +47,31 @@ where
 {
     *state = update_many(mem::take(state), transition);
 }
+
+#[macro_export]
+macro_rules! brk {
+    ($next:expr) => {
+        return std::result::Result::Ok($crate::statemachine::Transition::Break($next))
+    };
+}
+
+#[macro_export]
+macro_rules! break_if {
+    ($expr:expr, $next:expr) => {
+        if $expr { $crate::brk!($next) }
+    };
+}
+
+#[macro_export]
+macro_rules! cont {
+    ($next:expr) => {
+        return std::result::Result::Ok($crate::statemachine::Transition::Continue($next))
+    };
+}
+
+#[macro_export]
+macro_rules! continue_if {
+    ($expr:expr, $next:expr) => {
+        if $expr { $crate::cont!($next) }
+    };
+}

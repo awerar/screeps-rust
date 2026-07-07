@@ -72,7 +72,7 @@ where
     Task: Hash + Eq,
     Worker: Hash + Eq
 {
-    pub fn heartbeat(&mut self, task: &Task, worker: Worker) -> Option<AllocationHandle<'_, Worker, WD>> {
+    pub fn refresh(&mut self, task: &Task, worker: Worker) -> Option<AllocationHandle<'_, Worker, WD>> {
         self.get_mut(task).and_then(|collab| collab.refresh(worker))
     }
 }
