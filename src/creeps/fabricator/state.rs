@@ -41,6 +41,10 @@ impl FabricatorCreep {
                     next!(Self::Performing(task))
                 }
 
+                if let Some(buffer) = &home.buffer {
+                    defer!(movement.move_vcreep_to(creep, buffer.pos(), 5), self)?;
+                }
+
                 Ok(Done(self))
             },
             Self::CollectingFor(ref task) => {
