@@ -1,11 +1,11 @@
 use std::{collections::{HashMap, HashSet, hash_map}, hash::Hash};
 
 use derive_where::derive_where;
-use screeps::Position;
+use screeps::{Creep, Position};
 use serde::de::DeserializeOwned;
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, Filtered, PairCheckError}, coordination::allocations::{Allocations, AllocationHandle}};
+use crate::{check::{CheckFrom, FilterCheck, FilterCheckFrom, Filtered, PairCheckError}, coordination::allocations::{AllocationHandle, Allocations}, ids::{Handle, WithId}};
 
 #[derive_where(Serialize; Task, TaskData, Task: Hash + Eq + 'static)]
 #[derive_where(Deserialize; Task: Hash + Eq + DeserializeOwned + 'static, TaskData: DeserializeOwned + 'static)]
@@ -14,6 +14,8 @@ pub struct Tasks<Task, TaskData> {
     #[serde(with = "any_key_map")] 
     tasks: HashMap<Task, TaskData>
 }
+
+pub type CreepTasks<TaskData> = Tasks<Handle<WithId<Creep>>, TaskData>;
 
 impl<Task: Hash + Eq + Clone, TaskData: UpdateableTaskData> Tasks<Task, TaskData> {
     pub fn set_tasks(&mut self, new_tasks: impl IntoIterator<Item = (Task, TaskData::Update)>) {

@@ -456,6 +456,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "option-entry"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f7cdc39a51c662d0b4fc2accd008a6f74e1ebc9fd316d5f938162a60d0b39bf"
+
+[[package]]
 name = "ordered-float"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -608,6 +614,7 @@ dependencies = [
  "log",
  "marker_trait",
  "nonempty",
+ "option-entry",
  "ordered-float",
  "rand",
  "screeps-game-api",

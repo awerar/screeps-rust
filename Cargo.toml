@@ -43,6 +43,7 @@ derive-where = { version = "1.6.1", features = ["serde"] }
 thiserror = "2.0.18"
 marker_trait = "2.0.1"
 ordered-float = "5.3.0"
+option-entry = "0.1.0"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

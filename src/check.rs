@@ -219,6 +219,15 @@ impl<T, const LT: u32> Expiring<T, LT> {
     pub fn new(inner: T) -> Self {
         Expiring { inner, expiration: Expiration::new() }
     }
+
+    pub fn refresh(&mut self) {
+        self.expiration.refresh();
+    }
+    
+    #[expect(unused)]
+    pub fn checks_left(self) -> u32 {
+        self.expiration.checks_left()
+    }
 }
 
 impl<T, const E: u32> Deref for Expiring<T, E> {
