@@ -75,3 +75,38 @@ macro_rules! next_if {
         if $expr { $crate::next!($next) }
     };
 }
+
+pub trait ShouldYield {
+    fn should_yield(&self) -> bool;
+}
+
+impl<T: ShouldYield, E: ShouldYield> ShouldYield for Result<T, E> {
+    fn should_yield(&self) -> bool {
+        match self {
+            Ok(val) => val.should_yield(),
+            Err(err) => err.should_yield(),
+        }
+    }
+}
+
+impl ShouldYield for anyhow::Error { fn should_yield(&self) -> bool { false } }
+
+#[macro_export]
+macro_rules! defer {
+    ($expr:expr, $next:expr) => {
+        match $expr {
+            val if $crate::statemachine::ShouldYield::should_yield(&val) => $crate::done!($next),
+            val => val
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! defer_err {
+    ($expr:expr, $next:expr) => {
+        match $expr {
+            std::result::Result::Ok(val) => std::result::Result::Ok(val),
+            std::result::Result::Err(e) => std::result::Result::Err($crate::defer!(e, $next))
+        }
+    };
+}

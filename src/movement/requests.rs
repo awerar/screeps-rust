@@ -6,7 +6,7 @@ use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
 use screeps::{Creep, HasPosition, Position, RectStyle, RoomVisual, StructureSpawn, game};
 
-use crate::{ids::{ById, WithId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, spawn::TugboatRequests};
+use crate::{ids::{ById, WithId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, spawn::TugboatRequests, statemachine::ShouldYield};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(WithId<Creep>);
@@ -14,7 +14,6 @@ struct Tugboat(WithId<Creep>);
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugged(WithId<Creep>);
 
-#[must_use]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MoveToResult {
     InRange, OutOfRange
@@ -23,6 +22,12 @@ pub enum MoveToResult {
 impl MoveToResult {
     pub fn in_range(self) -> bool {
         matches!(self, Self::InRange)
+    }
+}
+
+impl ShouldYield for MoveToResult {
+    fn should_yield(&self) -> bool {
+        !self.in_range()
     }
 }
 

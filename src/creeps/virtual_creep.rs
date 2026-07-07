@@ -4,7 +4,7 @@ use anyhow::Result;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasHits, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body, statemachine::ShouldYield};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -63,34 +63,11 @@ pub enum IntentError {
     Other(#[from] anyhow::Error)
 }
 
-impl IntentError {
-    pub fn is_deferable(&self) -> bool {
+impl ShouldYield for IntentError {
+    fn should_yield(&self) -> bool {
         matches!(self, IntentError::AlreadyScheduled(_) | IntentError::PipelineCollision { .. })
     }
 }
-
-#[macro_export]
-macro_rules! break_deferable {
-    ($expr:expr, $next:expr) => {
-        match $expr {
-            std::result::Result::Ok(val) => std::result::Result::Ok(val),
-            std::result::Result::Err(e) if e.is_deferable() => return std::result::Result::Ok($crate::statemachine::Transition::Done($next)),
-            std::result::Result::Err(e) => std::result::Result::Err(e)
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! break_move {
-    ($expr:expr, $next:expr) => {
-        match $expr {
-            std::result::Result::Ok(val) if !val.in_range() => return std::result::Result::Ok($crate::statemachine::Transition::Done($next)),
-            std::result::Result::Ok(_) => std::result::Result::Ok(()),
-            std::result::Result::Err(e) => std::result::Result::Err(e)
-        }
-    };
-}
-
 
 /*
 vvv Summary by ChatGPT vvv

@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType};
 use serde::Deserialize;
 
-use crate::{break_deferable, done_if, break_move, done, check::Check, colony::ColonyView, next, next_if, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::{FabricatorTask, StructureTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::{FabricatorTask, StructureTask}}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 // TODO: Expiration
 #[derive(Debug, Default, EnumDisplay)]
@@ -48,11 +48,11 @@ impl FabricatorCreep {
                 next_if!(creep.next_used_energy_capacity() > 0, Self::Performing(task.clone()));
 
                 let Some(buffer) = &home.buffer else { done!(self) };
-                break_deferable!(break_move!(movement.move_vcreep_to(creep, buffer.pos(), 1), self), self)?;
+                defer!(movement.move_vcreep_to(creep, buffer.pos(), 1), self)?;
 
                 done_if!(buffer.used_energy_capacity() == 0, self);
                 done_if!(creep.outgoing() > 0, self);
-                break_deferable!(creep.withdraw(buffer.clone(), ResourceType::Energy, None), self)?;
+                defer_err!(creep.withdraw(buffer.clone(), ResourceType::Energy, None), self)?;
 
                 Ok(Next(Self::Performing(task.clone())))
             },
@@ -63,10 +63,10 @@ impl FabricatorCreep {
                     FabricatorTask::Structure(task) => {
                         let Some(mut handle) = coordinator.refresh_structure(creep, task) else { next!(Self::Idle) };
 
-                        break_deferable!(break_move!(movement.move_vcreep_to(creep, task.pos(), 1), self), self)?;
+                        defer!(movement.move_vcreep_to(creep, task.pos(), 1), self)?;
 
                         done_if!(creep.curr_used_energy_capacity() == 0, self);
-                        handle.consume(break_deferable!(task.creep_work(creep), self)?);
+                        handle.consume(defer_err!(task.creep_work(creep), self)?);
 
                         done_if!(handle.reserved() > 0, self);
 
@@ -76,10 +76,10 @@ impl FabricatorCreep {
                     FabricatorTask::Upgrading => {
                         next_if!(coordinator.upgrade.refresh(creep.handle()).is_none(), Self::Idle);
 
-                        break_deferable!(break_move!(movement.move_vcreep_to(creep, home.controller.pos(), 3), self), self)?;
+                        defer!(movement.move_vcreep_to(creep, home.controller.pos(), 3), self)?;
 
                         done_if!(creep.curr_used_energy_capacity() == 0, self);
-                        break_deferable!(creep.upgrade_controller(home.controller.clone()), self)?;
+                        defer_err!(creep.upgrade_controller(home.controller.clone()), self)?;
 
                         Ok(Done(self))
                     }

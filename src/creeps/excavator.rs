@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{ConstructionSite, HasId, Part, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{break_deferable, break_move, colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, defer, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -88,7 +88,7 @@ impl ExcavatorCreep {
         match self {
             Going => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                break_deferable!(break_move!(movement.move_vtugged_to(creep, harvest_pos, 0), self), self)?;
+                defer!(movement.move_vtugged_to(creep, harvest_pos, 0), self)?;
 
                 Ok(Next(Mining))
             },
