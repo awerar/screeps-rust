@@ -74,7 +74,7 @@ macro_rules! break_deferable {
     ($expr:expr, $next:expr) => {
         match $expr {
             std::result::Result::Ok(val) => std::result::Result::Ok(val),
-            std::result::Result::Err(e) if e.is_deferable() => return std::result::Result::Ok($crate::statemachine::Transition::Break($next)),
+            std::result::Result::Err(e) if e.is_deferable() => return std::result::Result::Ok($crate::statemachine::Transition::Done($next)),
             std::result::Result::Err(e) => std::result::Result::Err(e)
         }
     };
@@ -84,7 +84,7 @@ macro_rules! break_deferable {
 macro_rules! break_move {
     ($expr:expr, $next:expr) => {
         match $expr {
-            std::result::Result::Ok(val) if !val.in_range() => return std::result::Result::Ok($crate::statemachine::Transition::Break($next)),
+            std::result::Result::Ok(val) if !val.in_range() => return std::result::Result::Ok($crate::statemachine::Transition::Done($next)),
             std::result::Result::Ok(_) => std::result::Result::Ok(()),
             std::result::Result::Err(e) => std::result::Result::Err(e)
         }

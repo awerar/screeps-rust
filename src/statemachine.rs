@@ -3,14 +3,14 @@ use itertools::Itertools;
 use log::{error, warn};
 
 pub enum Transition<S> {
-    Break(S),
-    Continue(S)
+    Done(S),
+    Next(S)
 }
 
 const MAX_TRANSITIONS: u32 = 20;
 
 #[expect(clippy::to_string_in_format_args)]
-pub fn update_many<T, F>(mut state: T, mut transition: F) -> T 
+pub fn run_transitions<T, F>(mut state: T, mut transition: F) -> T 
 where
     F : FnMut(T) -> anyhow::Result<Transition<T>>,
     T : Default + Display
@@ -25,10 +25,10 @@ where
                 error!("Failed on state {curr_state_name}. Falling back to default state: {e}");
                 return T::default();
             },
-            Ok(Transition::Break(state)) => {
+            Ok(Transition::Done(state)) => {
                 return state;
             },
-            Ok(Transition::Continue(new_state)) => {
+            Ok(Transition::Next(new_state)) => {
                 state_names.push(curr_state_name);
                 state = new_state;
             }
@@ -40,38 +40,38 @@ where
     state
 }
 
-pub fn transition<T, F>(state: &mut T, transition: F)
+pub fn step<T, F>(state: &mut T, transition: F)
 where
     F : FnMut(T) -> anyhow::Result<Transition<T>>,
     T : Default + Display
 {
-    *state = update_many(mem::take(state), transition);
+    *state = run_transitions(mem::take(state), transition);
 }
 
 #[macro_export]
-macro_rules! brk {
+macro_rules! done {
     ($next:expr) => {
-        return std::result::Result::Ok($crate::statemachine::Transition::Break($next))
+        return std::result::Result::Ok($crate::statemachine::Transition::Done($next))
     };
 }
 
 #[macro_export]
-macro_rules! break_if {
+macro_rules! done_if {
     ($expr:expr, $next:expr) => {
-        if $expr { $crate::brk!($next) }
+        if $expr { $crate::done!($next) }
     };
 }
 
 #[macro_export]
-macro_rules! cont {
+macro_rules! next {
     ($next:expr) => {
-        return std::result::Result::Ok($crate::statemachine::Transition::Continue($next))
+        return std::result::Result::Ok($crate::statemachine::Transition::Next($next))
     };
 }
 
 #[macro_export]
-macro_rules! continue_if {
+macro_rules! next_if {
     ($expr:expr, $next:expr) => {
-        if $expr { $crate::cont!($next) }
+        if $expr { $crate::next!($next) }
     };
 }

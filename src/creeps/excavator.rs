@@ -90,7 +90,7 @@ impl ExcavatorCreep {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
                 break_deferable!(break_move!(movement.move_vtugged_to(creep, harvest_pos, 0), self), self)?;
 
-                Ok(Continue(Mining))
+                Ok(Next(Mining))
             },
             Mining => {
                 creep.harvest_source(source.clone())?;
@@ -104,7 +104,7 @@ impl ExcavatorCreep {
                         creep.cancel_intent(IntentType::Harvest);
 
                         warn!("{} has nowhere to put its energy", creep.name());
-                        return Ok(Break(self));
+                        return Ok(Done(self));
                     };
 
                     if !energy_dest.can_also_harvest() {
@@ -115,17 +115,17 @@ impl ExcavatorCreep {
                     energy_dest.recieve(creep)?;
                 }
 
-                if transferring_to_container { return Ok(Break(self)) }
+                if transferring_to_container { return Ok(Done(self)) }
 
                 let container: Option<StructureContainer> = plan.container.resolve();
-                let Some(container) = container else { return Ok(Break(self)) };
+                let Some(container) = container else { return Ok(Done(self)) };
 
                 let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
                 let defecit = defecit.min(container.used_energy_capacity()).min(creep.curr_free_capacity());
-                if defecit == 0 { return Ok(Break(self)) }
+                if defecit == 0 { return Ok(Done(self)) }
 
                 creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
-                Ok(Break(self))
+                Ok(Done(self))
             }
         }
     }

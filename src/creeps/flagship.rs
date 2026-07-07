@@ -34,19 +34,19 @@ impl FlagshipCreep {
         match &self {
             Idle => {
                 if let Some(position) = claim_requests.iter().next() {
-                    Ok(Continue(GoingTo(*position)))
+                    Ok(Next(GoingTo(*position)))
                 } else {
-                    Ok(Break(self))
+                    Ok(Done(self))
                 }
             },
             GoingTo(target) => {
                 if creep.pos().room_name() == target.room_name()
                     && let Some(controller) = game::rooms().get(target.room_name()).and_then(|room| room.controller()) {
-                        return Ok(Continue(Claiming(*target, ById(controller))))
+                        return Ok(Next(Claiming(*target, ById(controller))))
                     }
 
                 let _ = movement.move_creep_to(creep, *target, 0);
-                Ok(Break(self))
+                Ok(Done(self))
             }
             Claiming(request, controller) => {
                 if movement.move_creep_to(creep, controller.pos(), 1).in_range() {
@@ -55,7 +55,7 @@ impl FlagshipCreep {
                             info!("Sucessfully claimed controller!");
                             claim_requests.remove(request);
 
-                            return Ok(Continue(Idle))
+                            return Ok(Next(Idle))
                         },
                         Err(ClaimControllerErrorCode::InvalidTarget) => {
                             creep.attack_controller(controller)?;
@@ -64,12 +64,12 @@ impl FlagshipCreep {
                             warn!("Unable to claim controller!");
                             claim_requests.remove(request);
 
-                            return Ok(Continue(Idle))
+                            return Ok(Next(Idle))
                         }
                     }
                 }
 
-                Ok(Break(self))
+                Ok(Done(self))
             },
         }
     }

@@ -13,17 +13,17 @@ impl ColonyStep {
         use Transition::*;
 
         let controller_level = colony_data.controller.level();
-        if self.controller_level() > controller_level { return Ok(Continue(Self::first_at_level(controller_level))) }
+        if self.controller_level() > controller_level { return Ok(Next(Self::first_at_level(controller_level))) }
 
         let controller_is_upgraded = controller_level > self.controller_level();
         let built_step = colony_data.plan.steps.get(&self).map_or(Ok(true), |step| step.build(room))?;
 
-        let Some(promotion) = self.promotion() else { return Ok(Break(self)) };
+        let Some(promotion) = self.promotion() else { return Ok(Done(self)) };
         let promotion_is_upgrade = promotion.controller_level() > self.controller_level();
         if built_step && (!promotion_is_upgrade || controller_is_upgraded) {
-            Ok(Continue(promotion))
+            Ok(Next(promotion))
         } else {
-            Ok(Break(self))
+            Ok(Done(self))
         }
     }
 }

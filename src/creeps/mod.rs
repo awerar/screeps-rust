@@ -7,7 +7,7 @@ use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::transition, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::step, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -147,16 +147,16 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
 
         match &mut creep_data.role {
             Flagship(state) => 
-                transition(state, |state| state.update(creep, &mut movement, &mut mem.claim_requests)),
+                step(state, |state| state.update(creep, &mut movement, &mut mem.claim_requests)),
             Excavator(state, source) => 
-                transition(state, |state| state.update(&mut vcreep, source, &home, &mut movement)),
+                step(state, |state| state.update(&mut vcreep, source, &home, &mut movement)),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                transition(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
+                step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
             },
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
-                transition(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
+                step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
             },
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged, spawn),
             Scrap(spawn) => do_recycle(creep, &mut movement, spawn),
