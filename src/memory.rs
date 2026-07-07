@@ -34,7 +34,7 @@ pub struct Memory {
     pub movement: MovementMemory
 }
 
-pub type ClaimRequests = CreepTasks<>;
+pub type ClaimRequests = HashSet<Position>;
 
 impl Memory {
     pub fn screeps_deserialize() -> Self {
