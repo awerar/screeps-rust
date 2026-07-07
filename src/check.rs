@@ -220,10 +220,11 @@ impl<T, const LT: u32> Expiring<T, LT> {
         Expiring { inner, expiration: Expiration::new() }
     }
 
+    #[expect(unused)]
     pub fn refresh(&mut self) {
         self.expiration.refresh();
     }
-    
+
     #[expect(unused)]
     pub fn checks_left(self) -> u32 {
         self.expiration.checks_left()

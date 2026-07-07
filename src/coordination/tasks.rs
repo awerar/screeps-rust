@@ -15,6 +15,7 @@ pub struct Tasks<Task, TaskData> {
     tasks: HashMap<Task, TaskData>
 }
 
+#[expect(unused)]
 pub type CreepTasks<TaskData> = Tasks<Handle<WithId<Creep>>, TaskData>;
 
 impl<Task: Hash + Eq + Clone, TaskData: UpdateableTaskData> Tasks<Task, TaskData> {

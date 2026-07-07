@@ -6,7 +6,7 @@ use screeps::{Position, RoomName};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, coordination::tasks::{CreepTasks, Tasks}, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, movement::MovementMemory};
+use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, movement::MovementMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
