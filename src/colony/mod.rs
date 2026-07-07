@@ -193,10 +193,10 @@ pub fn update_colonies(mem: &mut Memory) {
         }
 
 
-        let (plan, step) = mem.colonies.0.get_mut(&name).unwrap();
-        let view = ColonyView::new(room.clone(), plan, *step);
-        step(step, |step| step.update(&room, &view));
+        let (plan, stp) = mem.colonies.0.get_mut(&name).unwrap();
+        let view = ColonyView::new(room.clone(), plan, *stp);
+        step(stp, |stp| stp.update(&room, &view));
 
-        info!("{name} is at step {step:?}");
+        info!("{name} is at step {stp:?}");
     }
 }
