@@ -3,10 +3,10 @@ use std::{assert_matches, cmp::Reverse, collections::{HashMap, VecDeque}};
 use itertools::Itertools;
 use js_sys::Array;
 use log::warn;
-use screeps::{CostMatrix, CostMatrixSet, Creep, Direction, HasPosition, Position, RoomName, RoomTerrain, StructureType, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult, SearchOptions}};
+use screeps::{CircleStyle, CostMatrix, CostMatrixSet, Creep, Direction, HasPosition, LineStyle, Position, RoomName, RoomTerrain, RoomVisual, StructureType, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult, SearchOptions}};
 use wasm_bindgen::JsValue;
 
-use crate::{ids::WithId, movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, simplifier::{CreepConstraint, SimpleMoveCreeps}}, utils::adjacent_positions};
+use crate::{ids::WithId, movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{CreepConstraint, SimpleMoveCreeps}}, utils::adjacent_positions};
 
 #[derive(Debug)]
 pub enum CreepAction {
@@ -174,6 +174,7 @@ impl<'m> MovementSolver<'m> {
 
         let options = SearchOptions::default()
             .plain_cost(2).swamp_cost(10)
+            .max_ops(5000)
             .room_callback(|room| {
                 let mut cm = self.get_costmatrix(room);
 
@@ -221,6 +222,8 @@ impl<'m> MovementSolver<'m> {
     }
 
     fn try_move_by_path(&mut self, creep: &WithId<Creep>, target: &MoveTarget) -> bool {
+        if let Some(path) = self.mem.paths.get(creep) { handle_path_visualization(creep, path); }
+
         let dir = self.mem.get_path_direction(creep, target);
         if let Some(dir) = dir && self.position_priority(creep.pos() + dir).is_some() {
             self.give_creep_action(creep, CreepAction::Move { dir });
@@ -346,6 +349,30 @@ impl MovementMemory {
                 path,
                 target
             }
+        );
+    }
+}
+
+const PATH_COLOR: &str = "#3574e1";
+fn handle_path_visualization(creep: &WithId<Creep>, path: &CachedPath) {
+    if !has_selected(creep) { return }
+
+    let mut visuals = HashMap::new();
+
+    for (pos1, pos2) in path.path.iter().skip_while(|pos| **pos != creep.pos()).tuple_windows() {
+        let visuals: &mut RoomVisual = visuals.entry(pos2.room_name()).or_insert_with_key(|room| RoomVisual::new(Some(*room)));
+        visuals.circle(
+            pos2.x().u8().into(), 
+            pos2.y().u8().into(),
+            Some(CircleStyle::default().radius(0.3).opacity(0.3).fill(PATH_COLOR))
+        );
+
+        if pos1.room_name() != pos2.room_name() { continue; }
+
+        visuals.line(
+            (pos1.x().u8().into(), pos1.y().u8().into()), 
+            (pos2.x().u8().into(), pos2.y().u8().into()), 
+            Some(LineStyle::default().opacity(0.3).color(PATH_COLOR))
         );
     }
 }

@@ -7,7 +7,7 @@ use log::warn;
 use screeps::{HasPosition, OwnedStructureProperties, Position, RoomName, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, defer, defer_err, done_if, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
+use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, defer, defer_err, done, done_if, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep {
@@ -72,8 +72,12 @@ impl FlagshipCreep {
                     *controller_pos = Some(controller.pos());
                 }
 
-                let target = controller_pos.unwrap_or_else(|| Position::new(25.try_into().unwrap(), 25.try_into().unwrap(), *room_name));
-                defer!(movement.move_vcreep_to(creep, target, 1), self)?;
+                let Some(controller_pos) = &controller_pos else {
+                    defer!(movement.move_vcreep_to(creep, Position::new(25.try_into().unwrap(), 25.try_into().unwrap(), *room_name), 20), self)?;
+                    done!(self);
+                };
+
+                defer!(movement.move_vcreep_to(creep, *controller_pos, 1), self)?;
 
                 let controller = controller.expect("Creep should be in the room and the room should have a controller");
                 defer_err!(creep.claim_controller(controller.clone()), self)?;
