@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use js_sys::JsString;
 use log::warn;
-use screeps::{Position, RoomName};
+use screeps::RoomName;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, movement::MovementMemory};
+use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, coordination::{assignment::{Assignment, CreepAssignment}, tasks::CreepTasks}, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, truck::TruckCoordinator}, movement::MovementMemory, spawn::CreepHandle};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -34,7 +34,7 @@ pub struct Memory {
     pub movement: MovementMemory
 }
 
-pub type ClaimRequests = HashSet<Position>;
+pub type ClaimRequests = CreepTasks<(RoomName, Assignment<CreepHandle, ()>)>;
 
 impl Memory {
     pub fn screeps_deserialize() -> Self {

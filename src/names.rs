@@ -1,5 +1,6 @@
+use std::collections::HashSet;
+
 use js_sys::Math::random;
-use screeps::game;
 
 pub const FIRST_NAMES: &[&str] = &[
     "Alex",
@@ -120,13 +121,15 @@ pub const LAST_NAMES: &[&str] = &[
     "Vale",
 ];
 
-pub fn get_new_creep_name(prefix: &str) -> String {
+pub type UsedNames = HashSet<String>;
+
+pub fn generate_new_creep_name(prefix: &str, used_names: &mut UsedNames) -> String {
     for _ in 0..20 {
         let first_name = FIRST_NAMES[(random() * FIRST_NAMES.len() as f64) as usize];
         let last_name = LAST_NAMES[(random() * LAST_NAMES.len() as f64) as usize];
         let name = format!("{prefix} {first_name} {last_name}");
         
-        if game::creeps().get(name.clone()).is_none() { return name; }
+        if used_names.insert(name.clone()) { return name; }
     }
 
     panic!("Unable to find a free name for creep");
