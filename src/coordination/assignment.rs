@@ -1,27 +1,35 @@
+use derive_where::derive_where;
 use option_entry::OptionEntry;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, CheckFrom, Expiring, ExpiringCheckError, FilterCheckFrom}, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
 
+#[expect(unused)]
 #[derive(Serialize, Deserialize)]
+#[derive_where(Default)]
 pub struct Assignment<Owner, Data, S: CheckState = Checked>(
     Option<Expiring<(Owner, Data), 1, S>>
 );
 
+#[expect(unused)]
 pub type CreepAssignment<Data> = Assignment<Handle<WithId<Creep>>, Data>;
 
+#[expect(unused)]
 pub struct AssignmentHandle<'a, Owner, Data>(
     option_entry::OccupiedEntry<'a, Expiring<(Owner, Data), 1>>
 );
 
+#[expect(unused)]
 pub type CreepAssignmentHandle<'a, Data> = AssignmentHandle<'a, Handle<WithId<Creep>>, Data>;
 
 impl<Owner, Data> Assignment<Owner, Data> {
+    #[expect(unused)]
     pub fn new() -> Self {
         Assignment(None)
     }
 
+    #[expect(unused)]
     pub fn refresh(&mut self) -> Option<AssignmentHandle<'_, Owner, Data>> {
         match self.0.entry() {
             option_entry::Entry::Vacant(_) => None,
@@ -32,24 +40,29 @@ impl<Owner, Data> Assignment<Owner, Data> {
         }
     }
 
+    #[expect(unused)]
     pub fn assign(&mut self, owner: Owner, data: Data) {
         self.0 = Some(Expiring::new((owner, data )));
     }
 
+    #[expect(unused)]
     pub fn is_free(&self) -> bool {
         self.0.is_none()
     }
 }
 
 impl<Owner, Data> AssignmentHandle<'_, Owner, Data> {
+    #[expect(unused)]
     pub fn release(self) {
         self.0.remove();
     }
 
+    #[expect(unused)]
     pub fn get(&self) -> &Data {
         &self.0.get().1
     }
 
+    #[expect(unused)]
     pub fn get_mut(&mut self) -> &mut Data {
         &mut self.0.get_mut().1
     }

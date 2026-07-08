@@ -147,7 +147,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
 
         match &mut creep_data.role {
             Flagship(state) => 
-                step(state, |state| state.update(creep, &mut movement, &mut mem.claim_requests)),
+                step(state, |state| state.update(&mut vcreep, &mut movement, &mut mem.flagship_coordinator)),
             Excavator(state, source) => 
                 step(state, |state| state.update(&mut vcreep, source, &home, &mut movement)),
             Truck(state) => {

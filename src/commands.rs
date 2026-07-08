@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet, iter};
+use std::{cell::RefCell, collections::HashSet, iter, mem};
 
 use anyhow::anyhow;
 use clap::Parser;
@@ -6,7 +6,7 @@ use log::info;
 use screeps::{RoomName, StructureProperties, find, game};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{colony::planning::plan::ColonyPlan, memory::Memory, visuals};
+use crate::{colony::planning::plan::ColonyPlan, visuals};
 
 thread_local! {
     static COMMANDS: RefCell<HashSet<Command>> = RefCell::new(HashSet::new());
@@ -56,23 +56,15 @@ pub fn pop_command(cmd: Command) -> bool {
     })
 }
 
-pub fn handle_commands<F>(mem: &mut Memory, f: F) -> usize where F : Fn(&Command, &mut Memory) -> bool {
+pub fn handle_commands<F>(f: F) where F : FnMut(&Command) -> bool {
     COMMANDS.with_borrow_mut(|commands| {
-        let mut handled = Vec::new();
-
-        for cmd in commands.iter() {
-            if f(cmd, mem) {
-                handled.push(cmd.clone());
-            }
-        }
+        let (handled, unhandled): (Vec<_>, _) = mem::take(commands).into_iter().partition(f);
+        *commands = unhandled.into_iter().collect();
 
         for cmd in &handled {
-            commands.remove(cmd);
-            info!("Processing command {cmd:?}");
+            info!("Processed command {cmd:?}");
         }
-
-        handled.len()
-    })
+    });
 }
 
 #[derive(Parser, Debug, Hash, PartialEq, Eq, Clone)]
@@ -86,5 +78,6 @@ pub enum Command {
     ResetColony { room: String },
     MigrateColony { room: String },
     DebugSpawn,
-    VisualizeMovement { creep: String }
+    VisualizeMovement { creep: String },
+    Claim { room: String }
 }

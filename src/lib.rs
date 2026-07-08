@@ -93,6 +93,8 @@ fn custom_getrandom(buf: &mut [u8]) -> Result<(), getrandom::Error> {
 register_custom_getrandom!(custom_getrandom);
 
 fn update_coordinators(mem: &mut Memory) {
+    mem.flagship_coordinator.update();
+
     for colony in mem.colonies.view_all() {
         let creep_stops = mem.get_creep_stops(colony.name);
 

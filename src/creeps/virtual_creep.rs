@@ -336,6 +336,13 @@ impl VirtualCreep {
         )
     }
 
+    pub fn claim_controller(&mut self, target: StructureController) -> Result<(), IntentError> {
+        self.register_intent(
+            IntentType::ClaimController, 
+            Intent::new(move |creep| creep.claim_controller(&target), None)
+        ).map(|_| ())
+    }
+
     #[expect(unused)]
     pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
         let amount = amount.unwrap_or(self.get_resource(ty));

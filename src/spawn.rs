@@ -78,6 +78,16 @@ pub enum CreepHandle<S: CheckState = Checked> {
     Name(String)
 }
 
+impl HasName for CreepHandle {
+    fn name(&self) -> String {
+        match self {
+            CreepHandle::Id(handle) => handle.name(),
+            CreepHandle::Name(name) => name.clone(),
+        }
+    }
+}
+
+#[expect(unused)]
 pub enum SpawningHandleCheckError {
     Id(IdResolutionError<Creep>),
     UnknownName(String)
@@ -377,7 +387,8 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut 
 
 static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
 fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
-    if mem.claim_requests.is_empty() { return; }
+    let coordinator = &mut mem.flagship_coordinator;
+    if coordinator.rooms.is_empty() { return; }
 
     let flagship_count = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Flagship(_))).0.count();
     if flagship_count > 0 { return; }

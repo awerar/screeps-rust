@@ -1,7 +1,7 @@
 use std::{collections::{HashMap, HashSet, hash_map}, fmt::Display};
 
 use js_sys::JsString;
-use screeps::{Flag, HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, find, game};
+use screeps::{HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, find, game};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
@@ -99,18 +99,10 @@ impl HasPosition for ColonyBuffer {
     }
 }
 
-const CLAIM_FLAG_PREFIX: &str = "Claim";
-fn find_claim_flags() -> Vec<Flag> {
-    game::flags().entries()
-        .filter(|(name, _)| name.starts_with(CLAIM_FLAG_PREFIX))
-        .map(|(_, flag)| flag)
-        .collect()
-}
-
 pub fn update_colonies(mem: &mut Memory) {
     info!("Updating rooms...");
 
-    handle_commands(mem, |command, mem| {
+    handle_commands(|command| {
         let Command::ResetColony { room: name } = command else { return false; };
         let Ok(name) = RoomName::new(name) else { return true; };
         mem.colonies.0.remove(&name);
