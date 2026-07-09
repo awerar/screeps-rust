@@ -48,14 +48,8 @@ fn downgrade_percentage(controller: &StructureController) -> f32 {
 
 fn storage_fill_percentage(buffer: Option<&ColonyBuffer>) -> Option<f32> {
     buffer.and_then(|buffer| {
-        match buffer {
-            ColonyBuffer::Container(container) => {
-                let used = container.used_energy_capacity();
-                let capacity = container.energy_capacity();
-                Some(used as f32 / capacity as f32)
-            },
-            ColonyBuffer::Storage(_) => None,
-        }
+        let ColonyBuffer::Storage(storage) = buffer else { return None };
+        Some(storage.used_energy_capacity() as f32 / storage.energy_capacity() as f32)
     })
 }
 

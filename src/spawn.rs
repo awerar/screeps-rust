@@ -4,7 +4,7 @@ use derive_where::derive_where;
 use log::{error, info, warn};
 use screeps::{Creep, Part, RoomName, StructureSpawn, find, game};
 
-use crate::{check::{Check, CheckFrom}, colony::planning::plan::SourcePlan, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::{EnergyStoreAccessors, HasName, screeps_objects::IdResolutionError}, ids::{ById, CheckState, Checked, Handle, IntoWithId, Unchecked, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
+use crate::{check::{Check, CheckFrom}, colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::{EnergyStoreAccessors, HasName, screeps_objects::IdResolutionError}, ids::{ById, CheckState, Checked, Handle, IntoWithId, Unchecked, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -267,7 +267,7 @@ impl SpawnSchedule {
                 continue;
             }
 
-            let creep_data = CreepData::new(data.structure.room().unwrap().name(), proto.role);
+            let creep_data = CreepData::new(proto.home, proto.role);
             mem.incoming_creeps.push((name.clone(), creep_data));
         }
     }
@@ -468,6 +468,20 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_nam
     }
 }
 
+fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+    for colony in mem.colonies.view_all() {
+        if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
+        if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).0.next().is_some() { continue; }
+
+        let Some(spawn) = schedule.spawners().filter_free().0.next() else { continue; };
+        spawn.schedule(used_names, CreepPrototype { 
+            body: FABRICATOR_TEMPLATE.scaled(spawn.energy_capacity, None), 
+            role: CreepRole::Fabricator(FabricatorCreep::default()), 
+            home: colony.name
+        });
+    }
+}
+
 fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames, tugboat_requests: &TugboatRequests) {
     for colony in mem.colonies.view_all() {
         let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
@@ -521,6 +535,7 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     schedule_excavators(mem, &mut schedule, &mut used_names);
     schedule_trucks(mem, &mut schedule, &mut used_names);
     schedule_fabricators(mem, &mut schedule, &mut used_names);
+    schedule_remote_fabricators(mem, &mut schedule, &mut used_names);
     schedule_flagships(mem, &mut schedule, &mut used_names);
 
     schedule.execute(mem);

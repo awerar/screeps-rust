@@ -16,11 +16,12 @@ pub struct Colonies(HashMap<RoomName, (ColonyPlan, ColonyStep)>);
 
 pub struct ColonyView<'mem> {
     pub plan: &'mem ColonyPlan,
-    #[expect(unused)] pub step: ColonyStep,
+    pub step: ColonyStep,
     pub name: RoomName,
     pub room: Room,
     pub controller: StructureController,
-    pub buffer: Option<ColonyBuffer>
+    pub buffer: Option<ColonyBuffer>,
+    pub center: Position
 }
 
 impl Display for ColonyView<'_> {
@@ -40,7 +41,8 @@ impl<'mem> ColonyView<'mem> {
             name: room.name(), 
             controller: room.controller().expect("Every colony should have a controller"), 
             room, 
-            buffer
+            buffer,
+            center: plan.center.pos
         }
     }
 }
