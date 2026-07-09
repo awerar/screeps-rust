@@ -91,6 +91,7 @@ impl FabricatorCoordinator {
 
     fn assign_repair(&mut self, creep: &VirtualCreep) -> Option<RepairTask> {
         self.repairs.iter_mut()
+            .filter(|(_, collab)| collab.unreserved_amount() > 0)
             .filter(|(task, _)| health_percentage(task) <= super::EMERGENCY_REPAIR_PERCENTAGE)
             .min_by_key(|(task, _)| OrderedFloat(health_percentage(task)))
             .added_to_collab(creep.handle(), creep.estimated_work_capacity() * REPAIR_POWER, Expiration::new())
@@ -104,6 +105,7 @@ impl FabricatorCoordinator {
 
     fn assign_build(&mut self, creep: &VirtualCreep) -> Option<BuildTask> {
         self.builds.iter_mut()
+            .filter(|(_, collab)| collab.unreserved_amount() > 0)
             .min_by_key(|(task, _)| creep.pos().get_range_to(task.pos()))
             .added_to_collab(creep.handle(), creep.estimated_work_capacity() * BUILD_POWER, Expiration::new())
     }

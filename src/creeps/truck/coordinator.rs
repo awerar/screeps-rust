@@ -88,6 +88,7 @@ impl TruckCoordinator {
 
     pub fn assign_push_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
         self.providers.iter_mut()
+                .filter(|(_, (_, collab))| collab.unreserved_amount() > 0)
                 .filter(|(_, (data, collab))| data.push_amount.is_some_and(|push_amount| collab.unreserved_amount() >= push_amount))
                 .max_by_key(|(provider, (data, _))|  {
                     (
@@ -99,6 +100,7 @@ impl TruckCoordinator {
 
     pub fn assign_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
         self.providers.iter_mut()
+            .filter(|(_, (_, collab))| collab.unreserved_amount() > 0)
             .max_by_key(|(provider, (data, collab))| {
                 (
                     collab.unreserved_amount().min(truck.next_free_capacity()), 
@@ -110,6 +112,7 @@ impl TruckCoordinator {
 
     pub fn assign_consumer(&mut self, truck: &VirtualCreep) -> Option<ConsumerTruckStop> {
         self.consumers.iter_mut()
+            .filter(|(_, (_, collab))| collab.unreserved_amount() > 0)
             .max_by_key(|(consumer, (priority, collab))| { 
                 (
                     priority.0, 

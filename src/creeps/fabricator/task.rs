@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use derive_where::derive_where;
-use screeps::{ConstructionSite, HasPosition, Position};
+use screeps::{ConstructionSite, HasHits, HasPosition, Position};
 
-use crate::{check::{Check, CheckFrom}, creeps::{virtual_creep::{IntentError, VirtualCreep}}, ids::{CheckState, Checked, Unchecked, WithId}, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, ids::{CheckState, Checked, Unchecked, WithId}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; StructureTask<S>)]
@@ -36,8 +36,14 @@ impl CheckFrom for StructureTask {
 
     fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(match us {
-            StructureTask::Building(id) => Self::Building(id.check()?),
-            StructureTask::Repairing(id) => Self::Repairing(id.check()?)
+            StructureTask::Building(id) => 
+                Self::Building(id.check()?),
+            StructureTask::Repairing(id) => {
+                let structure: RepairableStructure = id.check()?;
+                if structure.hits() == structure.hits_max() { bail!("Structure no longer needs repair") }
+
+                Self::Repairing(structure)
+            }
         })
     }
 }
