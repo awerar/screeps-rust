@@ -7,7 +7,7 @@ use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::step, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::step, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -57,7 +57,7 @@ impl CreepData {
         let role = match creep.name().split_ascii_whitespace().next()? {
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
-            "ImportTruck" => CreepRole::ImportTruck(ImportTruckState::default()),
+            "ImportTruck" => CreepRole::ImportTruck(if creep.used_energy_capacity() == 0 { ImportTruckState::default() } else { ImportTruckState::GoingHome }),
             "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())

@@ -79,5 +79,6 @@ pub enum Command {
     MigrateColony { room: String },
     DebugSpawn,
     VisualizeMovement { creep: String },
-    Claim { room: String }
+    Claim { room: String },
+    ResetMemory
 }

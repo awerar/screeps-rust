@@ -6,7 +6,7 @@ use screeps::RoomName;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, flagship::FlagshipCoordinator, truck::TruckCoordinator}, movement::MovementMemory};
+use crate::{callbacks::Callbacks, check::deserialize_filter_check, colony::Colonies, commands::{Command, pop_command}, creeps::{CreepData, Creeps, fabricator::FabricatorCoordinator, flagship::FlagshipCoordinator, truck::TruckCoordinator}, movement::MovementMemory};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -35,6 +35,10 @@ pub struct Memory {
 
 impl Memory {
     pub fn screeps_deserialize() -> Self {
+        if pop_command(Command::ResetMemory) {
+            return Self::default()
+        }
+
         serde_json::from_str(&String::from(screeps::raw_memory::get())).unwrap_or_else(|_| {
             warn!("Unable to parse raw memory. Resetting memory");
             Memory::default()

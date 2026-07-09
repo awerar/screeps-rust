@@ -46,6 +46,11 @@ impl<K, V, const T: u32> ExpiringMap<K, V, T> where K : Hash + Eq {
             },
         }
     }
+
+    #[expect(unused)]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 impl<K, V, const T: u32> Default for ExpiringMap<K, V, T> {

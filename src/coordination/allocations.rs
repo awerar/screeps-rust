@@ -151,7 +151,7 @@ impl<Owner, AllocationData> AllocationHandle<'_, Owner, AllocationData> {
     }
 
     pub fn release(self) {
-        self.resource_state.reserved += self.live_handle.get().amount;
+        self.resource_state.reserved -= self.live_handle.get().amount;
         self.live_handle.remove();
     }
 
