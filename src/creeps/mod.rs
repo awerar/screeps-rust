@@ -7,7 +7,7 @@ use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::step, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::step, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -57,6 +57,7 @@ impl CreepData {
         let role = match creep.name().split_ascii_whitespace().next()? {
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
+            "ImportTruck" => CreepRole::ImportTruck(ImportTruckState::default()),
             "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())
@@ -80,6 +81,7 @@ pub enum CreepRole<S: CheckState = Checked> {
     Excavator(ExcavatorCreep, S::Repr<Source>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
+    ImportTruck(ImportTruckState),
     Fabricator(FabricatorCreep),
     Tugboat(S::Repr<WithId<Creep>>, S::Repr<StructureSpawn>),
     Scrap(S::Repr<StructureSpawn>),
@@ -94,6 +96,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.check()?),
             Self::Unchecked::Flagship(state) => Self::Flagship(state),
             Self::Unchecked::Truck(state) => Self::Truck(state),
+            Self::Unchecked::ImportTruck(state) => Self::ImportTruck(state),
             Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
             Self::Unchecked::Tugboat(tugged, spawn) => Self::Tugboat(tugged.check()?, spawn.check()?),
             Self::Unchecked::Scrap(state) => Self::Scrap(state.check()?),
@@ -109,6 +112,7 @@ impl CreepRole {
             CreepRole::Tugboat(_, _) => "Tugboat",
             CreepRole::Scrap(_) => "Scrap",
             CreepRole::Truck(_) => "Truck",
+            CreepRole::ImportTruck(_) => "ImportTruck",
             CreepRole::Fabricator(_) => "Fabricator",
         }
     }
@@ -154,6 +158,11 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
                 step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
             },
+            ImportTruck(state) => {
+                let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
+                let colonies = mem.colonies.view_all().map(|colony| (colony.name, colony)).collect();
+                step(state, |state| state.update(&mut vcreep, &home, &colonies, &mut movement, coordinator));
+            }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
                 step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));

@@ -1,12 +1,13 @@
 use std::{collections::{HashMap, HashSet, hash_map}, fmt::Display};
 
+use derive_where::derive_where;
 use js_sys::JsString;
 use screeps::{HasPosition, OwnedStructureProperties, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, find, game};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
 
-use crate::{colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, domain_traits::{HasStore, Transferable, Withdrawable}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{check::{Check, CheckFrom}, colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{ById, CheckState, Checked, Unchecked}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 pub mod steps;
@@ -32,8 +33,8 @@ impl Display for ColonyView<'_> {
 
 impl<'mem> ColonyView<'mem> {
     pub fn new(room: Room, plan: &'mem ColonyPlan, step: ColonyStep) -> Self {
-        let buffer = plan.center.storage.resolve().map(ColonyBuffer::Storage)
-            .or_else(|| plan.center.container_storage.resolve().map(ColonyBuffer::Container));
+        let buffer = plan.center.storage.resolve().map(ById).map(ColonyBuffer::Storage)
+            .or_else(|| plan.center.container_storage.resolve().map(ById).map(ColonyBuffer::Container));
 
         ColonyView { 
             plan, 
@@ -58,10 +59,25 @@ impl Colonies {
     }
 }
 
-#[derive(Clone)]
-pub enum ColonyBuffer {
-    Container(StructureContainer),
-    Storage(StructureStorage)
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; S::Repr<StructureContainer>, S::Repr<StructureStorage>)]
+pub enum ColonyBuffer<S: CheckState = Checked> {
+    Container(S::Repr<StructureContainer>),
+    Storage(S::Repr<StructureStorage>)
+}
+
+impl CheckFrom for ColonyBuffer {
+    type Unchecked = ColonyBuffer<Unchecked>;
+    type Err = anyhow::Error;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(match uc {
+            ColonyBuffer::Container(container) => 
+                Self::Container(container.check()?),
+            ColonyBuffer::Storage(storage) => 
+                Self::Storage(storage.check()?),
+        })
+    }
 }
 
 impl HasStore for ColonyBuffer {
@@ -76,8 +92,8 @@ impl HasStore for ColonyBuffer {
 impl Withdrawable for ColonyBuffer {
     fn withdrawable(&self) -> &dyn screeps::Withdrawable { 
         match self {
-            ColonyBuffer::Container(container) => container,
-            ColonyBuffer::Storage(storage) => storage,
+            ColonyBuffer::Container(container) => &**container,
+            ColonyBuffer::Storage(storage) => &**storage,
         }
     }
 }
@@ -85,8 +101,8 @@ impl Withdrawable for ColonyBuffer {
 impl Transferable for ColonyBuffer {
     fn transferable(&self) -> &dyn screeps::Transferable {
         match self {
-            ColonyBuffer::Container(container) => container,
-            ColonyBuffer::Storage(storage) => storage,
+            ColonyBuffer::Container(container) => &**container,
+            ColonyBuffer::Storage(storage) => &**storage,
         }
     }
 }

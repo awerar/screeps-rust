@@ -1,5 +1,6 @@
 use std::cmp::Reverse;
 
+use log::info;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
@@ -88,6 +89,7 @@ impl TruckCoordinator {
 
     pub fn assign_push_provider(&mut self, truck: &VirtualCreep) -> Option<ProviderTruckStop> {
         self.providers.iter_mut()
+                .inspect(|(_, (_, collab))| info!("{}"))
                 .filter(|(_, (_, collab))| collab.unreserved_amount() > 0)
                 .filter(|(_, (data, collab))| data.push_amount.is_some_and(|push_amount| collab.unreserved_amount() >= push_amount))
                 .max_by_key(|(provider, (data, _))|  {

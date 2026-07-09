@@ -2,9 +2,9 @@ use std::{iter, mem, ops::{Add, Mul}, sync::LazyLock};
 
 use derive_where::derive_where;
 use log::{error, info, warn};
-use screeps::{Creep, Part, RoomName, StructureSpawn, find, game};
+use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, StructureSpawn, find, game};
 
-use crate::{check::{Check, CheckFrom}, colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::TruckCreep}, domain_traits::{EnergyStoreAccessors, HasName, screeps_objects::IdResolutionError}, ids::{ById, CheckState, Checked, Handle, IntoWithId, Unchecked, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
+use crate::{check::{Check, CheckFrom}, colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasName, screeps_objects::IdResolutionError}, ids::{ById, CheckState, Checked, Handle, IntoWithId, Unchecked, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -21,7 +21,7 @@ impl Body {
             for (i, part )in self.0.iter().enumerate() {
                 cost += part.cost();
                 
-                if part_count >= 50 || (energy < cost && part_count >= min_parts)  {
+                if part_count >= MAX_CREEP_SIZE || (energy < cost && part_count as usize >= min_parts)  {
                     return Body(self.0.iter()
                         .zip(counts)
                         .flat_map(|(part, count)| vec![*part; count].into_iter())
@@ -385,6 +385,21 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut 
     }
 }
 
+static IMPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry]) });
+fn schedule_import_trucks(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+    for colony in mem.colonies.view_all() {
+        if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
+        if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::ImportTruck(_))).part_count(Part::Carry) > 100 { continue; }
+
+        let Some(spawn) = schedule.spawners().filter_free().0.next() else { continue; };
+        spawn.schedule(used_names, CreepPrototype { 
+            body: IMPORT_TRUCK_TEMPLATE.scaled(spawn.energy_capacity, None), 
+            role: CreepRole::ImportTruck(ImportTruckState::default()), 
+            home: colony.name
+        });
+    }
+}
+
 static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
 fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
     let coordinator = &mut mem.flagship_coordinator;
@@ -537,6 +552,7 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     schedule_fabricators(mem, &mut schedule, &mut used_names);
     schedule_remote_fabricators(mem, &mut schedule, &mut used_names);
     schedule_flagships(mem, &mut schedule, &mut used_names);
+    schedule_import_trucks(mem, &mut schedule, &mut used_names);
 
     schedule.execute(mem);
 }
