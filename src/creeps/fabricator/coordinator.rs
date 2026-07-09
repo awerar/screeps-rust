@@ -97,6 +97,7 @@ impl FabricatorCoordinator {
             .added_to_collab(creep.handle(), creep.estimated_work_capacity() * REPAIR_POWER, Expiration::new())
             .or_else(|| 
                 self.repairs.iter_mut()
+                    .filter(|(_, collab)| collab.unreserved_amount() > 0)
                     .filter(|(task, _)| health_percentage(task) <= super::REPAIR_PERCENTAGE)
                     .min_by_key(|(task, _)| creep.pos().get_range_to(task.pos()))
                     .added_to_collab(creep.handle(), creep.estimated_work_capacity() * REPAIR_POWER, Expiration::new())
