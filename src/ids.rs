@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::Hash, ops::Deref};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
 
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
@@ -148,37 +148,33 @@ impl<T: JsCast + screeps::MaybeHasId> CheckFrom for WithId<T> {
     }
 }
 
-#[derive_where(Serialize, Deserialize; S::Repr<T>)]
-#[derive_where(Clone; S::Repr<T>)]
-#[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[serde(transparent)]
-pub struct Handle<T: HasId, S: CheckState = Checked>(S::Repr<T>);
+#[derive_where(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug; T::Id)]
+pub struct CheckedId<T: HasId, S: CheckState = Checked> {
+    id: T::Id,
+    #[derive_where(skip)]
+    phantom: PhantomData<S>
+}
 
-impl<T: HasId> Handle<T> {
-    pub fn new(x: T) -> Self {
-        Self(ById(x))
+impl<T: HasId> CheckedId<T> {
+    pub fn new(x: &T) -> Self {
+        Self { id: x.id(), phantom: PhantomData }
     }
 }
 
 #[expect(unused)]
-pub trait IntoHandle: HasId { fn handle(self) -> Handle<Self>; }
-impl<T: HasId> IntoHandle for T {
-    fn handle(self) -> Handle<Self> {
-        Handle::new(self)
+pub trait GetCheckedId: HasId { 
+    fn checked_id(&self) -> CheckedId<Self> {
+        CheckedId::new(self)
     }
 }
 
-impl<T: HasId + HasName> HasName for Handle<T> {
-    fn name(&self) -> String {
-        self.0.name()
-    }
-}
+impl<T: HasId> GetCheckedId for T { }
 
-impl<T: HasId> CheckFrom for Handle<T> where T::Id : Check<T> {
-    type Unchecked = Handle<T, Unchecked>;
+impl<T: HasId> CheckFrom for CheckedId<T> where T::Id : Check<T> {
+    type Unchecked = CheckedId<T, Unchecked>;
     type Err = <T::Id as Check<T>>::Err;
 
     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(Self::new(us.0.check()?))
+        Ok(Self::new(&us.id.check()?))
     }
 }

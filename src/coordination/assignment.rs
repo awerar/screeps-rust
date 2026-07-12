@@ -3,7 +3,7 @@ use option_entry::OptionEntry;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, Expiring, ExpiringCheckError, FilterCheckFrom}, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom, Expiring, ExpiringCheckError, FilterCheckFrom}, ids::{CheckState, Checked, CheckedId, Unchecked, WithId}};
 
 #[expect(unused)]
 #[derive(Serialize, Deserialize)]
@@ -13,7 +13,7 @@ pub struct Assignment<Owner, Data, S: CheckState = Checked>(
 );
 
 #[expect(unused)]
-pub type CreepAssignment<Data> = Assignment<Handle<WithId<Creep>>, Data>;
+pub type CreepAssignment<Data> = Assignment<CheckedId<WithId<Creep>>, Data>;
 
 #[expect(unused)]
 pub struct AssignmentHandle<'a, Owner, Data>(
@@ -21,7 +21,7 @@ pub struct AssignmentHandle<'a, Owner, Data>(
 );
 
 #[expect(unused)]
-pub type CreepAssignmentHandle<'a, Data> = AssignmentHandle<'a, Handle<WithId<Creep>>, Data>;
+pub type CreepAssignmentHandle<'a, Data> = AssignmentHandle<'a, CheckedId<WithId<Creep>>, Data>;
 
 impl<Owner, Data> Assignment<Owner, Data> {
     #[expect(unused)]

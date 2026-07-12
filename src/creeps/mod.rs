@@ -1,13 +1,11 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::fmt::Debug;
 
-use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
 use log::{error, warn};
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom, deserialize_filter_check}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, CheckState, Checked, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::TugboatRequests, statemachine::step, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, CheckState, Checked, GetCheckedId, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::{CreepRef, TugboatRequests}, statemachine::step, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -15,11 +13,15 @@ pub mod fabricator;
 pub mod truck;
 pub mod virtual_creep;
 
-#[derive(Default, Deserialize, Serialize, Deref, DerefMut)]
-pub struct Creeps(
-    #[serde(deserialize_with = "deserialize_filter_check")]
-    pub HashMap<WithId<Creep>, CreepData>
-);
+impl Memory {
+    pub fn get_creep(&self, creep: &WithId<Creep>) -> Option<&CreepData> {
+        self.creeps.get(&CreepRef::Id(creep.clone().checked_id()))
+    }
+
+    pub fn get_creep_mut(&mut self, creep: &WithId<Creep>) -> Option<&mut CreepData> {
+        self.creeps.get_mut(&CreepRef::Id(creep.clone().checked_id()))
+    }
+}
 
 #[derive(Debug)]
 #[derive_where(Deserialize, Serialize, Clone; CreepRole<S>)]
@@ -136,7 +138,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                     return false;
                 };
 
-                mem.creeps.insert(creep.clone(), config);
+                mem.creeps.insert(creep, config);
             }
 
             true

@@ -11,3 +11,4 @@
 - Split files
 - Migrate other creep roles to virtual creep
 - Predictive spawning
+- Creeps can now implement HasId with CreepRef

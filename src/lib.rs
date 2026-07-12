@@ -17,7 +17,7 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::{do_spawns, handle_incoming_creeps}, tower::do_towers};
+use crate::{colony::planning::planned_ref::ResolvableStructureRef, creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -64,8 +64,6 @@ pub fn game_loop() {
         mem.get_average_tick_rate_over(10),
         game::cpu::bucket()
     );
-
-    handle_incoming_creeps(&mut mem);
 
     update_coordinators(&mut mem);
     let tugboat_requests = do_creeps(&mut mem);

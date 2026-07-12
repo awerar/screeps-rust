@@ -4,7 +4,7 @@ use anyhow::Result;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasHits, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{Handle, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body, statemachine::ShouldYield};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{CheckedId, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body, statemachine::ShouldYield};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -152,8 +152,8 @@ impl VirtualCreep {
         }
     }
 
-    pub fn handle(&self) -> Handle<WithId<Creep>> {
-        Handle::new(self.creep.clone())
+    pub fn handle(&self) -> CheckedId<WithId<Creep>> {
+        CheckedId::new(&self.creep)
     }
 
     pub fn pos(&self) -> Position {

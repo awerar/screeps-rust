@@ -1,10 +1,10 @@
-use std::hash::Hash;
+use std::{fmt::Debug, hash::Hash};
 
 use derive_where::derive_where;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, expiring_map::{ExpiringEntryCheckError, LiveHandle, ExpiringMap}}, domain_traits::HasName, ids::{CheckState, Checked, Handle, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, expiring_map::{ExpiringEntryCheckError, LiveHandle, ExpiringMap}}, ids::{CheckState, Checked, CheckedId, Unchecked, WithId}};
 
 #[derive(Serialize, Deserialize)]
 struct Allocation<AllocationData> {
@@ -47,7 +47,7 @@ pub struct Allocations<Owner, AllocationData = (), S: CheckState = Checked> {
     state: ResourceState
 }
 
-pub type CreepAllocations<AllocationData = (), S = Checked> = Allocations<Handle<WithId<Creep>>, AllocationData, S>;
+pub type CreepAllocations<AllocationData = (), S = Checked> = Allocations<CheckedId<WithId<Creep>>, AllocationData, S>;
 
 impl<O, AD> Allocations<O, AD> {
     pub fn new(amount: u32) -> Self {
@@ -102,7 +102,7 @@ impl<Owner, AllocationData> UpdateableTaskData for Allocations<Owner, Allocation
 impl<Owner, AllocationData> FilterCheckFrom for Allocations<Owner, AllocationData> 
 where 
     AllocationData: CheckFrom,
-    Owner: CheckFrom + Hash + Eq + HasName
+    Owner: CheckFrom + Hash + Eq + Debug
 {
     type Unchecked = Allocations<Owner::Unchecked, AllocationData::Unchecked, Unchecked>;
     type Err = ExpiringEntryCheckError<Owner, AllocationData>;
@@ -136,12 +136,12 @@ where
     }
 }
 
-pub struct AllocationHandle<'a, Owner = Handle<WithId<Creep>>, AllocationData = ()> {
+pub struct AllocationHandle<'a, Owner = CheckedId<WithId<Creep>>, AllocationData = ()> {
     resource_state: &'a mut ResourceState,
     live_handle: LiveHandle<'a, Owner, Allocation<AllocationData>>
 }
 
-pub type CreepAllocationHandle<'a, AllocationData = ()> = AllocationHandle<'a, Handle<WithId<Creep>>, AllocationData>;
+pub type CreepAllocationHandle<'a, AllocationData = ()> = AllocationHandle<'a, CheckedId<WithId<Creep>>, AllocationData>;
 
 impl<Owner, AllocationData> AllocationHandle<'_, Owner, AllocationData> {
     pub fn consume(&mut self, amount: u32) {
