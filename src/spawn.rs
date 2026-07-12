@@ -231,24 +231,22 @@ impl SpawnSchedule {
         }
     }
 
-    fn all_creeps(&self) -> PrototypeIterator<'_, impl Iterator<Item = &'_ CreepPrototype>> {
-        PrototypeIterator(
-            self.already_spawned.iter().chain(
-                self.spawners.iter()
-                .filter_map(|spawner| {
-                    use SpawnerStatus::*;
+    fn all_creeps(&self) -> impl Iterator<Item = &'_ CreepPrototype> {
+        self.already_spawned.iter().chain(
+            self.spawners.iter()
+            .filter_map(|spawner| {
+                use SpawnerStatus::*;
 
-                    match &spawner.status {
-                        Free | Blocked | Spawning(_, _) => None,
-                        Scheduled { proto, .. } => Some(proto)
-                    }
-                })
-            )
+                match &spawner.status {
+                    Free | Blocked | Spawning(_, _) => None,
+                    Scheduled { proto, .. } => Some(proto)
+                }
+            })
         )
     }
 
-    fn spawners(&mut self) -> SpawnerIterator<'_, impl Iterator<Item = &'_ mut SpawnerData>> {
-        SpawnerIterator(self.spawners.iter_mut())
+    fn spawners(&mut self) -> impl Iterator<Item = &'_ mut SpawnerData> {
+        self.spawners.iter_mut()
     }
 
     fn execute(self, mem: &mut Memory) {
@@ -280,33 +278,33 @@ pub fn handle_incoming_creeps(mem: &mut Memory) {
     }
 }
 
-struct PrototypeIterator<'a, T>(T) where T : Iterator<Item = &'a CreepPrototype>;
-
-impl<'a, T> PrototypeIterator<'a, T> where T : Iterator<Item = &'a CreepPrototype> {
-    fn filter_home(self, home: RoomName) -> PrototypeIterator<'a, impl Iterator<Item = &'a CreepPrototype>> {
-        PrototypeIterator(self.0.filter(move |proto| proto.home == home))
+trait CreepPrototypeIteratorExt<'a>: Iterator<Item = &'a CreepPrototype> + Sized {
+    fn filter_home(self, home: RoomName) -> impl Iterator<Item = &'a CreepPrototype> {
+        self.filter(move |proto| proto.home == home)
     }
 
-    fn filter_role(self, f: impl Fn(&CreepRole) -> bool) -> PrototypeIterator<'a, impl Iterator<Item = &'a CreepPrototype>> {
-        PrototypeIterator(self.0.filter(move |proto| f(&proto.role)))
+    fn filter_role(self, f: impl Fn(&CreepRole) -> bool) -> impl Iterator<Item = &'a CreepPrototype> {
+        self.filter(move |proto| f(&proto.role))
     }
 
     fn part_count(self, part: Part) -> usize {
-        self.0.map(|proto| proto.body.num(part)).sum()
+        self.map(|proto| proto.body.num(part)).sum()
     }
 }
 
-struct SpawnerIterator<'a, T>(T) where T : Iterator<Item = &'a mut SpawnerData>;
+impl<'a, T: Iterator<Item = &'a CreepPrototype> + Sized> CreepPrototypeIteratorExt<'a> for T { }
 
-impl<'a, T> SpawnerIterator<'a, T> where T : Iterator<Item = &'a mut SpawnerData> {
-    fn filter_room(self, room: RoomName) -> SpawnerIterator<'a, impl Iterator<Item = &'a mut SpawnerData>> {
-        SpawnerIterator(self.0.filter(move |spawner| spawner.room == room))
+trait SpawnerDataIteratorExt<'a>: Iterator<Item = &'a mut SpawnerData> + Sized {
+    fn filter_room(self, room: RoomName) -> impl Iterator<Item = &'a mut SpawnerData> {
+        self.filter(move |spawner| spawner.room == room)
     }
 
-    fn filter_free(self) -> SpawnerIterator<'a, impl Iterator<Item = &'a mut SpawnerData>> {
-        SpawnerIterator(self.0.filter(|spawner| spawner.is_free()))
+    fn filter_free(self) -> impl Iterator<Item = &'a mut SpawnerData> {
+        self.filter(|spawner| spawner.is_free())
     }
 }
+
+impl<'a, T: Iterator<Item = &'a mut SpawnerData> + Sized> SpawnerDataIteratorExt<'a> for T { }
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };
@@ -320,10 +318,10 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &
             let Ok(source) = (*source).check() else { continue; };
 
             let any_excavator_already = schedule.all_creeps()
-                .0.any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source));
+                .any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source));
             if any_excavator_already { continue; }
 
-            let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().0.next() else { continue; };
+            let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { continue; };
 
             let prototype = CreepPrototype { 
                 body: get_excavator_body(spawner.energy_capacity, source_plan), 
@@ -375,7 +373,7 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut 
             let current_carry = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Truck(_))).part_count(Carry);
             if current_carry >= target_carry { break; }
 
-            let Some(spawner) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { break };
+            let Some(spawner) = schedule.spawners().filter_free().filter_room(colony.name).next() else { break };
             if spawner.schedule_or_block(used_names, CreepPrototype { 
                 role: CreepRole::Truck(TruckCreep::default()), 
                 home: colony.name, 
@@ -391,7 +389,7 @@ fn schedule_import_trucks(mem: &mut Memory, schedule: &mut SpawnSchedule, used_n
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
         if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::ImportTruck(_))).part_count(Part::Carry) > 100 { continue; }
 
-        let Some(spawn) = schedule.spawners().filter_free().0.next() else { continue; };
+        let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
         spawn.schedule(used_names, CreepPrototype { 
             body: IMPORT_TRUCK_TEMPLATE.scaled(spawn.energy_capacity, None), 
             role: CreepRole::ImportTruck(ImportTruckState::default()), 
@@ -405,10 +403,10 @@ fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names
     let coordinator = &mut mem.flagship_coordinator;
     if coordinator.rooms.is_empty() { return; }
 
-    let flagship_count = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Flagship(_))).0.count();
+    let flagship_count = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Flagship(_))).count();
     if flagship_count > 0 { return; }
 
-    let Some(spawner) = schedule.spawners().filter_free().0.next() else { return; };
+    let Some(spawner) = schedule.spawners().filter_free().next() else { return; };
 
     spawner.schedule_or_block(used_names, CreepPrototype { 
         body: FLAGSHIP_TEMPLATE.clone(), 
@@ -443,12 +441,12 @@ impl TugboatRequests {
 
 fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames, tugboat_requests: TugboatRequests) {
     for tugged in tugboat_requests.0 {
-        let already_exists = schedule.all_creeps().0
+        let already_exists = schedule.all_creeps()
             .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == ById(tugged.clone())));
         if already_exists { continue; }
 
         let Some(home) = mem.creeps.get(&tugged).map(|data| data.home) else { continue; };
-        let Some(spawner) = schedule.spawners().filter_free().filter_room(home).0.next() else { continue; };
+        let Some(spawner) = schedule.spawners().filter_free().filter_room(home).next() else { continue; };
 
         spawner.schedule_or_block(used_names, CreepPrototype { 
             body: get_tugboat_body(spawner.energy_capacity, &tugged),
@@ -471,7 +469,7 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_nam
             let curr_work_count = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).part_count(Part::Work);
             if curr_work_count >= work_target { break; }
 
-            let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().0.next() else { break; };
+            let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { break; };
             let body = FABRICATOR_TEMPLATE.scaled(spawner.energy_capacity, None);
 
             if spawner.schedule(used_names, CreepPrototype { 
@@ -486,9 +484,9 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_nam
 fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
-        if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).0.next().is_some() { continue; }
+        if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).next().is_some() { continue; }
 
-        let Some(spawn) = schedule.spawners().filter_free().0.next() else { continue; };
+        let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
         spawn.schedule(used_names, CreepPrototype { 
             body: FABRICATOR_TEMPLATE.scaled(spawn.energy_capacity, None), 
             role: CreepRole::Fabricator(FabricatorCreep::default()), 
@@ -500,12 +498,12 @@ fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, u
 fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames, tugboat_requests: &TugboatRequests) {
     for colony in mem.colonies.view_all() {
         let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
-        let excavator_count = schedule.all_creeps().filter_home(colony.name).0
+        let excavator_count = schedule.all_creeps().filter_home(colony.name)
             .filter(|proto| matches!(proto.role, CreepRole::Excavator(_, _)))
             .count();
 
         if buffered_energy == 0 && excavator_count == 0 {
-            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
+            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
             let Some((source, source_plan)) = colony.plan.sources.iter().next() else { continue; };
             let Ok(source) = (*source).check() else { continue; };
 
@@ -520,7 +518,7 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names:
             let Some(creep_data) = mem.creeps.get(creep) else { continue; };
             if !matches!(creep_data.role, CreepRole::Excavator(_, _)) { continue; }
 
-            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
+            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
             spawn.schedule_or_block(used_names, CreepPrototype { 
                 body: get_tugboat_body(spawn.energy_avaliable.max(300), creep), 
                 role: CreepRole::Tugboat(ById(creep.clone()), ById(spawn.structure.clone())), 
@@ -528,9 +526,9 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names:
             });
         }
 
-        let truck_count = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Truck(_))).0.count();
+        let truck_count = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Truck(_))).count();
         if truck_count == 0 {
-            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).0.next() else { continue; };
+            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
             spawn.schedule_or_block(used_names, CreepPrototype { 
                 body: get_truck_body(spawn.energy_avaliable.max(300)), 
                 role: CreepRole::Truck(TruckCreep::default()), 

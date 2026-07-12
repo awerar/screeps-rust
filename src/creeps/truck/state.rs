@@ -77,8 +77,8 @@ impl TruckCreep {
                     if let Some(provider) = provider { next!(Self::Performing(TruckTask::CollectingFrom(provider))) }
                 }
 
-                if let Some(buffer) = home.buffer.as_ref() && !truck.pos().is_near_to(buffer.pos()) {
-                    defer!(movement.move_vcreep_to(truck, buffer.pos(), 1), self)?;
+                if let Some(buffer) = home.buffer.as_ref() {
+                    defer!(movement.move_vcreep_to(truck, buffer.pos(), 2), self)?;
                 }
 
                 Ok(Done(self))
