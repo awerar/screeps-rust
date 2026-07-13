@@ -5,7 +5,7 @@ use log::{error, warn};
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, CheckState, Checked, GetCheckedId, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::{CreepRef, TugboatRequests}, statemachine::step, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, CheckState, Checked, GetCheckedObjectId, Unchecked, WithId}, memory::Memory, movement::requests::MovementRequests, spawn::{DeferedId, TugboatRequests}, statemachine::step, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -15,11 +15,11 @@ pub mod virtual_creep;
 
 impl Memory {
     pub fn get_creep(&self, creep: &WithId<Creep>) -> Option<&CreepData> {
-        self.creeps.get(&CreepRef::Id(creep.clone().checked_id()))
+        self.creeps.get(&DeferedId::Id(creep.clone().checked_id()))
     }
 
     pub fn get_creep_mut(&mut self, creep: &WithId<Creep>) -> Option<&mut CreepData> {
-        self.creeps.get_mut(&CreepRef::Id(creep.clone().checked_id()))
+        self.creeps.get_mut(&DeferedId::Id(creep.clone().checked_id()))
     }
 }
 

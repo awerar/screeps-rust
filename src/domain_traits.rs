@@ -1,7 +1,12 @@
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use screeps::{Creep, ResourceType, SharedCreepProperties};
+use derive_where::derive_where;
+use screeps::{Creep, ResourceType, game};
 use serde::{Serialize, de::DeserializeOwned};
+use thiserror::Error;
+use wasm_bindgen::JsCast;
+
+use crate::{check::{Check, CheckFrom}, ids::{CheckState, Checked, Unchecked}};
 
 pub trait HasStore {
     fn store(&self) -> screeps::Store;
@@ -67,11 +72,11 @@ pub trait HasName {
 
 impl HasName for Creep {
     fn name(&self) -> String {
-        SharedCreepProperties::name(self)
+        screeps::SharedCreepProperties::name(self)
     }
 }
 
-pub trait IdReqs = DeserializeOwned + Serialize + Hash + Eq + Ord + Clone + Copy + Debug;
+pub trait IdReqs = DeserializeOwned + Serialize + Hash + Eq + Ord + Clone + Debug;
 
 pub trait HasId: Sized {
     type Id: IdReqs;
@@ -79,48 +84,65 @@ pub trait HasId: Sized {
     fn id(&self) -> Self::Id;
 }
 
-pub trait MaybeHasId: Sized {
-    type Id: IdReqs;
+#[derive_where(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct ObjectId<T, S: CheckState = Checked> {
+    id: screeps::ObjectId<T>,
+    phantom: PhantomData<S>
+}
 
-    fn try_id(&self) -> Option<Self::Id>;
+impl<T: screeps::MaybeHasId + JsCast> ObjectId<T> {
+    pub fn resolve(self) -> T {
+        self.id.resolve().unwrap()
+    }
+}
+
+impl<T: screeps::HasId> ObjectId<T> {
+    pub fn new(x: &T) -> Self {
+        ObjectId {
+            id: x.id(),
+            phantom: PhantomData
+        }
+    }
+}
+
+impl<T: screeps::MaybeHasId> ObjectId<T> {
+    pub fn try_new(x: &T) -> Option<Self> {
+        Some(ObjectId {
+            id: x.try_id()?,
+            phantom: PhantomData
+        })
+    }
+}
+
+#[derive(Error, Debug)]
+#[error("Unable to resolve {0}")]
+pub struct IdResolutionError<T>(pub screeps::ObjectId<T>);
+
+impl<T: JsCast + screeps::MaybeHasId> CheckFrom for ObjectId<T> {
+    type Unchecked = ObjectId<T, Unchecked>;
+    type Err = IdResolutionError<T>;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        if uc.id.resolve().is_none() { return Err(IdResolutionError(uc.id)) }
+
+        Ok(Self {
+            id: uc.id,
+            phantom: PhantomData
+        })
+    }
 }
 
 pub mod screeps_objects {
     #[allow(clippy::wildcard_imports)]
-    use screeps::{objects::*, ObjectId};
-    use thiserror::Error;
-    use super::{HasId, MaybeHasId};
-
-    #[derive(Error, Debug)]
-    #[error("Unable to resolve {0}")]
-    pub struct IdResolutionError<T>(pub ObjectId<T>);
+    use screeps::objects::*;
+    use super::{HasId, ObjectId};
 
     macro_rules! has_id_entities {
         ($($ty:ty),* $(,)?) => {
             $(
                 impl HasId for $ty {
                     type Id = ObjectId<Self>;
-                    fn id(&self) -> Self::Id { screeps::HasId::id(&self) }
-                }
-
-                impl $crate::check::CheckFrom for $ty {
-                    type Unchecked = ObjectId<$ty>;
-                    type Err = IdResolutionError<$ty>;
-
-                    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-                        us.resolve().ok_or_else(|| IdResolutionError(us))
-                    }
-                }
-            )*
-        };
-    }
-
-    macro_rules! maybe_has_id_entities {
-        ($($ty:ty),* $(,)?) => {
-            $(
-                impl MaybeHasId for $ty {
-                    type Id = ObjectId<Self>;
-                    fn try_id(&self) -> Option<Self::Id> { screeps::MaybeHasId::try_id(&self) }
+                    fn id(&self) -> Self::Id { ObjectId::new(self) }
                 }
             )*
         };
@@ -135,11 +157,45 @@ pub mod screeps_objects {
         StructureStorage, StructureTerminal, StructureTower, 
         StructureWall, Tombstone
     );
-
-    maybe_has_id_entities!(Creep, ConstructionSite);
 }
 
-impl<T: HasId> MaybeHasId for T {
-    type Id = T::Id;
-    fn try_id(&self) -> Option<Self::Id> { Some(self.id()) }
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive_where(Serialize, Deserialize, Clone; ObjectId<Creep, S>)]
+pub enum CreepId<S: CheckState = Checked> {
+    Id(ObjectId<Creep, S>),
+    Name(String)
+}
+
+impl HasId for Creep {
+    type Id = CreepId;
+
+    fn id(&self) -> Self::Id {
+        ObjectId::try_new(self)
+            .map_or_else(|| CreepId::Name(self.name()), CreepId::Id)
+    }
+}
+
+#[expect(unused)]
+pub enum CreepIdCheckError {
+    Id(IdResolutionError<Creep>),
+    UnknownName(String)
+}
+
+impl CheckFrom for CreepId {
+    type Unchecked = CreepId<Unchecked>;
+    type Err = CreepIdCheckError;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(match uc {
+            CreepId::Id(id) => 
+                Self::Id(id.check().map_err(CreepIdCheckError::Id)?),
+            CreepId::Name(name) => {
+                let Some(creep) = game::creeps().get(name.clone()) else {
+                    return Err(CreepIdCheckError::UnknownName(name))
+                };
+
+                ObjectId::try_new(&creep).map_or(CreepId::Name(name), CreepId::Id)
+            },
+        })
+    }
 }

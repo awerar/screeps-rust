@@ -6,7 +6,7 @@ use screeps::RoomName;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{callbacks::Callbacks, colony::Colonies, commands::{Command, pop_command}, check::deserialize_filter_check, creeps::{CreepData, fabricator::FabricatorCoordinator, flagship::FlagshipCoordinator, truck::TruckCoordinator}, movement::MovementMemory, spawn::CreepRef};
+use crate::{callbacks::Callbacks, colony::Colonies, commands::{Command, pop_command}, check::deserialize_filter_check, creeps::{CreepData, fabricator::FabricatorCoordinator, flagship::FlagshipCoordinator, truck::TruckCoordinator}, movement::MovementMemory, spawn::DeferedId};
 
 extern crate serde_json_path_to_error as serde_json;
 
@@ -22,7 +22,7 @@ pub struct Memory {
     pub tick_times: VecDeque<f64>,
 
     #[serde(deserialize_with = "deserialize_filter_check")]
-    pub creeps: HashMap<CreepRef, CreepData>,
+    pub creeps: HashMap<DeferedId, CreepData>,
     pub colonies: Colonies,
 
     pub callbacks: Callbacks,

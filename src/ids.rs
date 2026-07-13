@@ -1,12 +1,11 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData, ops::Deref};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
-use screeps::{Creep, ObjectId, game};
+use screeps::ObjectId;
 use serde::{Deserialize, Serialize, Serializer};
-use wasm_bindgen::JsCast;
 
-use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, HasName, IdReqs, MaybeHasId, screeps_objects::IdResolutionError}};
+use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, IdReqs, MaybeResolvable}};
 
 pub trait CheckState: 'static {
     type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
@@ -79,100 +78,36 @@ impl<T: HasId + CheckFrom<Unchecked = T::Id>> CheckFrom for ById<T> {
     }
 }
 
-#[derive_where(Clone; Id: Clone, T: Clone)]
-#[derive_where(Debug, PartialEq, Eq, Hash, Ord, PartialOrd; Id)]
-pub struct WithId<T, Id = ObjectId<T>> {
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct CheckedId<Id, S: CheckState = Checked> {
     id: Id,
-    #[derive_where(skip)] inner: T
-}
-
-impl<T, Id: IdReqs> HasId for WithId<T, Id> {
-    type Id = Id;
-
-    fn id(&self) -> Self::Id {
-        self.id
-    }
-}
-
-impl<T: MaybeHasId> WithId<T, T::Id> {
-    pub fn new(entity: T) -> Option<Self> {
-        Some(WithId { id: entity.try_id()?, inner: entity })
-    }
-}
-
-impl<T, Id> AsRef<T> for WithId<T, Id> {
-    fn as_ref(&self) -> &T {
-        &self.inner
-    }
-}
-
-impl<T, Id> Deref for WithId<T, Id> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T, Id: Serialize> Serialize for WithId<T, Id> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.id.serialize(serializer)
-    }
-}
-
-impl<T: HasName, Id> HasName for WithId<T, Id> {
-    fn name(&self) -> String {
-        self.inner.name()
-    }
-}
-
-impl WithId<Creep> {
-    pub fn creeps() -> impl Iterator<Item = WithId<Creep>> {
-        game::creeps().values().filter_map(Self::new)
-    }
-}
-
-pub trait IntoWithId<O>: Sized { fn with_id(self) -> Option<WithId<Self, O>>;}
-impl<T: MaybeHasId> IntoWithId<T::Id> for T {
-    fn with_id(self) -> Option<WithId<Self, T::Id>> {
-        WithId::new(self)
-    }
-}
-
-impl<T: JsCast + screeps::MaybeHasId> CheckFrom for WithId<T> {
-    type Unchecked = ObjectId<T>;
-    type Err = IdResolutionError<T>;
-    
-    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        uc.resolve().map(|entity| WithId { id: uc, inner: entity }).ok_or(IdResolutionError(uc))
-    }
-}
-
-#[derive_where(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug; T::Id)]
-pub struct CheckedId<T: HasId, S: CheckState = Checked> {
-    id: T::Id,
-    #[derive_where(skip)]
     phantom: PhantomData<S>
 }
 
-impl<T: HasId> CheckedId<T> {
+impl<T: HasId> CheckedId<T::Id> {
     pub fn new(x: &T) -> Self {
         Self { id: x.id(), phantom: PhantomData }
     }
 }
 
+impl<T: screeps::MaybeHasId> CheckedId<T> {
+    pub fn try_new(x: &T) -> Option<Self> {
+        Some(Self { id: x.try_id()?, phantom: PhantomData })
+    }
+}
+
 #[expect(unused)]
-pub trait GetCheckedId: HasId { 
+pub trait GetCheckedObjectId: screeps::HasId { 
     fn checked_id(&self) -> CheckedId<Self> {
         CheckedId::new(self)
     }
 }
 
-impl<T: HasId> GetCheckedId for T { }
+impl<T: screeps::HasId> GetCheckedObjectId for T { }
 
-impl<T: HasId> CheckFrom for CheckedId<T> where T::Id : Check<T> {
+impl<T: screeps::HasId> CheckFrom for CheckedId<T> where ObjectId<T> : Check<T> {
     type Unchecked = CheckedId<T, Unchecked>;
-    type Err = <T::Id as Check<T>>::Err;
+    type Err = <ObjectId<T> as Check<T>>::Err;
 
     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
         Ok(Self::new(&us.id.check()?))

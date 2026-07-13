@@ -1,10 +1,9 @@
 use std::{iter, ops::{Add, Mul}, sync::LazyLock};
 
-use derive_where::derive_where;
 use log::{info, warn};
 use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, StructureSpawn, find, game};
 
-use crate::{check::{Check, CheckFrom}, colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasName, screeps_objects::IdResolutionError}, ids::{ById, CheckState, Checked, CheckedId, GetCheckedId, IntoWithId, Unchecked, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
+use crate::{check::Check, colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasName}, ids::{ById, GetCheckedObjectId, IntoWithId, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -68,50 +67,6 @@ impl From<Part> for Body {
 impl From<&Creep> for Body {
     fn from(value: &Creep) -> Self {
         Body(value.body().into_iter().map(|bodypart| bodypart.part()).collect())
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[derive_where(Serialize, Deserialize, Clone; CheckedId<WithId<Creep>, S>)]
-pub enum CreepRef<S: CheckState = Checked> {
-    Id(CheckedId<WithId<Creep>, S>),
-    Name(String)
-}
-
-impl HasName for CreepRef {
-    fn name(&self) -> String {
-        match self {
-            CreepRef::Id(handle) => handle.name(),
-            CreepRef::Name(name) => name.clone(),
-        }
-    }
-}
-
-#[expect(unused)]
-pub enum CreepRefCheckError {
-    Id(IdResolutionError<Creep>),
-    UnknownName(String)
-}
-
-impl CheckFrom for CreepRef {
-    type Unchecked = CreepRef<Unchecked>;
-    type Err = CreepRefCheckError;
-
-    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(match uc {
-            CreepRef::Id(handle) => 
-                Self::Id(handle.check().map_err(CreepRefCheckError::Id)?),
-            CreepRef::Name(name) => {
-                let Some(creep) = game::creeps().get(name.clone()) else {
-                    return Err(CreepRefCheckError::UnknownName(name))
-                };
-
-                creep.with_id().map_or(
-                    CreepRef::Name(name), 
-                    |creep| CreepRef::Id(CheckedId::new(creep))
-                )
-            },
-        })
     }
 }
 
@@ -184,21 +139,21 @@ impl SpawnerData {
         }
     }
 
-    fn schedule(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<CreepRef> {
+    fn schedule(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<DeferedId> {
         if self.is_free() && self.energy_avaliable >= prototype.body.energy_required() {
             if pop_command(Command::DebugSpawn) { info!("Scheduling creep {:?}", prototype.role) }
 
             let name = generate_new_creep_name(prototype.role.prefix(), used_names);
             self.status = SpawnerStatus::Scheduled { name: name.clone(), proto: prototype };
             
-            Some(CreepRef::Name(name))
+            Some(DeferedId::Name(name))
         } else {
             if pop_command(Command::DebugSpawn) { info!("Unable to schedule creep {:?}", prototype.role) }
             None
         }
     }
 
-    fn schedule_or_block(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<CreepRef> {
+    fn schedule_or_block(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<DeferedId> {
         if self.is_free() {
             if let Some(handle) = self.schedule(used_names, prototype) { 
                 Some(handle) 
@@ -266,7 +221,7 @@ impl SpawnSchedule {
             }
 
             let creep_data = CreepData::new(proto.home, proto.role);
-            mem.creeps.insert(CreepRef::Name(name.clone()), creep_data);
+            mem.creeps.insert(DeferedId::Name(name.clone()), creep_data);
         }
     }
 }
