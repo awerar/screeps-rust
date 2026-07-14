@@ -1,14 +1,12 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData};
+use std::{fmt::Debug, hash::Hash};
 
 use derive_deref::{Deref, DerefMut};
-use derive_where::derive_where;
-use screeps::ObjectId;
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, IdReqs, MaybeResolvable}};
+use crate::{check::{Check, CheckFrom}, domain_traits::{HasId, ResolvableId}};
 
 pub trait CheckState: 'static {
-    type Repr<T: HasId>: Serialize + Hash + Eq + Ord + Debug;
+    type Repr<T: HasId>;
 }
 
 #[derive(Clone, Copy, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -20,7 +18,7 @@ impl CheckState for Checked {
 #[derive(Clone, Copy, Deserialize, Serialize, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Unchecked {}
 impl CheckState for Unchecked {
-    type Repr<T: HasId> = T::Id;
+    type Repr<T: HasId> = <T::Id as CheckFrom>::Unchecked;
 }
 
 #[derive(Deref, DerefMut)]
@@ -69,47 +67,15 @@ impl<T: HasId> Debug for ById<T> {
     }
 }
 
-impl<T: HasId + CheckFrom<Unchecked = T::Id>> CheckFrom for ById<T> {
-    type Unchecked = T::Id;
-    type Err = T::Err;
+impl<T: HasId> CheckFrom for ById<T>
+where
+    T::Id : CheckFrom + ResolvableId<Target = T>
+{
+    type Unchecked = <T::Id as CheckFrom>::Unchecked;
+    type Err = <T::Id as CheckFrom>::Err;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
-        uc.check().map(ById)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct CheckedId<Id, S: CheckState = Checked> {
-    id: Id,
-    phantom: PhantomData<S>
-}
-
-impl<T: HasId> CheckedId<T::Id> {
-    pub fn new(x: &T) -> Self {
-        Self { id: x.id(), phantom: PhantomData }
-    }
-}
-
-impl<T: screeps::MaybeHasId> CheckedId<T> {
-    pub fn try_new(x: &T) -> Option<Self> {
-        Some(Self { id: x.try_id()?, phantom: PhantomData })
-    }
-}
-
-#[expect(unused)]
-pub trait GetCheckedObjectId: screeps::HasId { 
-    fn checked_id(&self) -> CheckedId<Self> {
-        CheckedId::new(self)
-    }
-}
-
-impl<T: screeps::HasId> GetCheckedObjectId for T { }
-
-impl<T: screeps::HasId> CheckFrom for CheckedId<T> where ObjectId<T> : Check<T> {
-    type Unchecked = CheckedId<T, Unchecked>;
-    type Err = <ObjectId<T> as Check<T>>::Err;
-
-    fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
-        Ok(Self::new(&us.id.check()?))
+        let id: T::Id = uc.check()?; 
+        Ok(ById(id.resolve()))
     }
 }

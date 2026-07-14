@@ -4,7 +4,7 @@ use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
 use itertools::Itertools;
 use screeps::{Position, RoomName};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 
 use crate::ids::{CheckState, Checked, Unchecked};
 
@@ -17,7 +17,7 @@ impl TriviallyChecked for () {}
 impl TriviallyChecked for RoomName {}
 
 pub trait CheckFrom: Sized {
-    type Unchecked;
+    type Unchecked: DeserializeOwned;
     type Err;
     
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err>;
@@ -30,7 +30,7 @@ pub trait Check<T> {
 }
 
 // ==== Implied implementations ====
-impl<T: TriviallyChecked> CheckFrom for T {
+impl<T: TriviallyChecked + DeserializeOwned> CheckFrom for T {
     type Unchecked = Self;
     type Err = !;
 

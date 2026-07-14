@@ -76,10 +76,14 @@ impl HasName for Creep {
     }
 }
 
-pub trait IdReqs = DeserializeOwned + Serialize + Hash + Eq + Ord + Clone + Debug;
+pub trait ResolvableId {
+    type Target;
+
+    fn resolve(&self) -> Self::Target;
+}
 
 pub trait HasId: Sized {
-    type Id: IdReqs;
+    type Id: Serialize + Hash + Eq + Ord + Clone + Debug + CheckFrom;
 
     fn id(&self) -> Self::Id;
 }
@@ -90,8 +94,10 @@ pub struct ObjectId<T, S: CheckState = Checked> {
     phantom: PhantomData<S>
 }
 
-impl<T: screeps::MaybeHasId + JsCast> ObjectId<T> {
-    pub fn resolve(self) -> T {
+impl<T: screeps::MaybeHasId + JsCast> ResolvableId for ObjectId<T> {
+    type Target = T;
+
+    fn resolve(&self) -> Self::Target {
         self.id.resolve().unwrap()
     }
 }
@@ -164,6 +170,17 @@ pub mod screeps_objects {
 pub enum CreepId<S: CheckState = Checked> {
     Id(ObjectId<Creep, S>),
     Name(String)
+}
+
+impl ResolvableId for CreepId {
+    type Target = Creep;
+
+    fn resolve(&self) -> Self::Target {
+        match self {
+            CreepId::Id(id) => id.resolve(),
+            CreepId::Name(name) => game::creeps().get(name.clone()).unwrap(),
+        }
+    }
 }
 
 impl HasId for Creep {

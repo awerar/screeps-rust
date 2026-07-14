@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail};
 use derive_where::derive_where;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 
-use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{HasStore, HasStoreExt, Transferable}, ids::{ById, CheckState, Checked, Unchecked, WithId}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{HasStore, HasStoreExt, Transferable}, ids::{ById, CheckState, Checked, Unchecked}, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive_where(Debug, PartialEq, Eq, Hash)]
 #[derive_where(Serialize, Deserialize, Clone; S::Repr<Ruin>, S::Repr<Resource>, S::Repr<Tombstone>, ProviderStructure<S>, S::Repr<WithId<Creep>>)]
@@ -22,7 +22,7 @@ impl CheckFrom for ProviderTruckStop {
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
         let checked = match uc {
-            Self::Unchecked::Ruin(x) => Self::Ruin(ById(x.check()?)),
+            Self::Unchecked::Ruin(x) => Self::Ruin(x.check()?),
             Self::Unchecked::Resource(x) => Self::Resource(ById(x.check()?)),
             Self::Unchecked::Tombstone(x) => Self::Tombstone(ById(x.check()?)),
             Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
