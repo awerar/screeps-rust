@@ -2,7 +2,7 @@ use ordered_float::OrderedFloat;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, HasHits, HasPosition, Part, REPAIR_POWER, Room, StructureController, UPGRADE_CONTROLLER_POWER, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask, StructureTask}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::ById, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask, StructureTask}}, virtual_creep::VirtualCreep}, domain_traits::{EnergyStoreAccessors, ObjectId, ResolvableId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize)]
 pub struct FabricatorCoordinator {
@@ -67,10 +67,10 @@ impl FabricatorCoordinator {
 
         self.builds.set_tasks(
             room.find(find::MY_CONSTRUCTION_SITES, None).into_iter()
-                .map(|site| (
-                    ById(site.clone().with_id().unwrap()),
+                .filter_map(|site| Some((
+                    ObjectId::try_new(&site)?,
                     ResourceAmount(site.progress_total() - site.progress())
-                ))
+                )))
         );
 
         self.upgrade.set_amount(
@@ -107,7 +107,7 @@ impl FabricatorCoordinator {
     fn assign_build(&mut self, creep: &VirtualCreep) -> Option<BuildTask> {
         self.builds.iter_mut()
             .filter(|(_, collab)| collab.unreserved_amount() > 0)
-            .min_by_key(|(task, _)| creep.pos().get_range_to(task.pos()))
+            .min_by_key(|(task, _)| creep.pos().get_range_to(task.resolve().pos()))
             .added_to_collab(creep.handle(), creep.estimated_work_capacity() * BUILD_POWER, Expiration::new())
     }
 

@@ -7,7 +7,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use tap::Tap;
 
-use crate::{check::{Check, CheckFrom}, colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, domain_traits::{HasStore, Transferable, Withdrawable}, ids::{ById, CheckState, Checked, Unchecked}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{check::{Check, CheckFrom}, colony::{planning::{plan::ColonyPlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, domain_traits::{HasId, HasStore, ObjectId, ResolvableId, Transferable, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub mod planning;
 pub mod steps;
@@ -33,8 +33,8 @@ impl Display for ColonyView<'_> {
 
 impl<'mem> ColonyView<'mem> {
     pub fn new(room: Room, plan: &'mem ColonyPlan, step: ColonyStep) -> Self {
-        let buffer = plan.center.storage.resolve().map(ById).map(ColonyBuffer::Storage)
-            .or_else(|| plan.center.container_storage.resolve().map(ById).map(ColonyBuffer::Container));
+        let buffer = plan.center.storage.resolve().map(ColonyBuffer::Storage)
+            .or_else(|| plan.center.container_storage.resolve().map(ColonyBuffer::Container));
 
         ColonyView { 
             plan, 
@@ -59,22 +59,50 @@ impl Colonies {
     }
 }
 
-#[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; S::Repr<StructureContainer>, S::Repr<StructureStorage>)]
-pub enum ColonyBuffer<S: CheckState = Checked> {
-    Container(S::Repr<StructureContainer>),
-    Storage(S::Repr<StructureStorage>)
+#[derive_where(Debug, Serialize, Deserialize, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord; ObjectId<StructureContainer, S>, ObjectId<StructureStorage, S>)]
+pub enum ColonyBufferId<S: CheckState = Checked> {
+    Container(ObjectId<StructureContainer, S>),
+    Storage(ObjectId<StructureStorage, S>)
 }
 
-impl CheckFrom for ColonyBuffer {
-    type Unchecked = ColonyBuffer<Unchecked>;
+#[derive(Debug, Clone)]
+pub enum ColonyBuffer {
+    Container(StructureContainer),
+    Storage(StructureStorage)
+}
+
+impl HasId for ColonyBuffer {
+    type Id<S: CheckState> = ColonyBufferId<S>;
+
+    fn id(&self) -> Self::Id<Checked> {
+        match self {
+            ColonyBuffer::Container(container) => ColonyBufferId::Container(container.id()),
+            ColonyBuffer::Storage(storage) => ColonyBufferId::Storage(storage.id()),
+        }
+    }
+}
+
+impl ResolvableId for ColonyBufferId {
+    type Target = ColonyBuffer;
+
+    fn resolve(&self) -> Self::Target {
+        match self {
+            ColonyBufferId::Container(id) => ColonyBuffer::Container(id.resolve()),
+            ColonyBufferId::Storage(id) => ColonyBuffer::Storage(id.resolve()),
+        }
+    }
+}
+
+
+impl CheckFrom for ColonyBufferId {
+    type Unchecked = ColonyBufferId<Unchecked>;
     type Err = anyhow::Error;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
         Ok(match uc {
-            ColonyBuffer::Container(container) => 
+            ColonyBufferId::Container(container) => 
                 Self::Container(container.check()?),
-            ColonyBuffer::Storage(storage) => 
+            ColonyBufferId::Storage(storage) => 
                 Self::Storage(storage.check()?),
         })
     }
@@ -92,8 +120,8 @@ impl HasStore for ColonyBuffer {
 impl Withdrawable for ColonyBuffer {
     fn withdrawable(&self) -> &dyn screeps::Withdrawable { 
         match self {
-            ColonyBuffer::Container(container) => &**container,
-            ColonyBuffer::Storage(storage) => &**storage,
+            ColonyBuffer::Container(container) => container,
+            ColonyBuffer::Storage(storage) => storage,
         }
     }
 }
@@ -101,14 +129,13 @@ impl Withdrawable for ColonyBuffer {
 impl Transferable for ColonyBuffer {
     fn transferable(&self) -> &dyn screeps::Transferable {
         match self {
-            ColonyBuffer::Container(container) => &**container,
-            ColonyBuffer::Storage(storage) => &**storage,
+            ColonyBuffer::Container(container) => container,
+            ColonyBuffer::Storage(storage) => storage,
         }
     }
 }
 
 impl HasPosition for ColonyBuffer {
-    #[doc = " Position of the object."]
     fn pos(&self) -> Position {
         match self {
             ColonyBuffer::Container(container) => container.pos(),

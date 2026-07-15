@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use derive_where::derive_where;
 use screeps::{Creep, ResourceType, game};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
 use thiserror::Error;
 use wasm_bindgen::JsCast;
 
@@ -83,9 +83,9 @@ pub trait ResolvableId {
 }
 
 pub trait HasId: Sized {
-    type Id: Serialize + Hash + Eq + Ord + Clone + Debug + CheckFrom;
+    type Id<S: CheckState>: Serialize + Hash + Eq + Ord + Clone + Debug;
 
-    fn id(&self) -> Self::Id;
+    fn id(&self) -> Self::Id<Checked>;
 }
 
 #[derive_where(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -147,8 +147,8 @@ pub mod screeps_objects {
         ($($ty:ty),* $(,)?) => {
             $(
                 impl HasId for $ty {
-                    type Id = ObjectId<Self>;
-                    fn id(&self) -> Self::Id { ObjectId::new(self) }
+                    type Id<S: crate::ids::CheckState> = ObjectId<Self, S>;
+                    fn id(&self) -> Self::Id<crate::ids::Checked> { ObjectId::new(self) }
                 }
             )*
         };
@@ -165,8 +165,7 @@ pub mod screeps_objects {
     );
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[derive_where(Serialize, Deserialize, Clone; ObjectId<Creep, S>)]
+#[derive_where(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash; ObjectId<Creep, S>)]
 pub enum CreepId<S: CheckState = Checked> {
     Id(ObjectId<Creep, S>),
     Name(String)
@@ -184,9 +183,9 @@ impl ResolvableId for CreepId {
 }
 
 impl HasId for Creep {
-    type Id = CreepId;
+    type Id<S: CheckState> = CreepId<S>;
 
-    fn id(&self) -> Self::Id {
+    fn id(&self) -> Self::Id<Checked> {
         ObjectId::try_new(self)
             .map_or_else(|| CreepId::Name(self.name()), CreepId::Id)
     }

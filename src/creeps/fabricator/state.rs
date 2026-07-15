@@ -4,11 +4,10 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::{FabricatorTask, StructureTask}}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
+use crate::{check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::FabricatorTask}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
-// TODO: Expiration
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; StructureTask<S>)]
+#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<S>)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
     #[default] Idle,
     CollectingFor(FabricatorTask<S>),

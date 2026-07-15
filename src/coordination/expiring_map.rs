@@ -6,7 +6,7 @@ use screeps::Creep;
 use serde::de::DeserializeOwned;
 use serde_json_any_key::any_key_map;
 
-use crate::{check::{CheckFrom, Expiring, ExpiringCheckError, FilterCheck, FilterCheckFrom, PairCheckError}, ids::{CheckState, Checked, CheckedId, Unchecked, WithId}};
+use crate::{check::{CheckFrom, Expiring, ExpiringCheckError, FilterCheck, FilterCheckFrom, PairCheckError}, ids::{CheckState, Checked, Handle, Unchecked}};
 
 #[derive_where(Serialize; K, V, S, K: Hash + Eq + 'static)]
 #[derive_where(Deserialize; K: Hash + Eq + DeserializeOwned + 'static, V: DeserializeOwned + 'static, S: DeserializeOwned)]
@@ -15,7 +15,7 @@ pub struct ExpiringMap<K, V, const TIMEOUT: u32 = 1, S: CheckState = Checked> {
     entries: HashMap<K, Expiring<V, TIMEOUT, S>>
 }
 
-#[expect(unused)] pub type ExpiringCreepMap<V, const TIMEOUT: u32 = 1, S = Checked> = ExpiringMap<CheckedId<WithId<Creep>>, V, TIMEOUT, S>;
+#[expect(unused)] pub type ExpiringCreepMap<V, const TIMEOUT: u32 = 1, S = Checked> = ExpiringMap<Handle<Creep>, V, TIMEOUT, S>;
 
 impl<K, V, const T: u32> IntoIterator for ExpiringMap<K, V, T> {
     type Item = (K, V);
@@ -60,7 +60,7 @@ impl<K, V, const T: u32> Default for ExpiringMap<K, V, T> {
 }
 
 pub struct LiveHandle<'a, K, V, const TIMEOUT: u32 = 1>(hash_map::OccupiedEntry<'a, K, Expiring<V, TIMEOUT>>);
-#[expect(unused)] pub type LiveCreepHandle<'a, V, const TIMEOUT: u32 = 1> = LiveHandle<'a, CheckedId<WithId<Creep>>, V, TIMEOUT>;
+#[expect(unused)] pub type LiveCreepHandle<'a, V, const TIMEOUT: u32 = 1> = LiveHandle<'a, Handle<Creep>, V, TIMEOUT>;
 
 impl<K, V, const T: u32> LiveHandle<'_, K, V, T> {
     pub fn get(&self) -> &V {

@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use derive_where::derive_where;
 use screeps::{ConstructionSite, HasHits, HasPosition, Position};
 
-use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, ids::{CheckState, Checked, Unchecked, WithId}, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; StructureTask<S>)]
@@ -48,14 +48,14 @@ impl CheckFrom for StructureTask {
     }
 }
 
-pub type BuildTask<S = Checked> = <S as CheckState>::Repr<WithId<ConstructionSite>>;
+pub type BuildTask<S = Checked> = ObjectId<ConstructionSite, S>;
 pub type RepairTask<S = Checked> = RepairableStructure::<S>;
 
 impl StructureTask {
     pub fn creep_work(&self, creep: &mut VirtualCreep) -> anyhow::Result<u32, IntentError> {
         match self {
             StructureTask::Building(site) => 
-                creep.build((***site).clone()),
+                creep.build(site.resolve()),
             StructureTask::Repairing(structure) => 
                 creep.repair(structure.clone()),
         }
@@ -63,7 +63,7 @@ impl StructureTask {
 
     pub fn pos(&self) -> Position {
         match self {
-            StructureTask::Building(id) => id.pos(),
+            StructureTask::Building(id) => id.resolve().pos(),
             StructureTask::Repairing(id) => id.pos(),
         }
     }

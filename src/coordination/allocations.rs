@@ -4,7 +4,7 @@ use derive_where::derive_where;
 use screeps::Creep;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{tasks::UpdateableTaskData, expiring_map::{ExpiringEntryCheckError, LiveHandle, ExpiringMap}}, ids::{CheckState, Checked, CheckedId, Unchecked, WithId}};
+use crate::{check::{Check, CheckFrom, FilterCheck, FilterCheckFrom}, coordination::{expiring_map::{ExpiringEntryCheckError, ExpiringMap, LiveHandle}, tasks::UpdateableTaskData}, ids::{CheckState, Checked, Handle, Unchecked}};
 
 #[derive(Serialize, Deserialize)]
 struct Allocation<AllocationData> {
@@ -47,7 +47,7 @@ pub struct Allocations<Owner, AllocationData = (), S: CheckState = Checked> {
     state: ResourceState
 }
 
-pub type CreepAllocations<AllocationData = (), S = Checked> = Allocations<CheckedId<WithId<Creep>>, AllocationData, S>;
+pub type CreepAllocations<AllocationData = (), S = Checked> = Allocations<Handle<Creep>, AllocationData, S>;
 
 impl<O, AD> Allocations<O, AD> {
     pub fn new(amount: u32) -> Self {
@@ -136,12 +136,12 @@ where
     }
 }
 
-pub struct AllocationHandle<'a, Owner = CheckedId<WithId<Creep>>, AllocationData = ()> {
+pub struct AllocationHandle<'a, Owner = Handle<Creep>, AllocationData = ()> {
     resource_state: &'a mut ResourceState,
     live_handle: LiveHandle<'a, Owner, Allocation<AllocationData>>
 }
 
-pub type CreepAllocationHandle<'a, AllocationData = ()> = AllocationHandle<'a, CheckedId<WithId<Creep>>, AllocationData>;
+pub type CreepAllocationHandle<'a, AllocationData = ()> = AllocationHandle<'a, Handle<Creep>, AllocationData>;
 
 impl<Owner, AllocationData> AllocationHandle<'_, Owner, AllocationData> {
     pub fn consume(&mut self, amount: u32) {

@@ -3,7 +3,7 @@ use std::cmp::Reverse;
 use screeps::{Creep, ResourceType, Room, StructureContainer, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{allocations::{AllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{ById, WithId}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::planning::{plan::ColonyPlan, planned_ref::{PlannedStructureRefs, ResolvableStructureRef}}, coordination::{allocations::{AllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -29,8 +29,8 @@ impl TriviallyChecked for ConsumerTaskPriority {}
 impl OverwriteableTaskData for ConsumerTaskPriority {}
 
 pub struct CreepStops {
-    pub consumers: Vec<WithId<Creep>>,
-    pub providers: Vec<WithId<Creep>>
+    pub consumers: Vec<Creep>,
+    pub providers: Vec<Creep>
 }
 
 impl TruckCoordinator {
@@ -39,7 +39,7 @@ impl TruckCoordinator {
         self.update_consumers(plan, creep_stops.consumers);
     }
 
-    fn update_providers(&mut self, plan: &ColonyPlan, room: &Room, provider_creeps: Vec<WithId<Creep>>) {
+    fn update_providers(&mut self, plan: &ColonyPlan, room: &Room, provider_creeps: Vec<Creep>) {
         let dropped_resources = room.find(find::DROPPED_RESOURCES, None).into_iter().map(ById).map(ProviderTruckStop::Resource);
         let tombstones = room.find(find::TOMBSTONES, None).into_iter().map(ById).map(ProviderTruckStop::Tombstone);
         let ruins = room.find(find::RUINS, None).into_iter().map(ById).map(ProviderTruckStop::Ruin);
