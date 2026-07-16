@@ -443,7 +443,7 @@ fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, u
     }
 }
 
-fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames, tugboat_requests: &TugboatRequests) {
+fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
         let excavator_count = schedule.all_creeps().filter_home(colony.name)
@@ -458,18 +458,6 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names:
             spawn.schedule_or_block(used_names, CreepPrototype { 
                 body: get_excavator_body(spawn.energy_avaliable.max(300), source_plan), 
                 role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()), 
-                home: colony.name
-            });
-        }
-
-        for creep in &tugboat_requests.0 {
-            let Some(creep_data) = mem.creeps.get(&creep.id()) else { continue; };
-            if !matches!(creep_data.role, CreepRole::Excavator(_, _)) { continue; }
-
-            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
-            spawn.schedule_or_block(used_names, CreepPrototype { 
-                body: get_tugboat_body(spawn.energy_avaliable.max(300), creep), 
-                role: CreepRole::Tugboat(creep.id(), spawn.structure.id()), 
                 home: colony.name
             });
         }
@@ -490,9 +478,9 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut schedule = SpawnSchedule::new(mem);
     let mut used_names: UsedNames = game::creeps().keys().collect();
 
-    schedule_recovery(mem, &mut schedule, &mut used_names, &tugboat_requests);
-
     schedule_tugboats(mem, &mut schedule, &mut used_names, tugboat_requests);
+    schedule_recovery(mem, &mut schedule, &mut used_names);
+
     schedule_excavators(mem, &mut schedule, &mut used_names);
     schedule_trucks(mem, &mut schedule, &mut used_names);
     schedule_fabricators(mem, &mut schedule, &mut used_names);
