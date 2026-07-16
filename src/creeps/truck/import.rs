@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use crate::{check::Check, colony::{ColonyBuffer, ColonyView, steps::ColonyStep}, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; ConsumerTruckStop<S>, ColonyBuffer<S>)]
+#[derive_where(Serialize, Deserialize, Clone; ConsumerTruckStop<S>, ColonyBuffer<S>, S)]
 pub enum ImportTruckState<S: CheckState = Checked> {
     #[default] Idle,
     CollectingFrom(RoomName),
@@ -63,7 +63,7 @@ impl ImportTruckState {
                 next_if!(buffer.used_energy_capacity() < ENERGY_THRESHOLD, Self::Idle);
 
                 defer!(movement.move_vcreep_to(creep, buffer.pos(), 1), self)?;
-                defer_err!(creep.withdraw(buffer.clone(), ResourceType::Energy, None), self)?;
+                defer_err!(creep.withdraw(*buffer, ResourceType::Energy, None), self)?;
                 
                 Ok(Next(Self::GoingHome))
             },
@@ -80,7 +80,7 @@ impl ImportTruckState {
                 }
 
                 if let Some(buffer) = home.buffer.as_ref() {
-                    next!(Self::StoringAway(buffer.clone()))
+                    next!(Self::StoringAway(*buffer))
                 }
 
                 defer!(movement.move_vcreep_to(creep, home.center, 3), self)?;
@@ -101,7 +101,7 @@ impl ImportTruckState {
                 next_if!(creep.next_used_energy_capacity() == 0, Self::Idle);
 
                 defer!(movement.move_vcreep_to(creep, buffer.pos(), 1), self)?;
-                defer_err!(creep.transfer(buffer.clone(), ResourceType::Energy, None), self)?;
+                defer_err!(creep.transfer(*buffer, ResourceType::Energy, None), self)?;
 
                 Ok(Next(Self::Idle))
             },

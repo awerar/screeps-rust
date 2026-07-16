@@ -1,8 +1,8 @@
 use ordered_float::OrderedFloat;
-use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, HasHits, HasPosition, Part, REPAIR_POWER, Room, StructureController, UPGRADE_CONTROLLER_POWER, controller_downgrade, find};
+use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, HasPosition, Part, REPAIR_POWER, Room, StructureController, UPGRADE_CONTROLLER_POWER, controller_downgrade, find};
 use serde::{Serialize, Deserialize};
 
-use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask, StructureTask}}, virtual_creep::VirtualCreep}, domain_traits::{EnergyStoreAccessors, ObjectId, ResolvableId}, structure::RepairableStructure};
+use crate::{check::{Expiration, Filtered, deserialize_filter_check}, colony::{ColonyBuffer, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{fabricator::{TaskExpiration, task::{BuildTask, FabricatorTask, RepairTask, StructureTask}}, virtual_creep::VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize)]
 pub struct FabricatorCoordinator {
@@ -48,7 +48,7 @@ fn downgrade_percentage(controller: &StructureController) -> f32 {
 
 fn storage_fill_percentage(buffer: Option<&ColonyBuffer>) -> Option<f32> {
     buffer.and_then(|buffer| {
-        let ColonyBuffer::Storage(storage) = buffer else { return None };
+        let storage = buffer.resolve_storage()?;
         Some(storage.used_energy_capacity() as f32 / storage.energy_capacity() as f32)
     })
 }

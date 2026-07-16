@@ -1,31 +1,33 @@
 use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, ops::Deref};
 
-use screeps::{Creep, HasPosition, ObjectId, Position, SharedCreepProperties, Spawning, StructureSpawn};
+use screeps::{Creep, HasPosition, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
-use crate::{check::{TriviallyChecked, deserialize_filter_check}, commands::{Command, pop_command}, ids::{ById, WithId}, domain_traits::HasId};
+use crate::{check::{TriviallyChecked, deserialize_filter_check}, commands::{Command, pop_command}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}};
 
 pub mod requests;
 mod simplifier;
 mod solver;
 
 thread_local! {
-    static SELECTED: RefCell<HashSet<ObjectId<Creep>>> = RefCell::new(HashSet::new());
+    static SELECTED: RefCell<HashSet<screeps::ObjectId<Creep>>> = RefCell::new(HashSet::new());
 }
 
-fn has_selected(creep: &WithId<Creep>) -> bool {
+fn has_selected(creep: &Creep) -> bool {
+    let Some(id) = screeps::MaybeHasId::try_id(creep) else { return false };
+
     SELECTED.with_borrow_mut(|selected| {
         if pop_command(Command::VisualizeMovement { creep: creep.name() }) {
-            selected.insert(creep.id());
+            selected.insert(id);
         }
 
-        selected.contains(&creep.id())
+        selected.contains(&id)
     })
 }
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
     #[serde(deserialize_with = "deserialize_filter_check")]
-    paths: HashMap<WithId<Creep>, CachedPath>
+    paths: HashMap<CreepId, CachedPath>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -50,14 +52,14 @@ impl MoveTarget {
 }
 
 struct SpawningID {
-    spawn: ById<StructureSpawn>,
+    spawn: ObjectId<StructureSpawn>,
     spawning: Spawning
 }
 
 impl SpawningID {
     fn new(spawn: &StructureSpawn) -> Option<Self> {
         Some(Self {
-            spawn: ById(spawn.clone()),
+            spawn: spawn.id(),
             spawning: spawn.spawning()?,
         })
     }
@@ -80,8 +82,8 @@ impl Eq for SpawningID {}
 impl Clone for SpawningID {
     fn clone(&self) -> Self {
         Self { 
-            spawn: self.spawn.clone(), 
-            spawning: self.spawn.spawning().unwrap() 
+            spawn: self.spawn, 
+            spawning: self.spawn.resolve().spawning().unwrap() 
         }
     }
 }
@@ -96,6 +98,6 @@ impl Deref for SpawningID {
 
 impl HasPosition for SpawningID {
     fn pos(&self) -> Position {
-        self.spawn.pos()
+        self.spawn.resolve().pos()
     }
 }

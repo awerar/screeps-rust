@@ -23,6 +23,7 @@ impl<T: HasId> Handle<T> {
         Handle(x.id())
     }
 
+    #[expect(unused)]
     pub fn from_id(id: T::Id<Checked>) -> Self {
         Handle(id)
     }
@@ -31,7 +32,7 @@ impl<T: HasId> Handle<T> {
 impl<T: HasId> GetHandle for T {}
 pub trait GetHandle: HasId {
     fn handle(&self) -> Handle<Self> {
-        Handle(self.id())
+        Handle::new(self)
     }
 }
 

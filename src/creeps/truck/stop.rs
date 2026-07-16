@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail};
 use derive_where::derive_where;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 
-use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{HasStore, HasStoreExt, ObjectId, ResolvableId, Transferable}, ids::{CheckState, Checked, Unchecked}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{CreepId, HasStore, HasStoreExt, ObjectId, ResolvableId, Transferable}, ids::{CheckState, Checked, Unchecked}, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive_where(Debug, PartialEq, Eq, Hash)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<Ruin, S>, ObjectId<Resource, S>, ObjectId<Tombstone, S>, ProviderStructure<S>, ObjectId<Creep, S>)]
@@ -13,7 +13,7 @@ pub enum ProviderTruckStop<S: CheckState = Checked> {
     Resource(ObjectId<Resource, S>),
     Tombstone(ObjectId<Tombstone, S>),
     Structure(ProviderStructure<S>),
-    Creep(ObjectId<Creep, S>)
+    Creep(CreepId<S>)
 }
 
 impl CheckFrom for ProviderTruckStop {
@@ -47,24 +47,24 @@ impl ProviderTruckStop {
 
     pub fn get_resource_avaliable(&self, ty: ResourceType) -> u32 { 
         match self {
-            Self::Ruin(id) => id.store().get_used_capacity(Some(ty)),
-            Self::Tombstone(id) => id.store().get_used_capacity(Some(ty)),
+            Self::Ruin(id) => id.resolve().store().get_used_capacity(Some(ty)),
+            Self::Tombstone(id) => id.resolve().store().get_used_capacity(Some(ty)),
             Self::Structure(id) => id.store().get_used_capacity(Some(ty)),
-            Self::Creep(id) => id.store().get_used_capacity(Some(ty)),
+            Self::Creep(id) => id.resolve().store().get_used_capacity(Some(ty)),
             Self::Resource(id) => 
-                if id.resource_type() == ty { id.amount() } else { 0 },
+                if id.resolve().resource_type() == ty { id.resolve().amount() } else { 0 },
         }
     }
 
     pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<u32, IntentError> { 
         match self {
-            Self::Ruin(id) => Ok(creep.withdraw((**id).clone(), ty, None)?),
-            Self::Tombstone(id) => Ok(creep.withdraw((**id).clone(), ty, None)?),
-            Self::Creep(id) => Ok(creep.transfer_from(id, ty, None)?),
-            Self::Structure(id) => creep.withdraw(id.clone(), ty, None),
+            Self::Ruin(id) => Ok(creep.withdraw(id.resolve(), ty, None)?),
+            Self::Tombstone(id) => Ok(creep.withdraw(id.resolve(), ty, None)?),
+            Self::Creep(id) => Ok(creep.transfer_from(&id.resolve(), ty, None)?),
+            Self::Structure(id) => creep.withdraw(*id, ty, None),
             Self::Resource(id) => 
-                if id.resource_type() == ty { 
-                    Ok(creep.pickup((**id).clone())?) 
+                if id.resolve().resource_type() == ty { 
+                    Ok(creep.pickup(id.resolve())?) 
                 } else { 
                     Err(anyhow!("Resource pile does not contain {ty}").into()) 
                 },
@@ -74,10 +74,10 @@ impl ProviderTruckStop {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-#[derive_where(Serialize, Deserialize, Clone; ConsumerStructure<S>, S::Repr<WithId<Creep>>)]
+#[derive_where(Serialize, Deserialize, Clone; ConsumerStructure<S>, ObjectId<Creep, S>)]
 pub enum ConsumerTruckStop<S: CheckState = Checked> {
     Structure(ConsumerStructure<S>),
-    Creep(S::Repr<WithId<Creep>>)
+    Creep(CreepId<S>)
 }
 
 impl CheckFrom for ConsumerTruckStop {
@@ -87,7 +87,7 @@ impl CheckFrom for ConsumerTruckStop {
     fn check_from(us: Self::Unchecked) -> Result<Self, Self::Err> {
         let checked = match us {
             Self::Unchecked::Structure(x) => Self::Structure(x.check()?),
-            Self::Unchecked::Creep(x) => Self::Creep(ById(x.check()?)),
+            Self::Unchecked::Creep(x) => Self::Creep(x.check()?),
         };
 
         if checked.free_capacity(Some(ResourceType::Energy)) == 0 { bail!("Consumer has no free space") }
@@ -99,7 +99,7 @@ impl ConsumerTruckStop {
     pub fn pos(&self) -> Position {
         match self {
             Self::Structure(id) => id.pos(),
-            Self::Creep(id) => id.pos(),
+            Self::Creep(id) => id.resolve().pos(),
         }
     }
 }
@@ -108,16 +108,16 @@ impl HasStore for ConsumerTruckStop {
     fn store(&self) -> screeps::Store {
         match self {
             ConsumerTruckStop::Structure(structure) => structure.store(),
-            ConsumerTruckStop::Creep(creep) => creep.store(),
+            ConsumerTruckStop::Creep(creep) => creep.resolve().store(),
         }
     }
 }
 
 impl Transferable for ConsumerTruckStop {
-    fn transferable(&self) -> &dyn screeps::Transferable {
+    fn transfer_from(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), screeps::action_error_codes::TransferErrorCode> {
         match self {
-            ConsumerTruckStop::Structure(structure) => structure.transferable(),
-            ConsumerTruckStop::Creep(creep) => creep.as_ref(),
+            ConsumerTruckStop::Structure(structure) => structure.transfer_from(creep, ty, amount),
+            ConsumerTruckStop::Creep(id) => id.resolve().transfer_from(creep, ty, amount),
         }
     }
 }

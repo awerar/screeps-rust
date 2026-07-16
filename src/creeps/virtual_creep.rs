@@ -2,9 +2,9 @@ use std::{collections::HashMap, error::Error};
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasHits, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
+use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{CheckedId, WithId}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body, statemachine::ShouldYield};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body, statemachine::ShouldYield};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -87,7 +87,7 @@ During this tick we will only remove up to [total_resources] resources and only 
 */
 
 pub struct VirtualCreep {
-    creep: WithId<Creep>,
+    creep: Creep,
 
     free_capacity: u32, // Free capacity left this tick
     total_resources: u32, // Used capacity left this tick
@@ -139,7 +139,7 @@ impl Intent {
 }
 
 impl VirtualCreep {
-    pub fn new(creep: WithId<Creep>) -> Self {
+    pub fn new(creep: Creep) -> Self {
         VirtualCreep { 
             free_capacity: creep.free_capacity(None),
             total_resources: creep.used_capacity(None),
@@ -152,8 +152,8 @@ impl VirtualCreep {
         }
     }
 
-    pub fn handle(&self) -> CheckedId<WithId<Creep>> {
-        CheckedId::new(&self.creep)
+    pub fn handle(&self) -> Handle<Creep> {
+        self.creep.handle()
     }
 
     pub fn pos(&self) -> Position {
@@ -165,7 +165,7 @@ impl VirtualCreep {
     }
 
     pub fn body(&self) -> Body {
-        Body::from(&*self.creep)
+        Body::from(&self.creep)
     }
 
     pub fn ticks_to_live(&self) -> Option<u32> {
@@ -399,16 +399,14 @@ impl VirtualCreep {
     }
 
     pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Result<u32, IntentError> {
-        let has_hits: &dyn HasHits = target.repairable();
-
         let amount = self.part_amount(Part::Work, 1)
-            .min((has_hits.hits_max() - has_hits.hits()).div_ceil(100))
+            .min((target.hits_max() - target.hits()).div_ceil(100))
             .min(self.get_energy());
 
         self.register_intent(
             IntentType::Repair,
             Intent::new(
-                move |creep| creep.repair(target.repairable()),
+                move |creep| target.repair_by(creep),
                 Some(IntentEffect::outgoing_energy(amount))
             )
         )
@@ -416,12 +414,12 @@ impl VirtualCreep {
 
     // Transfer from other creep into this creep
     // TODO: Make this cancellable?
-    pub fn transfer_from(&mut self, target: &WithId<Creep>, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
+    pub fn transfer_from(&mut self, target: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
         let amount = amount.unwrap_or(self.free_capacity)
             .min(target.used_capacity(Some(ty)));
 
         self.add_incoming(ty, amount)?;
-        target.transfer(&*self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;
+        target.transfer(&self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;
         Ok(amount)
     }
 
@@ -432,7 +430,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Transfer,
             Intent::new(
-                move |creep| creep.transfer(target.transferable(), ty, Some(amount)),
+                move |creep| target.transfer_from(creep, ty, Some(amount)),
                 Some(IntentEffect::Outgoing(ty, amount))
             )
         )
@@ -445,7 +443,7 @@ impl VirtualCreep {
         self.register_intent(
             IntentType::Withdraw,
             Intent::new(
-                move |creep| creep.withdraw(target.withdrawable(), ty, Some(amount)),
+                move |creep| target.withdraw_to(creep, ty, Some(amount)),
                 Some(IntentEffect::Incoming(ty, amount))
             )
         )

@@ -33,8 +33,8 @@ impl Display for ColonyView<'_> {
 
 impl<'mem> ColonyView<'mem> {
     pub fn new(room: Room, plan: &'mem ColonyPlan, step: ColonyStep) -> Self {
-        let buffer = plan.center.storage.resolve().map(ColonyBuffer::Storage)
-            .or_else(|| plan.center.container_storage.resolve().map(ColonyBuffer::Container));
+        let buffer = plan.center.storage.resolve().map(|x| x.id()).map(ColonyBuffer::Storage)
+            .or_else(|| plan.center.container_storage.resolve().map(|x| x.id()).map(ColonyBuffer::Container));
 
         ColonyView { 
             plan, 
@@ -60,49 +60,40 @@ impl Colonies {
 }
 
 #[derive_where(Debug, Serialize, Deserialize, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord; ObjectId<StructureContainer, S>, ObjectId<StructureStorage, S>)]
-pub enum ColonyBufferId<S: CheckState = Checked> {
+pub enum ColonyBuffer<S: CheckState = Checked> {
     Container(ObjectId<StructureContainer, S>),
     Storage(ObjectId<StructureStorage, S>)
 }
 
-#[derive(Debug, Clone)]
-pub enum ColonyBuffer {
-    Container(StructureContainer),
-    Storage(StructureStorage)
-}
+trait ColonyBufferStructure: HasStore + Withdrawable + Transferable + HasPosition {}
+impl ColonyBufferStructure for StructureContainer {}
+impl ColonyBufferStructure for StructureStorage {}
 
-impl HasId for ColonyBuffer {
-    type Id<S: CheckState> = ColonyBufferId<S>;
-
-    fn id(&self) -> Self::Id<Checked> {
+impl ColonyBuffer {
+    fn with<R>(&self, f: impl FnOnce(&dyn ColonyBufferStructure) -> R) -> R {
         match self {
-            ColonyBuffer::Container(container) => ColonyBufferId::Container(container.id()),
-            ColonyBuffer::Storage(storage) => ColonyBufferId::Storage(storage.id()),
+            Self::Container(id) => f(&id.resolve()),
+            Self::Storage(id) => f(&id.resolve())
+        }
+    }
+
+    pub fn resolve_storage(&self) -> Option<StructureStorage> {
+        match self {
+            ColonyBuffer::Container(_) => None,
+            ColonyBuffer::Storage(id) => Some(id.resolve()),
         }
     }
 }
 
-impl ResolvableId for ColonyBufferId {
-    type Target = ColonyBuffer;
-
-    fn resolve(&self) -> Self::Target {
-        match self {
-            ColonyBufferId::Container(id) => ColonyBuffer::Container(id.resolve()),
-            ColonyBufferId::Storage(id) => ColonyBuffer::Storage(id.resolve()),
-        }
-    }
-}
-
-
-impl CheckFrom for ColonyBufferId {
-    type Unchecked = ColonyBufferId<Unchecked>;
+impl CheckFrom for ColonyBuffer {
+    type Unchecked = ColonyBuffer<Unchecked>;
     type Err = anyhow::Error;
 
     fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
         Ok(match uc {
-            ColonyBufferId::Container(container) => 
+            ColonyBuffer::Container(container) => 
                 Self::Container(container.check()?),
-            ColonyBufferId::Storage(storage) => 
+            ColonyBuffer::Storage(storage) => 
                 Self::Storage(storage.check()?),
         })
     }
@@ -110,37 +101,25 @@ impl CheckFrom for ColonyBufferId {
 
 impl HasStore for ColonyBuffer {
     fn store(&self) -> Store {
-        match self {
-            ColonyBuffer::Container(container) => container.store(),
-            ColonyBuffer::Storage(storage) => storage.store(),
-        }
+        self.with(|s| s.store())
     }
 }
 
 impl Withdrawable for ColonyBuffer {
-    fn withdrawable(&self) -> &dyn screeps::Withdrawable { 
-        match self {
-            ColonyBuffer::Container(container) => container,
-            ColonyBuffer::Storage(storage) => storage,
-        }
+    fn withdraw_to(&self, creep: &screeps::Creep, ty: screeps::ResourceType, amount: Option<u32>) -> Result<(), screeps::action_error_codes::WithdrawErrorCode> {
+        self.with(|s| s.withdraw_to(creep, ty, amount))
     }
 }
 
 impl Transferable for ColonyBuffer {
-    fn transferable(&self) -> &dyn screeps::Transferable {
-        match self {
-            ColonyBuffer::Container(container) => container,
-            ColonyBuffer::Storage(storage) => storage,
-        }
+    fn transfer_from(&self, creep: &screeps::Creep, ty: screeps::ResourceType, amount: Option<u32>) -> Result<(), screeps::action_error_codes::TransferErrorCode> {
+        self.with(|s| s.transfer_from(creep, ty, amount))
     }
 }
 
 impl HasPosition for ColonyBuffer {
     fn pos(&self) -> Position {
-        match self {
-            ColonyBuffer::Container(container) => container.pos(),
-            ColonyBuffer::Storage(storage) => storage.pos(),
-        }
+        self.with(|s| s.pos())
     }
 }
 

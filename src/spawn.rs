@@ -3,7 +3,7 @@ use std::{iter, ops::{Add, Mul}, sync::LazyLock};
 use log::{info, warn};
 use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, StructureSpawn, find, game};
 
-use crate::{check::Check, colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasName}, ids::{ById, GetCheckedObjectId, IntoWithId, WithId}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
+use crate::{colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -77,8 +77,8 @@ struct CreepPrototype {
 }
 
 impl CreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: &WithId<Creep>) -> Option<Self> {
-        let creep_data = mem.creeps.get(creep.clone().checked_id())?;
+    fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
+        let creep_data = mem.creeps.get(&creep.id())?;
 
         Some(Self {
             body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
@@ -118,7 +118,7 @@ impl SpawnerData {
         let room = spawn.room().unwrap();
         let spawning = spawn.spawning()
             .and_then(|spawning| {
-                let creep = game::creeps().get(spawning.name().into())?.with_id()?;
+                let creep = game::creeps().get(spawning.name().into())?;
                 let prototype = CreepPrototype::try_from_existing(mem, &creep)?;
 
                 Some((prototype, spawning.remaining_time()))
@@ -139,21 +139,21 @@ impl SpawnerData {
         }
     }
 
-    fn schedule(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<DeferedId> {
+    fn schedule(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<CreepId> {
         if self.is_free() && self.energy_avaliable >= prototype.body.energy_required() {
             if pop_command(Command::DebugSpawn) { info!("Scheduling creep {:?}", prototype.role) }
 
             let name = generate_new_creep_name(prototype.role.prefix(), used_names);
             self.status = SpawnerStatus::Scheduled { name: name.clone(), proto: prototype };
             
-            Some(DeferedId::Name(name))
+            Some(CreepId::Name(name))
         } else {
             if pop_command(Command::DebugSpawn) { info!("Unable to schedule creep {:?}", prototype.role) }
             None
         }
     }
 
-    fn schedule_or_block(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<DeferedId> {
+    fn schedule_or_block(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<CreepId> {
         if self.is_free() {
             if let Some(handle) = self.schedule(used_names, prototype) { 
                 Some(handle) 
@@ -180,7 +180,7 @@ impl SpawnSchedule {
             spawners: game::spawns().values()
                 .map(|spawn| SpawnerData::from(mem, &spawn))
                 .collect(),
-            already_spawned: WithId::creeps()
+            already_spawned: game::creeps().values()
                 .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
                 .collect()
         }
@@ -221,7 +221,7 @@ impl SpawnSchedule {
             }
 
             let creep_data = CreepData::new(proto.home, proto.role);
-            mem.creeps.insert(DeferedId::Name(name.clone()), creep_data);
+            mem.creeps.insert(CreepId::Name(name.clone()), creep_data);
         }
     }
 }
@@ -263,17 +263,17 @@ fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
 fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         for (source, source_plan) in &colony.plan.sources {
-            let Ok(source) = (*source).check() else { continue; };
+            let Some(source) = source.resolve() else { continue; };
 
             let any_excavator_already = schedule.all_creeps()
-                .any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source));
+                .any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source.id()));
             if any_excavator_already { continue; }
 
             let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { continue; };
 
             let prototype = CreepPrototype { 
                 body: get_excavator_body(spawner.energy_capacity, source_plan), 
-                role: CreepRole::Excavator(ExcavatorCreep::default(), source),
+                role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()),
                 home: colony.name
             };
 
@@ -376,13 +376,13 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (energy / 50) as usize)
 }
 
-pub struct TugboatRequests(Vec<WithId<Creep>>);
+pub struct TugboatRequests(Vec<Creep>);
 impl TugboatRequests {
     pub fn new() -> Self {
         Self(Vec::new())
     }
 
-    pub fn add_request_for(&mut self, tugged: WithId<Creep>) {
+    pub fn add_request_for(&mut self, tugged: Creep) {
         self.0.push(tugged);
     }
 }
@@ -390,15 +390,15 @@ impl TugboatRequests {
 fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames, tugboat_requests: TugboatRequests) {
     for tugged in tugboat_requests.0 {
         let already_exists = schedule.all_creeps()
-            .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == ById(tugged.clone())));
+            .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == tugged.id()));
         if already_exists { continue; }
 
-        let Some(home) = mem.creeps.get(&tugged).map(|data| data.home) else { continue; };
+        let Some(home) = mem.creeps.get(&tugged.id()).map(|data| data.home) else { continue; };
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).next() else { continue; };
 
         spawner.schedule_or_block(used_names, CreepPrototype { 
             body: get_tugboat_body(spawner.energy_capacity, &tugged),
-            role: CreepRole::Tugboat(ById(tugged.clone()), ById(spawner.structure.clone())), 
+            role: CreepRole::Tugboat(tugged.id(), spawner.structure.id()), 
             home 
         });
     }
@@ -453,23 +453,23 @@ fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names:
         if buffered_energy == 0 && excavator_count == 0 {
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
             let Some((source, source_plan)) = colony.plan.sources.iter().next() else { continue; };
-            let Ok(source) = (*source).check() else { continue; };
+            let Some(source) = source.resolve() else { continue; };
 
             spawn.schedule_or_block(used_names, CreepPrototype { 
                 body: get_excavator_body(spawn.energy_avaliable.max(300), source_plan), 
-                role: CreepRole::Excavator(ExcavatorCreep::default(), source), 
+                role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()), 
                 home: colony.name
             });
         }
 
         for creep in &tugboat_requests.0 {
-            let Some(creep_data) = mem.creeps.get(creep) else { continue; };
+            let Some(creep_data) = mem.creeps.get(&creep.id()) else { continue; };
             if !matches!(creep_data.role, CreepRole::Excavator(_, _)) { continue; }
 
             let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
             spawn.schedule_or_block(used_names, CreepPrototype { 
                 body: get_tugboat_body(spawn.energy_avaliable.max(300), creep), 
-                role: CreepRole::Tugboat(ById(creep.clone()), ById(spawn.structure.clone())), 
+                role: CreepRole::Tugboat(creep.id(), spawn.structure.id()), 
                 home: colony.name
             });
         }

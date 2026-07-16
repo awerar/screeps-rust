@@ -6,12 +6,12 @@ use log::warn;
 use screeps::{CircleStyle, CostMatrix, CostMatrixSet, Creep, Direction, HasPosition, LineStyle, Position, RoomName, RoomTerrain, RoomVisual, StructureType, Terrain, find, game, look, pathfinder::{self, MultiRoomCostResult, SearchOptions}};
 use wasm_bindgen::JsValue;
 
-use crate::{ids::WithId, movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{CreepConstraint, SimpleMoveCreeps}}, utils::adjacent_positions};
+use crate::{domain_traits::{CreepId, HasId, ResolvableId}, movement::{CachedPath, MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{CreepConstraint, SimpleMoveCreeps}}, utils::adjacent_positions};
 
 #[derive(Debug)]
 pub enum CreepAction {
     Move { dir: Direction },
-    Pulled { next: WithId<Creep> },
+    Pulled { next: Creep },
     Stay
 }
 
@@ -28,7 +28,7 @@ impl CreepAction {
 #[derive(Clone)]
 enum Entity {
     Spawning(SpawningID),
-    Creep(WithId<Creep>)
+    Creep(Creep)
 }
 
 pub struct MovementSolver<'m> {
@@ -39,12 +39,12 @@ pub struct MovementSolver<'m> {
     costmatrix_cache: HashMap<RoomName, CostMatrix>,
 
     spawning_actions: HashMap<SpawningID, Direction>,
-    creep_actions: HashMap<WithId<Creep>, CreepAction>
+    creep_actions: HashMap<CreepId, CreepAction>
 }
 
 impl SimpleMoveCreeps {
     fn solve_order(&self) -> Vec<Entity> {
-        self.creeps.keys().map(|creep| Entity::Creep(creep.clone()))
+        self.creeps.keys().map(|creep| Entity::Creep(creep.resolve()))
             .chain(self.spawning.iter().map(|spawning| Entity::Spawning(spawning.clone())))
             .sorted_by_cached_key(|entity| Reverse(self.solve_priority(entity)))
             .collect()
@@ -54,7 +54,7 @@ impl SimpleMoveCreeps {
         match entity {
             Entity::Spawning(_) => 3,
             Entity::Creep(creep) => {
-                match self.creeps.get(creep).unwrap() {
+                match self.creeps.get(&creep.id()).unwrap() {
                     CreepConstraint::Stay => 5,
                     CreepConstraint::Follow(_) => 4,
                     CreepConstraint::Move { target, must_move } => 
@@ -84,7 +84,7 @@ impl<'m> MovementSolver<'m> {
         solver.execute();
     }
 
-    fn give_creep_action(&mut self, creep: &WithId<Creep>, action: CreepAction) {
+    fn give_creep_action(&mut self, creep: &Creep, action: CreepAction) {
         let pos = action.apply(creep.pos());
 
         let other = self.blocked_positions.get(&pos).cloned();
@@ -96,7 +96,7 @@ impl<'m> MovementSolver<'m> {
         assert!(!self.blocked_positions.contains_key(&pos));
 
         self.blocked_positions.insert(pos, Entity::Creep(creep.clone()));
-        self.creep_actions.insert(creep.clone(), action);
+        self.creep_actions.insert(creep.id(), action);
 
         if let Some(other) = &other {
             self.solve_entity(other);
@@ -119,7 +119,7 @@ impl<'m> MovementSolver<'m> {
                 spawning.pos() + direction
             },
             Entity::Creep(creep) => {
-                let action = self.creep_actions.remove(creep).unwrap();
+                let action = self.creep_actions.remove(&creep.id()).unwrap();
                 assert_matches!(&action, CreepAction::Move { .. } | CreepAction::Pulled { .. });
                 action.apply(creep.pos())
             },
@@ -133,7 +133,7 @@ impl<'m> MovementSolver<'m> {
             Entity::Spawning(spawning) => 
                 self.solve_spawning(spawning),
             Entity::Creep(creep) => 
-                match self.creeps.creeps.get(creep).unwrap() {
+                match self.creeps.creeps.get(&creep.id()).unwrap() {
                     CreepConstraint::Stay => 
                         self.give_creep_action(creep, CreepAction::Stay),
                     CreepConstraint::Follow(next) => 
@@ -164,7 +164,7 @@ impl<'m> MovementSolver<'m> {
         }
     }
 
-    fn solve_distant_move(&mut self, creep: &WithId<Creep>, target: &MoveTarget) {
+    fn solve_distant_move(&mut self, creep: &Creep, target: &MoveTarget) {
         if self.try_move_by_path(creep, target) { return }
 
         let room_adj_blocked = adjacent_positions(creep.pos())
@@ -221,8 +221,8 @@ impl<'m> MovementSolver<'m> {
             }).clone()
     }
 
-    fn try_move_by_path(&mut self, creep: &WithId<Creep>, target: &MoveTarget) -> bool {
-        if let Some(path) = self.mem.paths.get(creep) { handle_path_visualization(creep, path); }
+    fn try_move_by_path(&mut self, creep: &Creep, target: &MoveTarget) -> bool {
+        if let Some(path) = self.mem.paths.get(&creep.id()) { handle_path_visualization(creep, path); }
 
         let dir = self.mem.get_path_direction(creep, target);
         if let Some(dir) = dir && self.position_priority(creep.pos() + dir).is_some() {
@@ -233,7 +233,7 @@ impl<'m> MovementSolver<'m> {
         false
     }
 
-    fn solve_local_move(&mut self, creep: &WithId<Creep>, target: &MoveTarget, must_move: bool) {
+    fn solve_local_move(&mut self, creep: &Creep, target: &MoveTarget, must_move: bool) {
         if !must_move && self.position_priority(creep.pos()).is_some() {
             self.give_creep_action(creep, CreepAction::Stay);
             return;
@@ -257,7 +257,7 @@ impl<'m> MovementSolver<'m> {
         }
     }
 
-    fn solve_free(&mut self, creep: &WithId<Creep>) {
+    fn solve_free(&mut self, creep: &Creep) {
         self.solve_local_move(
             creep, 
             &MoveTarget { target: creep.pos(), range: 1 }, 
@@ -287,11 +287,11 @@ impl<'m> MovementSolver<'m> {
             };
 
         assert!(my_creeps.len() <= 1);
-        let Some(other) = my_creeps.first().cloned().and_then(WithId::new) else { 
+        let Some(other) = my_creeps.first() else { 
             return Some((3, terrain_prio)) 
         };
 
-        match self.creeps.creeps.get(&other).unwrap() {
+        match self.creeps.creeps.get(&other.id()).unwrap() {
             CreepConstraint::Stay => None,
             CreepConstraint::Follow(_) 
             | CreepConstraint::Move { .. } => Some((1, terrain_prio)),
@@ -309,11 +309,11 @@ impl<'m> MovementSolver<'m> {
         for (creep, action) in self.creep_actions {
             match action {
                 CreepAction::Move { dir } => {
-                    creep.move_direction(dir).unwrap();
+                    creep.resolve().move_direction(dir).unwrap();
                 },
                 CreepAction::Pulled { next } => {
-                    creep.move_pulled_by(&next).unwrap();
-                    next.pull(&creep).unwrap();
+                    creep.resolve().move_pulled_by(&next).unwrap();
+                    next.pull(&creep.resolve()).unwrap();
                 },
                 CreepAction::Stay => (),
             }
@@ -326,8 +326,8 @@ impl<'m> MovementSolver<'m> {
 }
 
 impl MovementMemory {
-    fn get_path_direction(&mut self, creep: &WithId<Creep>, target: &MoveTarget) -> Option<Direction> {
-        let path = self.paths.get_mut(creep)?;
+    fn get_path_direction(&mut self, creep: &Creep, target: &MoveTarget) -> Option<Direction> {
+        let path = self.paths.get_mut(&creep.id())?;
         if path.target == *target && game::time() < path.cache_time + 5 {
             while path.path.front().is_some_and(|pos| *pos != creep.pos()) {
                 path.path.pop_front();
@@ -336,14 +336,14 @@ impl MovementMemory {
             let next_pos = *path.path.get(1)?;
             Some(creep.pos().get_direction_to(next_pos).unwrap())
         } else {
-            self.paths.remove(creep);
+            self.paths.remove(&creep.id());
             None
         }
     }
 
-    fn store_path(&mut self, creep: &WithId<Creep>, target: MoveTarget, path: VecDeque<Position>) {
+    fn store_path(&mut self, creep: &Creep, target: MoveTarget, path: VecDeque<Position>) {
         self.paths.insert(
-            creep.clone(), 
+            creep.id(), 
             CachedPath {
                 cache_time: game::time(),
                 path,
@@ -354,7 +354,7 @@ impl MovementMemory {
 }
 
 const PATH_COLOR: &str = "#3574e1";
-fn handle_path_visualization(creep: &WithId<Creep>, path: &CachedPath) {
+fn handle_path_visualization(creep: &Creep, path: &CachedPath) {
     if !has_selected(creep) { return }
 
     let mut visuals = HashMap::new();

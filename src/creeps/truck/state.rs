@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::{check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, defer, defer_err, domain_traits::EnergyStoreAccessors, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>)]
+#[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>, S)]
 pub enum TruckCreep<S: CheckState = Checked> {
     #[default] Idle,
     Performing(TruckTask<S>),
@@ -112,7 +112,7 @@ impl TruckCreep {
                 defer!(movement.move_vcreep_to(truck, buffer.pos(), 1), self)?;
 
                 done_if!(truck.outgoing() > 0, self);
-                handle.consume(defer_err!(truck.withdraw(buffer.clone(), ResourceType::Energy, None), self)?);
+                handle.consume(defer_err!(truck.withdraw(*buffer, ResourceType::Energy, None), self)?);
 
                 Ok(Next(Self::Performing(TruckTask::ProvidingTo(consumer.clone()))))
             },
@@ -126,7 +126,7 @@ impl TruckCreep {
                 defer!(movement.move_vcreep_to(truck, buffer.pos(), 1), self)?;
                 
                 done_if!(truck.incoming_energy() > 0, self);
-                defer_err!(truck.transfer(buffer.clone(), ResourceType::Energy, None), self)?;
+                defer_err!(truck.transfer(*buffer, ResourceType::Energy, None), self)?;
 
                 Ok(Next(Self::Idle))
             },

@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use derive_where::derive_where;
-use screeps::{Creep, ResourceType, game};
+use screeps::{Creep, ResourceType, action_error_codes::{CreepRepairErrorCode, TransferErrorCode, WithdrawErrorCode}, game};
 use serde::Serialize;
 use thiserror::Error;
 use wasm_bindgen::JsCast;
@@ -43,27 +43,48 @@ impl<T: HasStoreExt> EnergyStoreAccessors for T {
 }
 
 pub trait Transferable: HasStoreExt {
-    fn transferable(&self) -> &dyn screeps::Transferable;
+    fn transfer_from(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), TransferErrorCode>;
 }
 
 impl<T: screeps::Transferable + screeps::HasStore> Transferable for T {
-    fn transferable(&self) -> &dyn screeps::Transferable { self }
+    fn transfer_from(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), TransferErrorCode> {
+        screeps::SharedCreepProperties::transfer(creep, self, ty, amount)
+    }
 }
 
 pub trait Withdrawable: HasStoreExt {
-    fn withdrawable(&self) -> &dyn screeps::Withdrawable;
+    fn withdraw_to(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), WithdrawErrorCode>;
 }
 
 impl<T: screeps::Withdrawable + screeps::HasStore> Withdrawable for T {
-    fn withdrawable(&self) -> &dyn screeps::Withdrawable { self }
+    fn withdraw_to(&self, creep: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<(), WithdrawErrorCode> {
+        screeps::SharedCreepProperties::withdraw(creep, self, ty, amount)
+    }
 }
 
-pub trait Repairable {
-    fn repairable(&self) -> &dyn screeps::Repairable;
+pub trait Repairable: HasHits {
+    fn repair_by(&self, creep: &Creep) -> Result<(), CreepRepairErrorCode>;
 }
 
 impl<T: screeps::Repairable> Repairable for T {
-    fn repairable(&self) -> &dyn screeps::Repairable { self }
+    fn repair_by(&self, creep: &Creep) -> Result<(), CreepRepairErrorCode> {
+        creep.repair(self)
+    }
+}
+
+pub trait HasHits {
+    fn hits(&self) -> u32;
+    fn hits_max(&self) -> u32;
+}
+
+impl<T: screeps::HasHits> HasHits for T {    
+    fn hits(&self) -> u32 {
+        screeps::HasHits::hits(self)
+    }
+    
+    fn hits_max(&self) -> u32 {
+        screeps::HasHits::hits_max(self)
+    }
 }
 
 pub trait HasName {
@@ -191,10 +212,10 @@ impl HasId for Creep {
     }
 }
 
-#[expect(unused)]
+#[derive(Error, Debug)]
 pub enum CreepIdCheckError {
-    Id(IdResolutionError<Creep>),
-    UnknownName(String)
+    #[error(transparent)] Id(IdResolutionError<Creep>),
+    #[error("Unknown name {0}")] UnknownName(String)
 }
 
 impl CheckFrom for CreepId {

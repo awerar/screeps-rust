@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::{check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::FabricatorTask}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<S>)]
+#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<S>, S)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
     #[default] Idle,
     CollectingFor(FabricatorTask<S>),
@@ -53,7 +53,7 @@ impl FabricatorCreep {
 
                 done_if!(buffer.used_energy_capacity() == 0, self);
                 done_if!(creep.outgoing() > 0, self);
-                defer_err!(creep.withdraw(buffer.clone(), ResourceType::Energy, None), self)?;
+                defer_err!(creep.withdraw(*buffer, ResourceType::Energy, None), self)?;
 
                 Ok(Next(Self::Performing(task.clone())))
             },

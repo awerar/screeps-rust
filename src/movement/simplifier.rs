@@ -4,17 +4,17 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use screeps::{Creep, Direction, HasPosition, Part};
 
-use crate::{movement::{MoveTarget, SpawningID}, ids::WithId, spawn::Body};
+use crate::{domain_traits::{CreepId, HasId}, movement::{MoveTarget, SpawningID}, spawn::Body};
 
-pub struct RawTrain(pub NonEmpty<(WithId<Creep>, MoveTarget)>);
+pub struct RawTrain(pub NonEmpty<(Creep, MoveTarget)>);
 pub struct RawMoveCreeps {
     pub trains: Vec<RawTrain>,
-    pub free: Vec<WithId<Creep>>,
+    pub free: Vec<Creep>,
     pub spawning: Vec<SpawningID>
 }
 
 struct SimpleTrain {
-    pub segments: NonEmpty<WithId<Creep>>,
+    pub segments: NonEmpty<Creep>,
     pub target: MoveTarget,
     pub must_move: bool
 }
@@ -22,13 +22,13 @@ struct SimpleTrain {
 pub enum CreepConstraint {
     Stay,
     Move { target: MoveTarget, must_move: bool },
-    Follow(WithId<Creep>),
+    Follow(Creep),
     Free,
 }
 
 pub struct SimpleMoveCreeps {
     pub spawning: Vec<SpawningID>,
-    pub creeps: HashMap<WithId<Creep>, CreepConstraint>
+    pub creeps: HashMap<CreepId, CreepConstraint>
 }
 
 /* 
@@ -63,8 +63,8 @@ impl RawMoveCreeps {
 
         let mut creeps = HashMap::new();
         creeps.extend(trains.into_iter().flat_map(SimpleTrain::collect_constraints));
-        creeps.extend(free.into_iter().map(|creep| (creep, CreepConstraint::Free)));
-        creeps.extend(stationary.into_iter().map(|creep| (creep, CreepConstraint::Stay)));
+        creeps.extend(free.into_iter().map(|creep| (creep.id(), CreepConstraint::Free)));
+        creeps.extend(stationary.into_iter().map(|creep| (creep.id(), CreepConstraint::Stay)));
 
         let spawning = self.spawning.into_iter()
             .filter(|spawning| spawning.remaining_time() == 0)
@@ -77,8 +77,8 @@ impl RawMoveCreeps {
     }
 }
 
-fn has_move_parts(creep: &WithId<Creep>) -> bool {
-    Body::from(&**creep).num(Part::Move) > 0
+fn has_move_parts(creep: &Creep) -> bool {
+    Body::from(creep).num(Part::Move) > 0
 }
 
 impl RawTrain {
@@ -171,10 +171,10 @@ impl SimpleTrain {
         true
     }
 
-    fn collect_constraints(self) -> Vec<(WithId<Creep>, CreepConstraint)> {
+    fn collect_constraints(self) -> Vec<(CreepId, CreepConstraint)> {
         let mut constraints = Vec::new();
         constraints.push((
-            self.segments.first().clone(),
+            self.segments.first().id(),
             CreepConstraint::Move { 
                 target: self.target, 
                 must_move: self.must_move 
@@ -185,7 +185,7 @@ impl SimpleTrain {
             self.segments.iter()
                 .tuple_windows()
                 .map(|(ahead, behind)| {
-                    (behind.clone(), CreepConstraint::Follow(ahead.clone()))
+                    (behind.id(), CreepConstraint::Follow(ahead.clone()))
                 })
         );
 

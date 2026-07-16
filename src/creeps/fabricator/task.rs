@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 use derive_where::derive_where;
-use screeps::{ConstructionSite, HasHits, HasPosition, Position};
+use screeps::{ConstructionSite, HasPosition, Position};
 
-use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; StructureTask<S>)]
@@ -57,7 +57,7 @@ impl StructureTask {
             StructureTask::Building(site) => 
                 creep.build(site.resolve()),
             StructureTask::Repairing(structure) => 
-                creep.repair(structure.clone()),
+                creep.repair(*structure),
         }
     }
 
