@@ -1,7 +1,8 @@
-use std::{iter, ops::{Add, Mul}, sync::LazyLock};
+use std::{collections::HashSet, iter, ops::{Add, Mul}, sync::LazyLock};
 
+use itertools::Itertools;
 use log::{info, warn};
-use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, StructureSpawn, find, game};
+use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, StructureSpawn, game};
 
 use crate::{colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
 
@@ -107,14 +108,14 @@ impl SpawnerStatus {
 struct SpawnerData {
     structure: StructureSpawn,
     room: RoomName,
-    energy_capacity: u32,
+    future_energy: u32,
     energy_avaliable: u32,
 
     status: SpawnerStatus,
 }
 
 impl SpawnerData {
-    fn from(mem: &Memory, spawn: &StructureSpawn) -> Self {
+    fn from(mem: &Memory, spawn: &StructureSpawn, creeps: &[CreepPrototype]) -> Self {
         let room = spawn.room().unwrap();
         let spawning = spawn.spawning()
             .and_then(|spawning| {
@@ -124,16 +125,42 @@ impl SpawnerData {
                 Some((prototype, spawning.remaining_time()))
             });
 
-        let energy_capacity = if room.find(find::MY_CREEPS, None).len() >= 2 {
-            room.energy_capacity_available()
-        } else {
-            room.energy_available()
-        };
+        let mut future_energy: u32 = room.energy_available();
+        future_energy += spawn.free_energy_capacity();
+
+        if let Some(colony) = mem.colonies.view(room.name()) {
+            let excavated_sources: HashSet<_> = creeps.iter()
+                .filter_home(room.name())
+                .filter_map(|proto| {
+                    let CreepRole::Excavator(_, source) = &proto.role else { return None };
+                    Some(*source)
+                }).collect();
+
+            let any_excavators = !excavated_sources.is_empty();
+            let any_importers = creeps.iter().filter_home(room.name()).any(|proto| matches!(proto.role, CreepRole::ImportTruck(_)));
+            let any_trucks = creeps.iter().filter_home(room.name()).any(|proto| matches!(proto.role, CreepRole::Truck(_)));
+
+            for source in &excavated_sources {
+                let source_plan = colony.plan.sources.get(&source.screeps_id()).unwrap();
+                future_energy += source_plan.extensions.resolve().iter().map(EnergyStoreAccessors::free_energy_capacity).sum::<u32>();
+            }
+
+            let future_energy_income = if (any_trucks && any_excavators) || any_importers { 
+                    u32::MAX 
+                } else if any_trucks {
+                    colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity()) 
+                } else { 
+                    0 
+                };
+
+            let center_free_capacity = colony.plan.center.extensions.resolve().iter().map(EnergyStoreAccessors::free_energy_capacity).sum::<u32>();
+            future_energy += center_free_capacity.min(future_energy_income);
+        }
 
         Self {
             structure: spawn.clone(),
             room: room.name(),
-            energy_capacity,
+            future_energy,
             energy_avaliable: room.energy_available(),
             status: spawning.map_or(SpawnerStatus::Free, |(proto, time_left)| SpawnerStatus::Spawning(proto, time_left)),
         }
@@ -176,13 +203,15 @@ struct SpawnSchedule {
 
 impl SpawnSchedule {
     fn new(mem: &Memory) -> Self {
+        let creeps = game::creeps().values()
+            .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
+            .collect_vec();
+
         Self {
             spawners: game::spawns().values()
-                .map(|spawn| SpawnerData::from(mem, &spawn))
+                .map(|spawn| SpawnerData::from(mem, &spawn, &creeps))
                 .collect(),
-            already_spawned: game::creeps().values()
-                .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
-                .collect()
+            already_spawned: creeps
         }
     }
 
@@ -272,7 +301,7 @@ fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &
             let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { continue; };
 
             let prototype = CreepPrototype { 
-                body: get_excavator_body(spawner.energy_capacity, source_plan), 
+                body: get_excavator_body(spawner.future_energy, source_plan), 
                 role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()),
                 home: colony.name
             };
@@ -325,7 +354,7 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut 
             if spawner.schedule_or_block(used_names, CreepPrototype { 
                 role: CreepRole::Truck(TruckCreep::default()), 
                 home: colony.name, 
-                body: get_truck_body(spawner.energy_capacity)
+                body: get_truck_body(spawner.future_energy)
             }).is_none() { break }
         }
     }
@@ -339,7 +368,7 @@ fn schedule_import_trucks(mem: &mut Memory, schedule: &mut SpawnSchedule, used_n
 
         let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
         spawn.schedule(used_names, CreepPrototype { 
-            body: IMPORT_TRUCK_TEMPLATE.scaled(spawn.energy_capacity, None), 
+            body: IMPORT_TRUCK_TEMPLATE.scaled(spawn.future_energy, None), 
             role: CreepRole::ImportTruck(ImportTruckState::default()), 
             home: colony.name
         });
@@ -397,7 +426,7 @@ fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names:
         let Some(spawner) = schedule.spawners().filter_free().filter_room(home).next() else { continue; };
 
         spawner.schedule_or_block(used_names, CreepPrototype { 
-            body: get_tugboat_body(spawner.energy_capacity, &tugged),
+            body: get_tugboat_body(spawner.future_energy, &tugged),
             role: CreepRole::Tugboat(tugged.id(), spawner.structure.id()), 
             home 
         });
@@ -418,7 +447,7 @@ fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_nam
             if curr_work_count >= work_target { break; }
 
             let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { break; };
-            let body = FABRICATOR_TEMPLATE.scaled(spawner.energy_capacity, None);
+            let body = FABRICATOR_TEMPLATE.scaled(spawner.future_energy, None);
 
             if spawner.schedule(used_names, CreepPrototype { 
                 body, 
@@ -436,41 +465,10 @@ fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, u
 
         let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
         spawn.schedule(used_names, CreepPrototype { 
-            body: FABRICATOR_TEMPLATE.scaled(spawn.energy_capacity, None), 
+            body: FABRICATOR_TEMPLATE.scaled(spawn.future_energy, None), 
             role: CreepRole::Fabricator(FabricatorCreep::default()), 
             home: colony.name
         });
-    }
-}
-
-fn schedule_recovery(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
-    for colony in mem.colonies.view_all() {
-        let buffered_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
-        let excavator_count = schedule.all_creeps().filter_home(colony.name)
-            .filter(|proto| matches!(proto.role, CreepRole::Excavator(_, _)))
-            .count();
-
-        if buffered_energy == 0 && excavator_count == 0 {
-            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
-            let Some((source, source_plan)) = colony.plan.sources.iter().next() else { continue; };
-            let Some(source) = source.resolve() else { continue; };
-
-            spawn.schedule_or_block(used_names, CreepPrototype { 
-                body: get_excavator_body(spawn.energy_avaliable.max(300), source_plan), 
-                role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()), 
-                home: colony.name
-            });
-        }
-
-        let truck_count = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Truck(_))).count();
-        if truck_count == 0 {
-            let Some(spawn) = schedule.spawners().filter_free().filter_room(colony.name).next() else { continue; };
-            spawn.schedule_or_block(used_names, CreepPrototype { 
-                body: get_truck_body(spawn.energy_avaliable.max(300)), 
-                role: CreepRole::Truck(TruckCreep::default()), 
-                home: colony.name
-            });
-        }
     }
 }
 
@@ -479,8 +477,6 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut used_names: UsedNames = game::creeps().keys().collect();
 
     schedule_tugboats(mem, &mut schedule, &mut used_names, tugboat_requests);
-    schedule_recovery(mem, &mut schedule, &mut used_names);
-
     schedule_excavators(mem, &mut schedule, &mut used_names);
     schedule_trucks(mem, &mut schedule, &mut used_names);
     schedule_fabricators(mem, &mut schedule, &mut used_names);

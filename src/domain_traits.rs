@@ -123,6 +123,12 @@ impl<T: screeps::MaybeHasId + JsCast> ResolvableId for ObjectId<T> {
     }
 }
 
+impl<T> ObjectId<T> {
+    pub fn screeps_id(&self) -> screeps::ObjectId<T> {
+        self.id
+    }
+}
+
 impl<T: screeps::HasId> ObjectId<T> {
     pub fn new(x: &T) -> Self {
         ObjectId {
