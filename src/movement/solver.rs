@@ -273,6 +273,9 @@ impl<'m> MovementSolver<'m> {
         if structures.iter().any(|structure| structure.structure_type().is_obstacle()) { return None }
         let is_road = structures.iter().any(|structure| matches!(structure.structure_type(), StructureType::Road));
 
+        let sites = pos.look_for(look::CONSTRUCTION_SITES).unwrap_or_default();
+        if sites.iter().any(|structure| structure.structure_type().is_obstacle()) { return None }
+
         let creeps = pos.look_for(look::CREEPS).unwrap_or_default();
         let (my_creeps, enemy_creeps) = creeps.into_iter().partition::<Vec<_>, _>(Creep::my);
         if !enemy_creeps.is_empty() { return None }

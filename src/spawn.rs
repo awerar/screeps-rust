@@ -125,8 +125,7 @@ impl SpawnerData {
                 Some((prototype, spawning.remaining_time()))
             });
 
-        let mut future_energy: u32 = room.energy_available();
-        future_energy += spawn.free_energy_capacity();
+        let mut future_energy: u32 = room.energy_available().max(300);
 
         if let Some(colony) = mem.colonies.view(room.name()) {
             let excavated_sources: HashSet<_> = creeps.iter()
@@ -153,7 +152,9 @@ impl SpawnerData {
                     0 
                 };
 
-            let center_free_capacity = colony.plan.center.extensions.resolve().iter().map(EnergyStoreAccessors::free_energy_capacity).sum::<u32>();
+            let mut center_free_capacity = colony.plan.center.extensions.resolve().iter().map(EnergyStoreAccessors::free_energy_capacity).sum::<u32>();
+            center_free_capacity += spawn.free_energy_capacity();
+
             future_energy += center_free_capacity.min(future_energy_income);
         }
 
@@ -476,9 +477,9 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut schedule = SpawnSchedule::new(mem);
     let mut used_names: UsedNames = game::creeps().keys().collect();
 
+    schedule_trucks(mem, &mut schedule, &mut used_names);
     schedule_tugboats(mem, &mut schedule, &mut used_names, tugboat_requests);
     schedule_excavators(mem, &mut schedule, &mut used_names);
-    schedule_trucks(mem, &mut schedule, &mut used_names);
     schedule_fabricators(mem, &mut schedule, &mut used_names);
     schedule_remote_fabricators(mem, &mut schedule, &mut used_names);
     schedule_flagships(mem, &mut schedule, &mut used_names);

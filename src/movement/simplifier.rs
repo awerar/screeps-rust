@@ -67,7 +67,7 @@ impl RawMoveCreeps {
         creeps.extend(stationary.into_iter().map(|creep| (creep.id(), CreepConstraint::Stay)));
 
         let spawning = self.spawning.into_iter()
-            .filter(|spawning| spawning.remaining_time() == 0)
+            .filter(|spawning| spawning.remaining_time() <= 1)
             .collect_vec();
 
         SimpleMoveCreeps { 
