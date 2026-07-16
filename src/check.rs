@@ -161,6 +161,34 @@ where
     Ok(B::filter_check_from(raw).0)
 }
 
+pub mod filter_check_any_key_map {
+    use std::{collections::HashMap, hash::Hash};
+    use serde::{Deserializer, Serialize, Serializer, de::DeserializeOwned};
+    use serde_json_any_key::any_key_map;
+    use crate::check::FilterCheckFrom;
+
+    pub fn deserialize<'de, D, B, K, V>(deserializer: D) -> Result<B, D::Error>
+    where
+        D : Deserializer<'de>,
+        B: FilterCheckFrom<Unchecked = HashMap<K, V>>,
+        K: DeserializeOwned + Eq + Hash + 'static,
+        V: DeserializeOwned + 'static
+    {
+        let raw = any_key_map::deserialize(deserializer)?;
+        Ok(B::filter_check_from(raw).0)
+    }
+
+    pub fn serialize<'s, S, C, K, V>(coll: C, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        C: IntoIterator<Item = (&'s K, &'s V)>,
+        K: Serialize + 'static + 's,
+        V: Serialize + 's,
+    {
+        any_key_map::serialize(coll, serializer)
+    }
+}
+
 #[derive(Clone, Copy, Serialize, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Deref, DerefMut)]
 #[serde(transparent)]
 pub struct Filtered<T>(pub T);
