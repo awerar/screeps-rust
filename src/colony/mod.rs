@@ -57,6 +57,10 @@ impl Colonies {
     pub fn view_all(&self) -> impl Iterator<Item = ColonyView<'_>> {
         self.0.keys().filter_map(|name| self.view(*name))
     }
+
+    pub fn rooms(&self) -> impl Iterator<Item = RoomName> {
+        self.0.keys().copied()
+    }
 }
 
 #[derive_where(Debug, Serialize, Deserialize, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord; ObjectId<StructureContainer, S>, ObjectId<StructureStorage, S>)]

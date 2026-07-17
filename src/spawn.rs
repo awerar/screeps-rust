@@ -1,10 +1,9 @@
-use std::{collections::HashSet, iter, ops::{Add, Mul}, sync::LazyLock};
+use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc};
 
 use itertools::Itertools;
-use log::{info, warn};
-use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, StructureSpawn, game};
+use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, StructureExtension, StructureSpawn};
 
-use crate::{colony::{planning::plan::SourcePlan, steps::ColonyStep}, commands::{Command, pop_command}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName}, memory::Memory, names::{UsedNames, generate_new_creep_name}};
+use crate::{colony::{Colonies, ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepRole, excavator::ExcavatorCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId}, memory::Memory, names::UsedNames};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -71,50 +70,57 @@ impl From<&Creep> for Body {
     }
 }
 
-struct CreepPrototype {
+pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
+
+struct RelativeCreepPrototype {
     body: Body,
     role: CreepRole,
+}
+
+struct AbsoluteCreepPrototype {
+    proto: RelativeCreepPrototype,
     home: RoomName
 }
 
-impl CreepPrototype {
+impl AbsoluteCreepPrototype {
+    pub fn body(&self) -> &Body {
+        &self.proto.body
+    }
+
+    pub fn role(&self) -> &CreepRole {
+        &self.proto.role
+    }
+}
+
+impl AbsoluteCreepPrototype {
     fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
         let creep_data = mem.creeps.get(&creep.id())?;
 
         Some(Self {
-            body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
-            role: creep_data.role.clone(),
+            proto: RelativeCreepPrototype { 
+                body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
+                role: creep_data.role.clone(),
+            },
             home: creep_data.home
         })
     }
 }
 
-type TicksLeft = u32;
-
-enum SpawnerStatus {
-    Free,
-    Blocked,
-    Scheduled { name: String, proto: CreepPrototype },
-    #[expect(unused)]
-    Spawning(CreepPrototype, TicksLeft)
+enum CreepPrototype {
+    Absolute(AbsoluteCreepPrototype),
+    Relative(RelativeCreepPrototype)
 }
 
-impl SpawnerStatus {
-    fn is_free(&self) -> bool {
-        matches!(self, Self::Free)
+impl CreepPrototype {
+    pub fn with_default_home(self, home: RoomName) -> AbsoluteCreepPrototype {
+        match self {
+            CreepPrototype::Absolute(proto) => proto,
+            CreepPrototype::Relative(proto) => AbsoluteCreepPrototype { proto, home },
+        }
     }
 }
 
-struct SpawnerData {
-    structure: StructureSpawn,
-    room: RoomName,
-    future_energy: u32,
-    energy_avaliable: u32,
-
-    status: SpawnerStatus,
-}
-
-impl SpawnerData {
+/*impl SpawnerData {
     fn from(mem: &Memory, spawn: &StructureSpawn, creeps: &[CreepPrototype]) -> Self {
         let room = spawn.room().unwrap();
         let spawning = spawn.spawning()
@@ -195,14 +201,338 @@ impl SpawnerData {
     fn is_free(&self) -> bool {
         self.status.is_free()
     }
+}*/
+
+enum ExcavatorSyndrome {
+    NoExcavator,
+    NoTugboatFor(CreepId)
 }
 
-struct SpawnSchedule {
-    spawners: Vec<SpawnerData>,
-    already_spawned: Vec<CreepPrototype>
+struct ColonySyndrome {
+    any_trucks: bool,
+    any_excavating_excavators: bool,
+    excavators: HashMap<ObjectId<Source>, ExcavatorSyndrome>
 }
 
-impl SpawnSchedule {
+impl ColonySyndrome {
+    fn new(creeps: &ColonyCreeps, view: &ColonyView<'_>) -> Self {
+        Self { 
+            any_trucks: creeps.0.values().any(|proto| matches!(proto.role, CreepRole::Truck(_))), 
+            any_excavating_excavators: creeps.0.values().any(|proto| matches!(&proto.role, CreepRole::Excavator(ExcavatorCreep::Mining, _))), 
+            excavators: 
+                view.plan.sources.keys()
+                    .filter_map(|id| Some(id.resolve()?.id()))
+                    .filter_map(|source| {
+                        let Some((excavator, _)) = creeps.0.iter().find(|(_, proto)| matches!(&proto.role, CreepRole::Excavator(_, source2) if source == *source2)) else {
+                            return Some((source, ExcavatorSyndrome::NoExcavator));
+                        };
+
+                        if creeps.0.values().all(|proto| !matches!(&proto.role, CreepRole::Tugboat(tugged, _) if *excavator == *tugged)) {
+                            return Some((source, ExcavatorSyndrome::NoTugboatFor(excavator.clone())));
+                        }
+
+                        None
+                    }).collect()
+        }
+    }
+}
+
+enum EnergyPoolType {
+    Finite,
+    RefilledTo(u32)
+}
+
+impl EnergyPoolType {
+    fn refilled_if(cond: bool, capacity: u32) -> Self {
+        if cond { Self::RefilledTo(capacity) }
+        else { EnergyPoolType::Finite }
+    }
+}
+
+struct EnergyPool {
+    pub current: u32,
+    ty: EnergyPoolType
+}
+
+impl EnergyPool {
+    pub fn new(current: u32, ty: EnergyPoolType) -> Self {
+        Self { current, ty }
+    }
+
+    pub fn future_energy(&self) -> u32 {
+        match &self.ty {
+            EnergyPoolType::Finite => self.current,
+            EnergyPoolType::RefilledTo(capacity) => *capacity,
+        }
+    }
+
+    pub fn is_refilled(&self) -> bool {
+        matches!(&self.ty, EnergyPoolType::RefilledTo(_))
+    }
+}
+
+struct Spawning {
+    name: String,
+    proto: AbsoluteCreepPrototype,
+    extensions: Vec<StructureExtension>
+}
+
+enum SpawnState {
+    Free,
+    Blocked,
+    Spawning(Spawning)
+}
+
+enum ColonySpawnType {
+    Central,
+    Source(ObjectId<Source>)
+}
+
+struct ColonySpawn {
+    spawn: StructureSpawn,
+    state: SpawnState,
+    ty: ColonySpawnType,
+
+    energy: EnergyPool,
+}
+
+impl ColonySpawn {
+    pub fn new(spawn: StructureSpawn, ty: ColonySpawnType, gets_energy: bool) -> Self {
+        Self { 
+            energy: EnergyPool::new(
+                spawn.used_energy_capacity(),
+                EnergyPoolType::refilled_if(gets_energy, SPAWN_ENERGY_CAPACITY)
+            ), 
+            state: if spawn.spawning().is_some() { SpawnState::Blocked } else { SpawnState::Free }, 
+            spawn,
+            ty
+        }
+    }
+
+    pub fn is_free(&self) -> bool {
+        matches!(self.state, SpawnState::Free)
+    }
+}
+
+struct ExtensionGroup {
+    extensions: Vec<StructureExtension>,
+    energy: EnergyPool,
+    central: bool
+}
+
+impl ExtensionGroup {
+    pub fn new(extensions: Vec<StructureExtension>, refilled: bool, central: bool) -> Self {
+        Self { 
+            energy: EnergyPool::new(
+                extensions.iter().map(EnergyStoreAccessors::used_energy_capacity).sum::<u32>(),
+                EnergyPoolType::refilled_if(
+                    refilled, 
+                    extensions.iter().map(EnergyStoreAccessors::energy_capacity).sum::<u32>()
+                )
+            ),
+            extensions,
+            central
+        }
+    }
+}
+
+struct ColonyExtensions(Vec<ExtensionGroup>);
+
+impl ColonyExtensions {
+    fn energy(&self) -> u32 {
+        self.0.iter().map(|group| group.energy.current).sum()
+    }
+
+    fn future_energy(&self) -> u32 {
+        self.0.iter().map(|group| group.energy.future_energy()).sum()
+    }
+
+    fn allocate(&mut self, mut amount: u32) -> Vec<StructureExtension> {
+        assert!(self.energy() <= amount);
+        
+        self.0.iter()
+            .sorted_by_key(|group| !group.energy.is_refilled())
+            .take_while(|group| {
+                let neeed = amount > 0;
+                amount = amount.saturating_sub(group.energy.current);
+                neeed
+            }).flat_map(|group| &group.extensions)
+            .cloned()
+            .collect()
+    }
+
+    fn reserve_future_energy(&mut self, mut amount: u32) {
+        assert!(self.energy() <= amount);
+
+        for group in self.0.iter_mut().sorted_by_key(|group| !group.energy.is_refilled()) {
+            if amount == 0 { return }
+
+            let group_amount = amount.min(group.energy.future_energy());
+            amount -= group_amount;
+
+            if !group.energy.is_refilled() {
+                group.energy.current -= group_amount;
+            }
+        }
+    }
+}
+
+struct ColonySpawns {
+    name: RoomName,
+
+    spawns: Vec<ColonySpawn>,
+    extensions: ColonyExtensions,
+    has_scheduled: bool,
+
+    names: SharedUsedNames
+}
+
+pub struct ColonySpawnIterator<'a> {
+    index: usize,
+    spawns: &'a [ColonySpawn]
+}
+
+impl<'a> Iterator for ColonySpawnIterator<'a> {
+    type Item = (usize, &'a ColonySpawn);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(spawn) = self.spawns.get(self.index) {
+            let index = self.index;
+            self.index += 1;
+
+            if !spawn.is_free() { continue; }
+
+            return Some((index, spawn))
+        }
+
+        None
+    }
+}
+
+enum ScheduleResult {
+    NoValidSpawn,
+    Scheduled(CreepId),
+    WaitingForEnergy,
+    NotEnoughEnergy
+}
+
+impl ColonySpawns {
+    pub fn new(colony: &ColonyView<'_>, syndrome: &ColonySyndrome, names: SharedUsedNames) -> Self {
+        let mut extensions = Vec::new();
+
+        extensions.push(ExtensionGroup::new(
+            colony.plan.center.extensions.resolve(), 
+            syndrome.any_excavating_excavators && syndrome.any_trucks,
+            true
+        ));
+
+        for (source, source_plan) in &colony.plan.sources {
+            let Some(source) = source.resolve().map(|src| src.id()) else { continue; };
+
+            extensions.push(ExtensionGroup::new(
+                source_plan.extensions.resolve(),
+                !syndrome.excavators.contains_key(&source),
+                false
+            ));
+        }
+
+        Self { 
+            spawns: 
+                colony.plan.center.spawn.resolve().map(|spawn| {
+                    ColonySpawn::new(
+                        spawn,
+                        ColonySpawnType::Central,
+                        syndrome.any_trucks && syndrome.any_excavating_excavators)
+                }).into_iter().collect(),
+            extensions: ColonyExtensions(extensions),
+            has_scheduled: false,
+            names,
+            name: colony.name
+        }
+    }
+
+    pub fn has_free(&self) -> bool {
+        self.spawns.iter().any(|spawn| spawn.is_free())
+    }
+
+    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult 
+    where
+        S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Option<usize>,
+        P: FnOnce(&ColonySpawn) -> CreepPrototype
+    {
+        let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return ScheduleResult::NoValidSpawn };
+        let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
+        let proto = make_proto(spawn).with_default_home(self.name);
+
+        assert!(spawn.is_free());
+
+        let cost = proto.body().energy_required();
+        let spawn_cost = cost.min(spawn.energy.current);
+        let extension_cost = cost - spawn_cost;
+
+        if cost > spawn.energy.future_energy() + self.extensions.future_energy() { return ScheduleResult::NotEnoughEnergy }
+        if cost > spawn.energy.current + self.extensions.energy() { 
+            spawn.state = SpawnState::Blocked;
+            self.extensions.reserve_future_energy(extension_cost);
+            return ScheduleResult::WaitingForEnergy 
+        }
+
+        spawn.energy.current -= spawn_cost;
+        let extensions = self.extensions.allocate(extension_cost);
+
+        self.has_scheduled = true;
+    }
+
+    pub fn schedule<P>(&mut self, make_proto: P) -> ScheduleResult
+    where
+        P: FnOnce(&ColonySpawn) -> AbsoluteCreepPrototype
+    {
+        self.schedule_selected(
+            |iter|{
+                iter.max_by_key(|(_, spawn)| {
+                    (spawn.energy.future_energy(), spawn.energy.current, matches!(spawn.ty, ColonySpawnType::Central))
+                }).map(|(ix, _)| ix)
+            }, 
+            make_proto
+        )
+    }
+
+    /*pub fn spawn(&mut self, proto: AbsoluteCreepPrototype) -> Option<CreepId> {
+        let spawn = self.source_spawns.values()
+            .chain(self.central_spawns.iter())
+            .filter(|spawn| spawn.is_free())
+            .max_by_key(|spawn| spawn.energy.future_energy());
+
+        let cost = proto.body().energy_required();
+        if cost > spawn.energy + self.extension_energy { return None }
+
+        self.extension_energy -= cost.saturating_sub(spawn.energy);
+        spawn.energy = spawn.energy.saturating_sub(spawn.energy);
+
+        spawn.spawn(proto)
+    }
+
+    pub fn max_energy(&self) -> u32 {
+        self.central.as_ref().map_or(0, |spawn| spawn.energy + self.extension_energy)
+    }*/
+}
+
+struct Spawners(HashMap<RoomName, ColonySpawns>);
+
+impl Spawners {
+    fn new(colonies: &Colonies, syndrome: &ColonySyndrome, names: SharedUsedNames) -> Self {
+        Self(
+            colonies.view_all()
+                .map(|colony| (colony.name, ColonySpawns::new(&colony, syndrome, names.clone())))
+                .collect()
+        )
+    }
+}
+
+struct ColonyCreeps(HashMap<CreepId, RelativeCreepPrototype>);
+struct Creeps(HashMap<RoomName, ColonyCreeps>);
+
+/*impl SpawnSchedule {
     fn new(mem: &Memory) -> Self {
         let creeps = game::creeps().values()
             .filter_map(|creep| CreepPrototype::try_from_existing(mem, &creep))
@@ -220,14 +550,16 @@ impl SpawnSchedule {
         self.already_spawned.iter().chain(
             self.spawners.iter()
             .filter_map(|spawner| {
-                use SpawnerStatus::*;
-
                 match &spawner.status {
                     Free | Blocked | Spawning(_, _) => None,
                     Scheduled { proto, .. } => Some(proto)
                 }
             })
         )
+    }
+
+    fn schedule_or_block(&mut self, body: Body, role: CreepRole, room: Option<RoomName>, used_names: &mut UsedNames) -> Option<CreepId> {
+        self.spawners.iter().filter_map(f)
     }
 
     fn spawners(&mut self) -> impl Iterator<Item = &'_ mut SpawnerData> {
@@ -254,14 +586,15 @@ impl SpawnSchedule {
             mem.creeps.insert(CreepId::Name(name.clone()), creep_data);
         }
     }
-}
+}*/
 
-trait CreepPrototypeIteratorExt<'a>: Iterator<Item = &'a CreepPrototype> + Sized {
-    fn filter_home(self, home: RoomName) -> impl Iterator<Item = &'a CreepPrototype> {
+/*
+trait CreepPrototypeIteratorExt<'a>: Iterator<Item = &'a AbsoluteCreepPrototype> + Sized {
+    fn filter_home(self, home: RoomName) -> impl Iterator<Item = &'a AbsoluteCreepPrototype> {
         self.filter(move |proto| proto.home == home)
     }
 
-    fn filter_role(self, f: impl Fn(&CreepRole) -> bool) -> impl Iterator<Item = &'a CreepPrototype> {
+    fn filter_role(self, f: impl Fn(&CreepRole) -> bool) -> impl Iterator<Item = &'a AbsoluteCreepPrototype> {
         self.filter(move |proto| f(&proto.role))
     }
 
@@ -270,19 +603,7 @@ trait CreepPrototypeIteratorExt<'a>: Iterator<Item = &'a CreepPrototype> + Sized
     }
 }
 
-impl<'a, T: Iterator<Item = &'a CreepPrototype> + Sized> CreepPrototypeIteratorExt<'a> for T { }
-
-trait SpawnerDataIteratorExt<'a>: Iterator<Item = &'a mut SpawnerData> + Sized {
-    fn filter_room(self, room: RoomName) -> impl Iterator<Item = &'a mut SpawnerData> {
-        self.filter(move |spawner| spawner.room == room)
-    }
-
-    fn filter_free(self) -> impl Iterator<Item = &'a mut SpawnerData> {
-        self.filter(|spawner| spawner.is_free())
-    }
-}
-
-impl<'a, T: Iterator<Item = &'a mut SpawnerData> + Sized> SpawnerDataIteratorExt<'a> for T { }
+impl<'a, T: Iterator<Item = &'a AbsoluteCreepPrototype> + Sized> CreepPrototypeIteratorExt<'a> for T { }
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };
@@ -290,25 +611,23 @@ fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     Body::from(Part::Carry) + Body::from(Part::Work) * (excavator_works as usize)
 }
 
-fn schedule_excavators(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
-    for colony in mem.colonies.view_all() {
-        for (source, source_plan) in &colony.plan.sources {
-            let Some(source) = source.resolve() else { continue; };
+fn schedule_excavators(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames) {
+    for (source, source_plan) in &schedule.view().plan.sources {
+        let Some(source) = source.resolve() else { continue; };
 
-            let any_excavator_already = schedule.all_creeps()
-                .any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source.id()));
-            if any_excavator_already { continue; }
+        let any_excavator_already = schedule.all_creeps()
+            .any(|proto| matches!(&proto.role, CreepRole::Excavator(_, excavator_source) if *excavator_source == source.id()));
+        if any_excavator_already { continue; }
 
-            let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { continue; };
+        let Some(spawner) = schedule.spawners().filter_free().next() else { continue; };
 
-            let prototype = CreepPrototype { 
-                body: get_excavator_body(spawner.future_energy, source_plan), 
-                role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()),
-                home: colony.name
-            };
+        let prototype = AbsoluteCreepPrototype { 
+            body: get_excavator_body(spawner.future_energy, source_plan), 
+            role: CreepRole::Excavator(ExcavatorCreep::default(), source.id()),
+            home: schedule.view().name
+        };
 
-            spawner.schedule_or_block(used_names, prototype);
-        }
+        spawner.schedule_or_block(used_names, prototype);
     }
 }
 
@@ -336,9 +655,7 @@ fn get_truck_body(energy: u32) -> Body {
     TRUCK_TEMPLATE.scaled(energy.min(*MAX_TRUCK_ENERGY), Some(2))
 }
 
-fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
-    use Part::*;
-
+fn schedule_trucks(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         let total_carry_for_sources = colony.plan.sources.values()
             .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
@@ -348,11 +665,11 @@ fn schedule_trucks(mem: &Memory, schedule: &mut SpawnSchedule, used_names: &mut 
         let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
 
         loop {
-            let current_carry = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Truck(_))).part_count(Carry);
+            let current_carry = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Truck(_))).part_count(Part::Carry);
             if current_carry >= target_carry { break; }
 
-            let Some(spawner) = schedule.spawners().filter_free().filter_room(colony.name).next() else { break };
-            if spawner.schedule_or_block(used_names, CreepPrototype { 
+            let Some(spawner) = schedule.spawners().filter_free().next() else { break };
+            if spawner.schedule_or_block(used_names, AbsoluteCreepPrototype { 
                 role: CreepRole::Truck(TruckCreep::default()), 
                 home: colony.name, 
                 body: get_truck_body(spawner.future_energy)
@@ -368,7 +685,7 @@ fn schedule_import_trucks(mem: &mut Memory, schedule: &mut SpawnSchedule, used_n
         if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::ImportTruck(_))).part_count(Part::Carry) > 100 { continue; }
 
         let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
-        spawn.schedule(used_names, CreepPrototype { 
+        spawn.schedule(used_names, AbsoluteCreepPrototype { 
             body: IMPORT_TRUCK_TEMPLATE.scaled(spawn.future_energy, None), 
             role: CreepRole::ImportTruck(ImportTruckState::default()), 
             home: colony.name
@@ -386,7 +703,7 @@ fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names
 
     let Some(spawner) = schedule.spawners().filter_free().next() else { return; };
 
-    spawner.schedule_or_block(used_names, CreepPrototype { 
+    spawner.schedule_or_block(used_names, AbsoluteCreepPrototype { 
         body: FLAGSHIP_TEMPLATE.clone(), 
         role: CreepRole::Flagship(FlagshipCreep::default()), 
         home: spawner.room
@@ -417,19 +734,18 @@ impl TugboatRequests {
     }
 }
 
-fn schedule_tugboats(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames, tugboat_requests: TugboatRequests) {
-    for tugged in tugboat_requests.0 {
+fn schedule_tugboats(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames, tugboat_requests: &TugboatRequests) {
+    for tugged in &tugboat_requests.0 {
         let already_exists = schedule.all_creeps()
             .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == tugged.id()));
         if already_exists { continue; }
 
-        let Some(home) = mem.creeps.get(&tugged.id()).map(|data| data.home) else { continue; };
-        let Some(spawner) = schedule.spawners().filter_free().filter_room(home).next() else { continue; };
+        let Some(spawner) = schedule.spawners().filter_free().next() else { continue; };
 
-        spawner.schedule_or_block(used_names, CreepPrototype { 
-            body: get_tugboat_body(spawner.future_energy, &tugged),
+        spawner.schedule_or_block(used_names, AbsoluteCreepPrototype { 
+            body: get_tugboat_body(spawner.future_energy, tugged),
             role: CreepRole::Tugboat(tugged.id(), spawner.structure.id()), 
-            home 
+            home: schedule.view().name
         });
     }
 }
@@ -438,19 +754,19 @@ const TARGET_IDLE_FABRICATOR_WORK_COUNT: usize = 20;
 const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
 const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
-fn schedule_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+fn schedule_fabricators(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
         let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
         loop {
-            let curr_work_count = schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).part_count(Part::Work);
+            let curr_work_count = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Fabricator(_))).part_count(Part::Work);
             if curr_work_count >= work_target { break; }
 
-            let Some(spawner) = schedule.spawners().filter_room(colony.name).filter_free().next() else { break; };
+            let Some(spawner) = schedule.spawners().filter_free().next() else { break; };
             let body = FABRICATOR_TEMPLATE.scaled(spawner.future_energy, None);
 
-            if spawner.schedule(used_names, CreepPrototype { 
+            if spawner.schedule(used_names, AbsoluteCreepPrototype { 
                 body, 
                 role: CreepRole::Fabricator(FabricatorCreep::default()), 
                 home: spawner.room
@@ -465,7 +781,7 @@ fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, u
         if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).next().is_some() { continue; }
 
         let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
-        spawn.schedule(used_names, CreepPrototype { 
+        spawn.schedule(used_names, AbsoluteCreepPrototype { 
             body: FABRICATOR_TEMPLATE.scaled(spawn.future_energy, None), 
             role: CreepRole::Fabricator(FabricatorCreep::default()), 
             home: colony.name
@@ -473,17 +789,23 @@ fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, u
     }
 }
 
+#[expect(clippy::needless_pass_by_value)]
 pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut schedule = SpawnSchedule::new(mem);
     let mut used_names: UsedNames = game::creeps().keys().collect();
 
-    schedule_trucks(mem, &mut schedule, &mut used_names);
-    schedule_tugboats(mem, &mut schedule, &mut used_names, tugboat_requests);
-    schedule_excavators(mem, &mut schedule, &mut used_names);
-    schedule_fabricators(mem, &mut schedule, &mut used_names);
+    for view in mem.colonies.view_all() {
+        let mut schedule = ColonySpawnSchedule { view, schedule: &mut schedule };
+
+        schedule_tugboats(&mut schedule, &mut used_names, &tugboat_requests);
+        schedule_excavators(&mut schedule, &mut used_names);
+        schedule_trucks(&mut schedule, &mut used_names);
+        schedule_fabricators(&mut schedule, &mut used_names);
+    }
+
     schedule_remote_fabricators(mem, &mut schedule, &mut used_names);
     schedule_flagships(mem, &mut schedule, &mut used_names);
     schedule_import_trucks(mem, &mut schedule, &mut used_names);
 
     schedule.execute(mem);
-}
+}*/
