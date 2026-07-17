@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc};
 use itertools::Itertools;
 use screeps::{Creep, HasPosition, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, SpawnOptions, StructureExtension, StructureSpawn};
 
-use crate::{colony::{Colonies, ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -72,6 +72,7 @@ impl From<&Creep> for Body {
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
 
+#[derive(Clone)]
 struct RelativeCreepPrototype {
     body: Body,
     role: CreepRole,
@@ -88,14 +89,26 @@ impl RelativeCreepPrototype {
     fn part_count(&self, part: Part) -> usize {
         self.body.part_count(part)
     }
+
+    fn with_home(self, home: RoomName) -> AbsoluteCreepPrototype {
+        AbsoluteCreepPrototype { proto: self, home }
+    }
 }
 
+#[derive(Clone)]
 struct AbsoluteCreepPrototype {
     proto: RelativeCreepPrototype,
     home: RoomName
 }
 
 impl AbsoluteCreepPrototype {
+    fn new(id: &CreepId, data: &CreepData) -> Self {
+        Self {
+            proto: RelativeCreepPrototype::new(id, data),
+            home: data.home
+        }
+    }
+    
     pub fn body(&self) -> &Body {
         &self.proto.body
     }
@@ -108,112 +121,6 @@ impl AbsoluteCreepPrototype {
         self.body().part_count(part)
     }
 }
-
-impl AbsoluteCreepPrototype {
-    fn new(id: &CreepId, data: &CreepData) -> Self {
-        Self {
-            proto: RelativeCreepPrototype::new(id, data),
-            home: data.home
-        }
-    }
-}
-
-enum CreepPrototype {
-    Absolute(AbsoluteCreepPrototype),
-    Relative(RelativeCreepPrototype)
-}
-
-impl CreepPrototype {
-    pub fn with_default_home(self, home: RoomName) -> AbsoluteCreepPrototype {
-        match self {
-            CreepPrototype::Absolute(proto) => proto,
-            CreepPrototype::Relative(proto) => AbsoluteCreepPrototype { proto, home },
-        }
-    }
-}
-
-/*impl SpawnerData {
-    fn from(mem: &Memory, spawn: &StructureSpawn, creeps: &[CreepPrototype]) -> Self {
-        let room = spawn.room().unwrap();
-        let spawning = spawn.spawning()
-            .and_then(|spawning| {
-                let creep = game::creeps().get(spawning.name().into())?;
-                let prototype = CreepPrototype::try_from_existing(mem, &creep)?;
-
-                Some((prototype, spawning.remaining_time()))
-            });
-
-        let mut future_energy: u32 = room.energy_available().max(300);
-
-        if let Some(colony) = mem.colonies.view(room.name()) {
-            let excavated_sources: HashSet<_> = creeps.iter()
-                .filter_home(room.name())
-                .filter_map(|proto| {
-                    let CreepRole::Excavator(_, source) = &proto.role else { return None };
-                    Some(*source)
-                }).collect();
-
-            let any_excavators = !excavated_sources.is_empty();
-            let any_importers = creeps.iter().filter_home(room.name()).any(|proto| matches!(proto.role, CreepRole::ImportTruck(_)));
-            let any_trucks = creeps.iter().filter_home(room.name()).any(|proto| matches!(proto.role, CreepRole::Truck(_)));
-
-            for source in &excavated_sources {
-                let source_plan = colony.plan.sources.get(&source.screeps_id()).unwrap();
-                future_energy += source_plan.extensions.resolve().iter().map(EnergyStoreAccessors::free_energy_capacity).sum::<u32>();
-            }
-
-            let future_energy_income = if (any_trucks && any_excavators) || any_importers { 
-                    u32::MAX 
-                } else if any_trucks {
-                    colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity()) 
-                } else { 
-                    0 
-                };
-
-            let mut center_free_capacity = colony.plan.center.extensions.resolve().iter().map(EnergyStoreAccessors::free_energy_capacity).sum::<u32>();
-            center_free_capacity += spawn.free_energy_capacity();
-
-            future_energy += center_free_capacity.min(future_energy_income);
-        }
-
-        Self {
-            structure: spawn.clone(),
-            room: room.name(),
-            future_energy,
-            energy_avaliable: room.energy_available(),
-            status: spawning.map_or(SpawnerStatus::Free, |(proto, time_left)| SpawnerStatus::Spawning(proto, time_left)),
-        }
-    }
-
-    fn schedule(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<CreepId> {
-        if self.is_free() && self.energy_avaliable >= prototype.body.energy_required() {
-            if pop_command(Command::DebugSpawn) { info!("Scheduling creep {:?}", prototype.role) }
-
-            let name = generate_new_creep_name(prototype.role.prefix(), used_names);
-            self.status = SpawnerStatus::Scheduled { name: name.clone(), proto: prototype };
-            
-            Some(CreepId::Name(name))
-        } else {
-            if pop_command(Command::DebugSpawn) { info!("Unable to schedule creep {:?}", prototype.role) }
-            None
-        }
-    }
-
-    fn schedule_or_block(&mut self, used_names: &mut UsedNames, prototype: CreepPrototype) -> Option<CreepId> {
-        if self.is_free() {
-            if let Some(handle) = self.schedule(used_names, prototype) { 
-                Some(handle) 
-            } else {
-                self.status = SpawnerStatus::Blocked;
-                None
-            }
-        } else { None }
-    }
-
-    fn is_free(&self) -> bool {
-        self.status.is_free()
-    }
-}*/
 
 enum ExcavatorSyndrome {
     NoExcavator,
@@ -325,13 +232,24 @@ impl ColonySpawn {
         matches!(self.state, SpawnState::Free)
     }
 
-    fn execute(self) -> Result<(), anyhow::Error> {
+    fn execute(self, mem: &mut Memory) -> Result<(), anyhow::Error> {
         let SpawnState::Spawning(spawning) = self.state else { return Ok(()) };
+
         self.spawn.spawn_creep_with_options(
             &spawning.proto.body().0, 
             &spawning.name, 
             &SpawnOptions::new().energy_structures(spawning.extensions)
-        ).map_err(anyhow::Error::new)
+        ).map_err(anyhow::Error::new)?;
+
+        mem.creeps.insert(
+            CreepId::Name(spawning.name), 
+            CreepData { 
+                role: spawning.proto.proto.role, 
+                home: spawning.proto.home 
+            } 
+        );
+
+        Ok(())
     }
 }
 
@@ -425,11 +343,27 @@ impl ColonyExtensions {
     }
 }
 
-struct ColonySpawns {
+struct ColonyCreeps(HashMap<CreepId, RelativeCreepPrototype>);
+
+impl ColonyCreeps {
+    pub fn new(colony: RoomName, mem: &Memory) -> Self {
+        Self(
+            mem.creeps.iter()
+                .filter(|(_, data)| data.home == colony)
+                .map(|(id, data)| (id.clone(), RelativeCreepPrototype::new(id, data)))
+                .collect()
+        )
+    }
+}
+
+struct ColonyRoster {
     name: RoomName,
 
     spawns: Vec<ColonySpawn>,
     extensions: ColonyExtensions,
+    creeps: ColonyCreeps,
+
+    syndrome: ColonySyndrome,
 
     names: SharedUsedNames
 }
@@ -458,13 +392,16 @@ impl<'a> Iterator for ColonySpawnIterator<'a> {
 
 enum ScheduleResult {
     NoValidSpawn,
-    Scheduled(CreepId),
+    Scheduled(CreepId, AbsoluteCreepPrototype),
     WaitingForEnergy,
     NotEnoughEnergy
 }
 
-impl ColonySpawns {
-    pub fn new(colony: &ColonyView<'_>, syndrome: &ColonySyndrome, names: SharedUsedNames) -> Self {
+impl ColonyRoster {
+    pub fn new(colony: ColonyView<'_>, mem: &Memory, names: SharedUsedNames) -> Self {
+        let creeps = ColonyCreeps::new(colony.name, mem);
+        let syndrome = ColonySyndrome::new(&creeps, &colony);
+
         let mut extensions = Vec::new();
 
         extensions.push(ExtensionGroup::new(
@@ -495,7 +432,9 @@ impl ColonySpawns {
                 }).into_iter().collect(),
             extensions: ColonyExtensions(extensions),
             names,
-            name: colony.name
+            name: colony.name,
+            creeps,
+            syndrome
         }
     }
 
@@ -527,14 +466,15 @@ impl ColonySpawns {
         self.free_spawns().next().is_some()
     }
 
-    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult 
+    // Not meant to be used by user
+    fn schedule_selected_absolute<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult
     where
-        S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Option<usize>,
-        P: FnOnce(&ColonySpawn) -> CreepPrototype
+        S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Option<usize>,
+        P: FnOnce(&ColonySpawn) -> AbsoluteCreepPrototype
     {
         let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return ScheduleResult::NoValidSpawn };
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
-        let proto = make_proto(spawn).with_default_home(self.name);
+        let proto = make_proto(spawn);
 
         assert!(spawn.is_free());
 
@@ -553,14 +493,29 @@ impl ColonySpawns {
         let extensions = self.extensions.allocate(extension_cost);
 
         let name = self.names.borrow_mut().generate_new(proto.role());
-        spawn.state = SpawnState::Spawning(Spawning { name: name.clone(), proto, extensions });
+        spawn.state = SpawnState::Spawning(Spawning { name: name.clone(), proto: proto.clone(), extensions });
+        
+        ScheduleResult::Scheduled(CreepId::Name(name), proto)
+    }
 
-        ScheduleResult::Scheduled(CreepId::Name(name))
+    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult 
+    where
+        S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Option<usize>,
+        P: FnOnce(&ColonySpawn) -> RelativeCreepPrototype
+    {
+        let home = self.name;
+        let result = self.schedule_selected_absolute(select, |spawn| make_proto(spawn).with_home(home));
+
+        if let ScheduleResult::Scheduled(id, proto) = &result {
+            self.creeps.0.insert(id.clone(), proto.proto.clone());
+        }
+
+        result
     }
 
     pub fn schedule<P>(&mut self, make_proto: P) -> ScheduleResult
     where
-        P: FnOnce(&ColonySpawn) -> CreepPrototype
+        P: FnOnce(&ColonySpawn) -> RelativeCreepPrototype
     {
         self.schedule_selected(
             |iter|{
@@ -572,57 +527,32 @@ impl ColonySpawns {
         )
     }
 
-    fn execute(self) -> Result<(), anyhow::Error> {
+    fn execute(self, mem: &mut Memory) -> Result<(), anyhow::Error> {
         for spawn in self.spawns {
-            spawn.execute()?;
+            spawn.execute(mem)?;
         }
 
         Ok(())
     }
 }
 
-struct Spawns(HashMap<RoomName, ColonySpawns>);
+struct Rosters(HashMap<RoomName, ColonyRoster>);
 
-impl Spawns {
-    fn new(colonies: &Colonies, syndrome: &ColonySyndrome, names: SharedUsedNames) -> Self {
+impl Rosters {
+    fn new(mem: &Memory, names: SharedUsedNames) -> Self {
         Self(
-            colonies.view_all()
-                .map(|colony| (colony.name, ColonySpawns::new(&colony, syndrome, names.clone())))
+            mem.colonies.view_all()
+                .map(|colony| (colony.name, ColonyRoster::new(colony, mem, names.clone())))
                 .collect()
         )
     }
 
-    pub fn execute(self) -> Result<(), anyhow::Error> {
+    pub fn execute(self, mem: &mut Memory) -> Result<(), anyhow::Error> {
         for colony_spawns in self.0.into_values() {
-            colony_spawns.execute()?;
+            colony_spawns.execute(mem)?;
         }
 
         Ok(())
-    }
-}
-
-struct ColonyCreeps(HashMap<CreepId, RelativeCreepPrototype>);
-
-impl ColonyCreeps {
-    pub fn new(colony: RoomName, mem: &Memory) -> Self {
-        Self(
-            mem.creeps.iter()
-                .filter(|(_, data)| data.home == colony)
-                .map(|(id, data)| (id.clone(), RelativeCreepPrototype::new(id, data)))
-                .collect()
-        )
-    }
-}
-
-struct Creeps(HashMap<RoomName, ColonyCreeps>);
-
-impl Creeps {
-    pub fn new(mem: &Memory) -> Self {
-        Self(
-            mem.colonies.rooms()
-                .map(|colony| (colony, ColonyCreeps::new(colony, mem)))
-                .collect()
-        )
     }
 }
 
