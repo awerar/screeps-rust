@@ -29,7 +29,7 @@ impl VirtualCreep {
         let work_ticks_left = self.ticks_to_live().unwrap().saturating_sub(super::GUESSED_CREEP_MOVE_TO_TASK_TICKS);
         let work_ticks_left = work_ticks_left.min(super::MAX_TASK_TICKS);
 
-        let work_part_count = self.body().num(Part::Work) as u32;
+        let work_part_count = self.body().part_count(Part::Work) as u32;
         work_ticks_left * work_part_count
     }
 }
@@ -113,7 +113,7 @@ impl FabricatorCoordinator {
 
     fn assign_emergency_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
         if self.upgrade.unreserved_amount() > 0 && downgrade_percentage(&home.controller) >= super::CONTROLLER_DOWNGRADE_EMERGENCY_PERCENTAGE {
-            self.upgrade.allocate(creep.handle(), creep.body().num(Part::Work) as u32 * UPGRADE_CONTROLLER_POWER, Expiration::new());
+            self.upgrade.allocate(creep.handle(), creep.body().part_count(Part::Work) as u32 * UPGRADE_CONTROLLER_POWER, Expiration::new());
             return true;
         }
 
@@ -122,7 +122,7 @@ impl FabricatorCoordinator {
 
     fn assign_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
         if self.upgrade.unreserved_amount() > 0 && storage_fill_percentage(home.buffer.as_ref()).is_none_or(|x| x >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD) {
-            self.upgrade.allocate(creep.handle(), creep.body().num(Part::Work) as u32, Expiration::new());
+            self.upgrade.allocate(creep.handle(), creep.body().part_count(Part::Work) as u32, Expiration::new());
             return true;
         }
 

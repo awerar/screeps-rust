@@ -95,7 +95,7 @@ impl ExcavatorCreep {
             Mining => {
                 creep.harvest_source(source.clone())?;
 
-                let harvest_energy = (creep.body().num(Part::Work) * 2) as u32;
+                let harvest_energy = (creep.body().part_count(Part::Work) * 2) as u32;
                 let target_energy = creep.capacity() - harvest_energy;
 
                 let mut transferring_to_container = false;

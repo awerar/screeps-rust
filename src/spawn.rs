@@ -1,9 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc};
 
 use itertools::Itertools;
-use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, StructureExtension, StructureSpawn};
+use screeps::{Creep, HasPosition, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, SpawnOptions, StructureExtension, StructureSpawn};
 
-use crate::{colony::{Colonies, ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepRole, excavator::ExcavatorCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId}, memory::Memory, names::UsedNames};
+use crate::{colony::{Colonies, ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -37,7 +37,7 @@ impl Body {
         self.0.iter().map(|part| part.cost()).sum()
     }
 
-    pub fn num(&self, part: Part) -> usize {
+    pub fn part_count(&self, part: Part) -> usize {
         self.0.iter().filter(|p| **p == part).count()
     }
 }
@@ -77,6 +77,19 @@ struct RelativeCreepPrototype {
     role: CreepRole,
 }
 
+impl RelativeCreepPrototype {
+    fn new(id: &CreepId, data: &CreepData) -> Self {
+        Self {
+            body: Body(id.resolve().body().into_iter().map(|part| part.part()).collect()),
+            role: data.role.clone(),
+        }
+    }
+
+    fn part_count(&self, part: Part) -> usize {
+        self.body.part_count(part)
+    }
+}
+
 struct AbsoluteCreepPrototype {
     proto: RelativeCreepPrototype,
     home: RoomName
@@ -90,19 +103,18 @@ impl AbsoluteCreepPrototype {
     pub fn role(&self) -> &CreepRole {
         &self.proto.role
     }
+
+    fn part_count(&self, part: Part) -> usize {
+        self.body().part_count(part)
+    }
 }
 
 impl AbsoluteCreepPrototype {
-    fn try_from_existing(mem: &Memory, creep: &Creep) -> Option<Self> {
-        let creep_data = mem.creeps.get(&creep.id())?;
-
-        Some(Self {
-            proto: RelativeCreepPrototype { 
-                body: Body(creep.body().into_iter().map(|part| part.part()).collect()),
-                role: creep_data.role.clone(),
-            },
-            home: creep_data.home
-        })
+    fn new(id: &CreepId, data: &CreepData) -> Self {
+        Self {
+            proto: RelativeCreepPrototype::new(id, data),
+            home: data.home
+        }
     }
 }
 
@@ -312,16 +324,29 @@ impl ColonySpawn {
     pub fn is_free(&self) -> bool {
         matches!(self.state, SpawnState::Free)
     }
+
+    fn execute(self) -> Result<(), anyhow::Error> {
+        let SpawnState::Spawning(spawning) = self.state else { return Ok(()) };
+        self.spawn.spawn_creep_with_options(
+            &spawning.proto.body().0, 
+            &spawning.name, 
+            &SpawnOptions::new().energy_structures(spawning.extensions)
+        ).map_err(anyhow::Error::new)
+    }
 }
 
 struct ExtensionGroup {
-    extensions: Vec<StructureExtension>,
+    extensions_left: Vec<StructureExtension>,
     energy: EnergyPool,
     central: bool
 }
 
 impl ExtensionGroup {
     pub fn new(extensions: Vec<StructureExtension>, refilled: bool, central: bool) -> Self {
+        let extensions = extensions.into_iter()
+            .filter(|extension| extension.used_energy_capacity() > 0)
+            .collect_vec();
+
         Self { 
             energy: EnergyPool::new(
                 extensions.iter().map(EnergyStoreAccessors::used_energy_capacity).sum::<u32>(),
@@ -330,8 +355,31 @@ impl ExtensionGroup {
                     extensions.iter().map(EnergyStoreAccessors::energy_capacity).sum::<u32>()
                 )
             ),
-            extensions,
+            extensions_left: extensions,
             central
+        }
+    }
+
+    pub fn allocate(&mut self, mut amount: u32) -> Vec<StructureExtension> {
+        assert!(self.energy.current >= amount);
+
+        let mut extensions = Vec::new();
+        while amount > 0 {
+            let extension = self.extensions_left.pop().unwrap();
+            amount = amount.saturating_sub(extension.used_energy_capacity());
+            self.energy.current -= extension.used_energy_capacity();
+
+            extensions.push(extension);
+        }
+
+        extensions
+    }
+
+    pub fn reserve_future(&mut self, amount: u32) {
+        assert!(self.energy.future_energy() >= amount);
+
+        if !self.energy.is_refilled() {
+            self.allocate(amount);
         }
     }
 }
@@ -349,20 +397,22 @@ impl ColonyExtensions {
 
     fn allocate(&mut self, mut amount: u32) -> Vec<StructureExtension> {
         assert!(self.energy() <= amount);
-        
-        self.0.iter()
-            .sorted_by_key(|group| !group.energy.is_refilled())
-            .take_while(|group| {
-                let neeed = amount > 0;
-                amount = amount.saturating_sub(group.energy.current);
-                neeed
-            }).flat_map(|group| &group.extensions)
-            .cloned()
-            .collect()
+
+        let mut extensions = Vec::new();
+        for group in self.0.iter_mut().sorted_by_key(|group| !group.energy.is_refilled()) {
+            if amount == 0 { break; }
+            
+            let group_amount = amount.min(group.energy.current);
+            amount -= group_amount;
+
+            extensions.extend(group.allocate(amount));
+        }
+
+        extensions
     }
 
-    fn reserve_future_energy(&mut self, mut amount: u32) {
-        assert!(self.energy() <= amount);
+    fn reserve_future(&mut self, mut amount: u32) {
+        assert!(self.future_energy() <= amount);
 
         for group in self.0.iter_mut().sorted_by_key(|group| !group.energy.is_refilled()) {
             if amount == 0 { return }
@@ -370,9 +420,7 @@ impl ColonyExtensions {
             let group_amount = amount.min(group.energy.future_energy());
             amount -= group_amount;
 
-            if !group.energy.is_refilled() {
-                group.energy.current -= group_amount;
-            }
+            group.reserve_future(amount);
         }
     }
 }
@@ -382,7 +430,6 @@ struct ColonySpawns {
 
     spawns: Vec<ColonySpawn>,
     extensions: ColonyExtensions,
-    has_scheduled: bool,
 
     names: SharedUsedNames
 }
@@ -421,7 +468,9 @@ impl ColonySpawns {
         let mut extensions = Vec::new();
 
         extensions.push(ExtensionGroup::new(
-            colony.plan.center.extensions.resolve(), 
+            colony.plan.center.extensions.resolve().into_iter()
+                .sorted_by_cached_key(|extension| extension.pos().get_range_to(colony.center))
+                .collect(), 
             syndrome.any_excavating_excavators && syndrome.any_trucks,
             true
         ));
@@ -445,14 +494,37 @@ impl ColonySpawns {
                         syndrome.any_trucks && syndrome.any_excavating_excavators)
                 }).into_iter().collect(),
             extensions: ColonyExtensions(extensions),
-            has_scheduled: false,
             names,
             name: colony.name
         }
     }
 
+    fn free_spawns(&self) -> impl Iterator<Item = &ColonySpawn> {
+        self.spawns.iter().filter(|spawn| spawn.is_free())
+    }
+
+    pub fn max_spawnable_energy(&self) -> u32 {
+        self.free_spawns()
+            .map(|spawn| spawn.energy.current)
+            .max()
+            .map_or(
+                0, 
+                |spawn_energy| spawn_energy + self.extensions.energy()
+            )
+    }
+
+    pub fn max_future_spawnable_energy(&self) -> u32 {
+        self.free_spawns()
+            .map(|spawn| spawn.energy.future_energy())
+            .max()
+            .map_or(
+                0, 
+                |spawn_energy| spawn_energy + self.extensions.future_energy()
+            )
+    }
+
     pub fn has_free(&self) -> bool {
-        self.spawns.iter().any(|spawn| spawn.is_free())
+        self.free_spawns().next().is_some()
     }
 
     pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult 
@@ -473,19 +545,22 @@ impl ColonySpawns {
         if cost > spawn.energy.future_energy() + self.extensions.future_energy() { return ScheduleResult::NotEnoughEnergy }
         if cost > spawn.energy.current + self.extensions.energy() { 
             spawn.state = SpawnState::Blocked;
-            self.extensions.reserve_future_energy(extension_cost);
+            self.extensions.reserve_future(extension_cost);
             return ScheduleResult::WaitingForEnergy 
         }
 
         spawn.energy.current -= spawn_cost;
         let extensions = self.extensions.allocate(extension_cost);
 
-        self.has_scheduled = true;
+        let name = self.names.borrow_mut().generate_new(proto.role());
+        spawn.state = SpawnState::Spawning(Spawning { name: name.clone(), proto, extensions });
+
+        ScheduleResult::Scheduled(CreepId::Name(name))
     }
 
     pub fn schedule<P>(&mut self, make_proto: P) -> ScheduleResult
     where
-        P: FnOnce(&ColonySpawn) -> AbsoluteCreepPrototype
+        P: FnOnce(&ColonySpawn) -> CreepPrototype
     {
         self.schedule_selected(
             |iter|{
@@ -497,29 +572,18 @@ impl ColonySpawns {
         )
     }
 
-    /*pub fn spawn(&mut self, proto: AbsoluteCreepPrototype) -> Option<CreepId> {
-        let spawn = self.source_spawns.values()
-            .chain(self.central_spawns.iter())
-            .filter(|spawn| spawn.is_free())
-            .max_by_key(|spawn| spawn.energy.future_energy());
+    fn execute(self) -> Result<(), anyhow::Error> {
+        for spawn in self.spawns {
+            spawn.execute()?;
+        }
 
-        let cost = proto.body().energy_required();
-        if cost > spawn.energy + self.extension_energy { return None }
-
-        self.extension_energy -= cost.saturating_sub(spawn.energy);
-        spawn.energy = spawn.energy.saturating_sub(spawn.energy);
-
-        spawn.spawn(proto)
+        Ok(())
     }
-
-    pub fn max_energy(&self) -> u32 {
-        self.central.as_ref().map_or(0, |spawn| spawn.energy + self.extension_energy)
-    }*/
 }
 
-struct Spawners(HashMap<RoomName, ColonySpawns>);
+struct Spawns(HashMap<RoomName, ColonySpawns>);
 
-impl Spawners {
+impl Spawns {
     fn new(colonies: &Colonies, syndrome: &ColonySyndrome, names: SharedUsedNames) -> Self {
         Self(
             colonies.view_all()
@@ -527,10 +591,40 @@ impl Spawners {
                 .collect()
         )
     }
+
+    pub fn execute(self) -> Result<(), anyhow::Error> {
+        for colony_spawns in self.0.into_values() {
+            colony_spawns.execute()?;
+        }
+
+        Ok(())
+    }
 }
 
 struct ColonyCreeps(HashMap<CreepId, RelativeCreepPrototype>);
+
+impl ColonyCreeps {
+    pub fn new(colony: RoomName, mem: &Memory) -> Self {
+        Self(
+            mem.creeps.iter()
+                .filter(|(_, data)| data.home == colony)
+                .map(|(id, data)| (id.clone(), RelativeCreepPrototype::new(id, data)))
+                .collect()
+        )
+    }
+}
+
 struct Creeps(HashMap<RoomName, ColonyCreeps>);
+
+impl Creeps {
+    pub fn new(mem: &Memory) -> Self {
+        Self(
+            mem.colonies.rooms()
+                .map(|colony| (colony, ColonyCreeps::new(colony, mem)))
+                .collect()
+        )
+    }
+}
 
 /*impl SpawnSchedule {
     fn new(mem: &Memory) -> Self {
