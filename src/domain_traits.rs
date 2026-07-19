@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use derive_where::derive_where;
 use screeps::{Creep, ResourceType, action_error_codes::{CreepRepairErrorCode, TransferErrorCode, WithdrawErrorCode}, game};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wasm_bindgen::JsCast;
 
@@ -192,10 +192,40 @@ pub mod screeps_objects {
     );
 }
 
-#[derive_where(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash; ObjectId<Creep, S>)]
+#[derive(Serialize, Deserialize)]
+#[derive_where(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CreepNameId<S: CheckState = Checked>(String, PhantomData<S>);
+
+impl CreepNameId {
+    pub fn of(creep: &Creep) -> Self {
+        Self(creep.name(), PhantomData)
+    }
+
+    pub fn resolve(&self) -> Creep {
+        game::creeps().get(self.0.clone()).unwrap()
+    }
+}
+
+pub struct InvalidCreepName(String);
+
+impl CheckFrom for CreepNameId {
+    type Unchecked = CreepNameId<Unchecked>;
+    type Err = InvalidCreepName;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        if game::creeps().get(uc.0.clone()).is_none() {
+            Err(InvalidCreepName(uc.0))
+        } else {
+            Ok(Self(uc.0, PhantomData))
+        }
+    }
+}
+
+
+#[derive_where(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash; ObjectId<Creep, S>, CreepNameId<S>)]
 pub enum CreepId<S: CheckState = Checked> {
     Id(ObjectId<Creep, S>),
-    Name(String)
+    Name(CreepNameId<S>)
 }
 
 impl ResolvableId for CreepId {
@@ -204,7 +234,7 @@ impl ResolvableId for CreepId {
     fn resolve(&self) -> Self::Target {
         match self {
             CreepId::Id(id) => id.resolve(),
-            CreepId::Name(name) => game::creeps().get(name.clone()).unwrap(),
+            CreepId::Name(name) => name.resolve(),
         }
     }
 }
@@ -214,14 +244,14 @@ impl HasId for Creep {
 
     fn id(&self) -> Self::Id<Checked> {
         ObjectId::try_new(self)
-            .map_or_else(|| CreepId::Name(self.name()), CreepId::Id)
+            .map_or_else(|| CreepId::Name(CreepNameId::of(self)), CreepId::Id)
     }
 }
 
 #[derive(Error, Debug)]
 pub enum CreepIdCheckError {
     #[error(transparent)] Id(IdResolutionError<Creep>),
-    #[error("Unknown name {0}")] UnknownName(String)
+    #[error("Invalid creep name {0}")] InvalidCreepName(String)
 }
 
 impl CheckFrom for CreepId {
@@ -233,9 +263,8 @@ impl CheckFrom for CreepId {
             CreepId::Id(id) => 
                 Self::Id(id.check().map_err(CreepIdCheckError::Id)?),
             CreepId::Name(name) => {
-                let Some(creep) = game::creeps().get(name.clone()) else {
-                    return Err(CreepIdCheckError::UnknownName(name))
-                };
+                let name: CreepNameId = name.check().map_err(|err: InvalidCreepName| CreepIdCheckError::InvalidCreepName(err.0))?;
+                let creep = name.resolve();
 
                 ObjectId::try_new(&creep).map_or(CreepId::Name(name), CreepId::Id)
             },

@@ -35,9 +35,10 @@ pub fn setup_logging(verbosity: log::LevelFilter) {
         .level(verbosity)
         .format(|out, message, record| {
             out.finish(format_args!(
-                "({}) {}: {}",
+                "({}) {}:{}: {}",
                 record.level(),
-                record.target(),
+                record.file().unwrap_or_else(|| record.target()),
+                record.line().map_or(0, |line| line),
                 message
             ));
         })
@@ -103,4 +104,26 @@ fn panic_hook(info: &panic::PanicHookInfo) {
     }
 
     error!("{fmt_error}");
+}
+
+pub trait LogResultErr<T> {
+    fn log_err(self) -> Option<T>;
+}
+
+impl<T, E: std::error::Error> LogResultErr<T> for Result<T, E> {
+    #[track_caller]
+    fn log_err(self) -> Option<T> {
+        self.map_err(|err| {
+            let loc = panic::Location::caller();
+            log::logger().log(
+                &log::Record::builder()
+                    .args(format_args!("{err}"))
+                    .level(log::Level::Error)
+                    .file(Some(loc.file()))
+                    .line(Some(loc.line()))
+                    .build(),
+            );
+        })
+        .ok()
+    }
 }
