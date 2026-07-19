@@ -373,15 +373,31 @@ impl ColonyExtensions {
     }
 }
 
-trait RoleSelector = Fn(&CreepRole) -> bool;
-fn excavator(role: &CreepRole) -> bool { matches!(role, CreepRole::Excavator(_, _)) }
-fn source_excavator(source: ObjectId<Source>) -> impl RoleSelector { move |role| matches!(role, CreepRole::Excavator(_, source2) if *source2 == source) }
-fn truck(role: &CreepRole) -> bool { matches!(role, CreepRole::Truck(_)) }
-fn import_truck(role: &CreepRole) -> bool { matches!(role, CreepRole::ImportTruck(_)) }
-fn flagship(role: &CreepRole) -> bool { matches!(role, CreepRole::Flagship(_)) }
-fn tugboat(role: &CreepRole) -> bool { matches!(role, CreepRole::Tugboat(_, _)) }
-fn tugboat_for(tugged: CreepId) -> impl RoleSelector { move |role| matches!(role, CreepRole::Tugboat(tugged2, _) if *tugged2 == tugged) }
-fn fabricator(role: &CreepRole) -> bool { matches!(role, CreepRole::Fabricator(_)) }
+enum RoleSelector {
+    Excavator,
+    SourceExcavator(ObjectId<Source>),
+    Truck,
+    ImportTruck,
+    Flagship,
+    Tugboat,
+    TugboatFor(CreepId),
+    Fabricator
+}
+
+impl RoleSelector {
+    fn matches(&self, role: &CreepRole) -> bool {
+        match self {
+            RoleSelector::Excavator => matches!(role, CreepRole::Excavator(_, _)),
+            RoleSelector::SourceExcavator(source) => matches!(role, CreepRole::Excavator(_, source2) if *source2 == *source),
+            RoleSelector::Truck => matches!(role, CreepRole::Truck(_)),
+            RoleSelector::ImportTruck => matches!(role, CreepRole::ImportTruck(_)),
+            RoleSelector::Flagship => matches!(role, CreepRole::Flagship(_)),
+            RoleSelector::Tugboat => matches!(role, CreepRole::Tugboat(_, _)),
+            RoleSelector::TugboatFor(tugged) => matches!(role, CreepRole::Tugboat(tugged2, _) if *tugged2 == *tugged),
+            RoleSelector::Fabricator => matches!(role, CreepRole::Fabricator(_)),
+        }
+    }
+}
 
 #[derive(Deref)]
 struct ColonyCreeps(HashMap<CreepId, RelativePrototype>);
@@ -396,11 +412,11 @@ impl ColonyCreeps {
         )
     }
 
-    fn of_role(&self, role: impl RoleSelector + 'static) -> impl Iterator<Item = &RelativePrototype> {
-        self.0.values().filter(move |proto| role(&proto.role))
+    fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = &RelativePrototype> {
+        self.0.values().filter(move |proto| role.matches(&proto.role))
     }
 
-    fn part_count(&self, role: impl RoleSelector + 'static, part: Part) -> usize {
+    fn part_count(&self, role: RoleSelector, part: Part) -> usize {
         self.of_role(role).map(|proto| proto.body.part_count(part)).sum()
     }
 }
@@ -629,11 +645,11 @@ impl GlobalCreeps {
             .collect())
     }
 
-    fn of_role(&self, role: impl RoleSelector + 'static) -> impl Iterator<Item = &AbsolutePrototype> {
-        self.0.values().filter(move |proto| role(proto.role()))
+    fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = &AbsolutePrototype> {
+        self.0.values().filter(move |proto| role.matches(proto.role()))
     }
 
-    fn part_count(&self, role: impl RoleSelector + 'static, part: Part) -> usize {
+    fn part_count(&self, role: RoleSelector, part: Part) -> usize {
         self.of_role(role).map(|proto| proto.body().part_count(part)).sum()
     }
 }
@@ -707,7 +723,7 @@ fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
         let Some(source) = source.resolve() else { continue; };
         if !roster.has_free() { continue; }
 
-        if roster.local_creeps.of_role(source_excavator(source.id())).next().is_some() { continue; }
+        if roster.local_creeps.of_role(RoleSelector::SourceExcavator(source.id())).next().is_some() { continue; }
 
         roster.schedule(|info| {
             Some(RelativePrototype { 
@@ -755,7 +771,7 @@ fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     };
 
     while roster.has_free() {
-        if roster.local_creeps.part_count(truck, Part::Carry) >= target_carry { break; }
+        if roster.local_creeps.part_count(RoleSelector::Truck, Part::Carry) >= target_carry { break; }
 
         roster.schedule(|info| {
             Some(RelativePrototype {
@@ -772,7 +788,7 @@ fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
 
         let roster = rosters.rosters.get(&colony.name).unwrap();
-        if roster.local_creeps.part_count(import_truck, Part::Carry) > 100 { 
+        if roster.local_creeps.part_count(RoleSelector::ImportTruck, Part::Carry) > 100 { 
             continue; 
         }
 
@@ -791,7 +807,7 @@ fn schedule_flagships(rosters: &mut Rosters, mem: &mut Memory) {
     let coordinator = &mut mem.flagship_coordinator;
     if coordinator.rooms.is_empty() { return; }
 
-    if rosters.global_creeps.of_role(flagship).count() > 0 { return; }
+    if rosters.global_creeps.of_role(RoleSelector::Flagship).count() > 0 { return; }
 
     rosters.schedule(|_| {
         Some(Prototype::relative(  
@@ -837,7 +853,7 @@ fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatReques
 
     for tugged in tugged {
         if !roster.has_free() { continue; }
-        if roster.local_creeps.of_role(tugboat_for(tugged.id())).next().is_some() { continue; }
+        if roster.local_creeps.of_role(RoleSelector::TugboatFor(tugged.id())).next().is_some() { continue; }
 
         roster.schedule_selected(
             |iter| {
@@ -865,7 +881,7 @@ fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
     while roster.has_free() {
-        if roster.local_creeps.part_count(fabricator, Part::Work) >= work_target { break; }
+        if roster.local_creeps.part_count(RoleSelector::Fabricator, Part::Work) >= work_target { break; }
 
         roster.schedule(|info| {
             Some(RelativePrototype { 
@@ -881,7 +897,7 @@ fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
 
         let roster = rosters.rosters.get(&colony.name).unwrap();
-        if roster.local_creeps.of_role(fabricator).next().is_some() { continue; }
+        if roster.local_creeps.of_role(RoleSelector::Fabricator).next().is_some() { continue; }
 
         rosters.schedule(|info| {
             Some(Prototype::absolute(
