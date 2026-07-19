@@ -1,12 +1,12 @@
-use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc, sync::LazyLock};
+use std::{cell::RefCell, collections::{HashMap, hash_map}, iter, ops::{Add, Mul}, rc::Rc, sync::LazyLock};
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use log::{info, warn};
+use log::warn;
 use screeps::{Creep, HasPosition, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, SpawnOptions, Structure, StructureExtension, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, truck::TruckCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName, ObjectId, ResolvableId}, logging::LogResultErr, memory::Memory, names::UsedNames};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName, ObjectId, ResolvableId}, logging::LogResultErr, memory::Memory, names::UsedNames};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -82,15 +82,15 @@ struct RelativeCreepPrototype {
 }
 
 impl RelativeCreepPrototype {
-    fn new(id: &CreepId, data: &CreepData) -> Self {
+    fn new(body: Body, role: CreepRole) -> Self {
+        Self { body, role }
+    }
+
+    fn from_creep(id: &CreepId, data: &CreepData) -> Self {
         Self {
             body: Body(id.resolve().body().into_iter().map(|part| part.part()).collect()),
             role: data.role.clone(),
         }
-    }
-
-    fn part_count(&self, part: Part) -> usize {
-        self.body.part_count(part)
     }
 
     fn with_home(self, home: RoomName) -> AbsoluteCreepPrototype {
@@ -105,9 +105,13 @@ struct AbsoluteCreepPrototype {
 }
 
 impl AbsoluteCreepPrototype {
-    fn new(id: &CreepId, data: &CreepData) -> Self {
+    fn new(body: Body, role: CreepRole, home: RoomName) -> Self {
+        Self { proto: RelativeCreepPrototype { body, role }, home }
+    }
+
+    fn from_creep(id: &CreepId, data: &CreepData) -> Self {
         Self {
-            proto: RelativeCreepPrototype::new(id, data),
+            proto: RelativeCreepPrototype::from_creep(id, data),
             home: data.home
         }
     }
@@ -119,9 +123,27 @@ impl AbsoluteCreepPrototype {
     pub fn role(&self) -> &CreepRole {
         &self.proto.role
     }
+}
 
-    fn part_count(&self, part: Part) -> usize {
-        self.body().part_count(part)
+enum CreepPrototype {
+    Absolute(AbsoluteCreepPrototype),
+    Relative(RelativeCreepPrototype)
+}
+
+impl CreepPrototype {
+    pub fn relative(body: Body, role: CreepRole) -> Self {
+        CreepPrototype::Relative(RelativeCreepPrototype::new(body, role))
+    }
+
+    pub fn absolute(body: Body, role: CreepRole, home: RoomName) -> Self {
+        CreepPrototype::Absolute(AbsoluteCreepPrototype::new(body, role, home))
+    }
+
+    pub fn with_default_home(self, home: RoomName) -> AbsoluteCreepPrototype {
+        match self {
+            CreepPrototype::Absolute(proto) => proto,
+            CreepPrototype::Relative(proto) => AbsoluteCreepPrototype { proto, home },
+        }
     }
 }
 
@@ -145,12 +167,15 @@ impl ColonySyndrome {
                 view.plan.sources.keys()
                     .filter_map(|id| Some(id.resolve()?.id()))
                     .filter_map(|source| {
-                        let Some((excavator, _)) = creeps.0.iter().find(|(_, proto)| matches!(&proto.role, CreepRole::Excavator(_, source2) if source == *source2)) else {
+                        let Some((excavator, proto)) = creeps.0.iter().find(|(_, proto)| matches!(&proto.role, CreepRole::Excavator(_, source2) if source == *source2)) else {
                             return Some((source, ExcavatorSyndrome::NoExcavator));
                         };
 
-                        if creeps.0.values().all(|proto| !matches!(&proto.role, CreepRole::Tugboat(tugged, _) if *excavator == *tugged)) {
-                            return Some((source, ExcavatorSyndrome::NoTugboatFor(excavator.clone())));
+                        let CreepRole::Excavator(state, _) = &proto.role else { unreachable!() };
+
+                        if matches!(state, ExcavatorCreep::Going)
+                            && creeps.0.values().all(|proto| !matches!(&proto.role, CreepRole::Tugboat(tugged, _) if *excavator == *tugged)) {
+                                return Some((source, ExcavatorSyndrome::NoTugboatFor(excavator.clone())));
                         }
 
                         None
@@ -356,7 +381,7 @@ impl ColonyCreeps {
         Self(
             mem.creeps.iter()
                 .filter(|(_, data)| data.home == colony)
-                .map(|(id, data)| (id.clone(), RelativeCreepPrototype::new(id, data)))
+                .map(|(id, data)| (id.clone(), RelativeCreepPrototype::from_creep(id, data)))
                 .collect()
         )
     }
@@ -408,14 +433,14 @@ enum ScheduleDecision {
 }
 
 #[derive(Debug, Error)]
-enum ScheduleError {
-    #[error(transparent)] SpawnError(SpawnCreepErrorCode),
+enum RosterScheduleError {
+    #[error(transparent)] SpawnError(#[from] SpawnCreepErrorCode),
     #[error("No valid spawn")] NoSpawn,
     #[error("No prototype")] NoPrototype,
     #[error("Not enough energy")] NotEnoughEnergy
 }
 
-type ScheduleResult = Result<ScheduleDecision, ScheduleError>;
+type RosterScheduleResult = Result<ScheduleDecision, RosterScheduleError>;
 
 impl ColonyRoster {
     pub fn new(colony: &ColonyView<'_>, mem: &Memory, names: SharedUsedNames) -> Self {
@@ -487,12 +512,12 @@ impl ColonyRoster {
     }
 
     // Not meant to be used by user
-    fn schedule_selected_absolute<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult
+    fn schedule_selected_absolute<S, P>(&mut self, select: S, make_proto: P) -> RosterScheduleResult
     where
         S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Option<usize>,
         P: FnOnce(SpawnInfo) -> Option<AbsoluteCreepPrototype>
     {
-        let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Err(ScheduleError::NoSpawn) };
+        let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Err(RosterScheduleError::NoSpawn) };
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
         let spawn_info = SpawnInfo {
             spawn: spawn.spawn.clone(),
@@ -500,7 +525,7 @@ impl ColonyRoster {
             future_energy: self.extensions.future_energy() + spawn.energy.future_energy()
         };
 
-        let proto = make_proto(spawn_info).ok_or(ScheduleError::NoPrototype)?;
+        let proto = make_proto(spawn_info).ok_or(RosterScheduleError::NoPrototype)?;
 
         assert!(spawn.is_free());
 
@@ -508,7 +533,7 @@ impl ColonyRoster {
         let spawn_cost = cost.min(spawn.energy.current);
         let extension_cost = cost - spawn_cost;
 
-        if cost > spawn.energy.future_energy() + self.extensions.future_energy() { return Err(ScheduleError::NotEnoughEnergy) }
+        if cost > spawn.energy.future_energy() + self.extensions.future_energy() { return Err(RosterScheduleError::NotEnoughEnergy) }
         if cost > spawn.energy.current + self.extensions.energy() { 
             spawn.state = SpawnState::Blocked;
             self.extensions.reserve_future(extension_cost);
@@ -525,7 +550,7 @@ impl ColonyRoster {
             &proto.body().0, 
             &name, 
             &SpawnOptions::new().energy_structures(energy_structures)
-        ).map_err(ScheduleError::SpawnError)?;
+        )?;
 
         let id = game::creeps().get(name).unwrap().id();
         spawn.state = SpawnState::Spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home });
@@ -533,7 +558,7 @@ impl ColonyRoster {
         Ok(ScheduleDecision::Scheduled(id, proto))
     }
 
-    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> ScheduleResult
+    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> RosterScheduleResult
     where
         S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Option<usize>,
         P: FnOnce(SpawnInfo) -> Option<RelativeCreepPrototype>
@@ -548,18 +573,17 @@ impl ColonyRoster {
         result
     }
 
-    pub fn schedule<P>(&mut self, make_proto: P) -> ScheduleResult
+    pub fn default_select(iter: ColonySpawnIterator<'_>) -> Option<usize> {
+        iter.max_by_key(|(_, spawn)| {
+            (spawn.energy.future_energy(), spawn.energy.current, matches!(spawn.ty, ColonySpawnType::Central))
+        }).map(|(ix, _)| ix)
+    }
+
+    pub fn schedule<P>(&mut self, make_proto: P) -> RosterScheduleResult
     where
         P: FnOnce(SpawnInfo) -> Option<RelativeCreepPrototype>
     {
-        self.schedule_selected(
-            |iter|{
-                iter.max_by_key(|(_, spawn)| {
-                    (spawn.energy.future_energy(), spawn.energy.current, matches!(spawn.ty, ColonySpawnType::Central))
-                }).map(|(ix, _)| ix)
-            }, 
-            make_proto
-        )
+        self.schedule_selected(Self::default_select, make_proto)
     }
 
     fn gather_new_creeps(self, mem: &mut Memory) {
@@ -569,21 +593,70 @@ impl ColonyRoster {
     }
 }
 
-struct Rosters(HashMap<RoomName, ColonyRoster>);
+#[derive(Debug, Error)]
+enum RostersScheduleError {
+    #[error("No valid room")] NoRoom,
+    #[error("{0} is not a valid home colony")] InvalidHome(RoomName),
+    #[error(transparent)] Roster(#[from] RosterScheduleError),
+}
+
+type RostersScheduleResult = Result<ScheduleDecision, RostersScheduleError>;
+
+struct Rosters {
+    rosters: HashMap<RoomName, ColonyRoster>,
+    creeps: HashMap<CreepId, AbsoluteCreepPrototype>
+}
 
 impl Rosters {
     fn new(mem: &Memory) -> Self {
         let names = Rc::new(RefCell::new(UsedNames::new()));
 
-        Self(
-            mem.colonies.view_all()
+        Self {
+            rosters: mem.colonies.view_all()
                 .map(|colony| (colony.name, ColonyRoster::new(&colony, mem, names.clone())))
+                .collect(),
+            creeps: mem.creeps.iter()
+                .map(|(id, data)| (id.clone(), AbsoluteCreepPrototype::from_creep(id, data)))
                 .collect()
-        )
+        }
+    }
+
+    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> RostersScheduleResult
+    where
+        S: for<'a> FnOnce(hash_map::Iter<'a, RoomName, ColonyRoster>) -> Option<RoomName>,
+        P: FnOnce(SpawnInfo) -> Option<CreepPrototype>
+    {
+        let Some(choice) = select(self.rosters.iter()) else { return Err(RostersScheduleError::NoRoom) };
+        let roster = self.rosters.get_mut(&choice).expect("Room selection should return a valid room");
+
+        let result = roster.schedule_selected_absolute(
+            ColonyRoster::default_select, 
+            |info| make_proto(info).map(|proto| proto.with_default_home(choice))
+        );
+
+        if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
+            self.rosters.get_mut(&proto.home)
+                .ok_or(RostersScheduleError::InvalidHome(proto.home))?
+                .creeps.0.insert(id.clone(), proto.proto.clone());
+        }
+
+        result.map_err(RostersScheduleError::from)
+    }
+
+    pub fn default_select(iter: hash_map::Iter<'_, RoomName, ColonyRoster>) -> Option<RoomName> {
+        iter.max_by_key(|(_, roster)| roster.max_future_spawnable_energy())
+            .map(|(room, _)| *room)
+    }
+
+    pub fn schedule<P>(&mut self, make_proto: P) -> RostersScheduleResult
+    where
+        P: FnOnce(SpawnInfo) -> Option<CreepPrototype>
+    {
+        self.schedule_selected(Self::default_select, make_proto)
     }
 
     pub fn gather_new_creeps(self, mem: &mut Memory) {
-        for colony_spawns in self.0.into_values() {
+        for colony_spawns in self.rosters.into_values() {
             colony_spawns.gather_new_creeps(mem);
         }
     }
@@ -652,7 +725,7 @@ fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     while roster.has_free() {
         let current_carry: usize = roster.creeps.values()
             .filter(|proto| matches!(proto.role, CreepRole::Truck(_)))
-            .map(|proto| proto.part_count(Part::Carry))
+            .map(|proto| proto.body.part_count(Part::Carry))
             .sum();
 
         if current_carry >= target_carry { break; }
@@ -666,37 +739,44 @@ fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     }
 }
 
-/*static IMPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry]) });
-fn schedule_import_trucks(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+static IMPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry]) });
+fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
     for colony in mem.colonies.view_all() {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
-        if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::ImportTruck(_))).part_count(Part::Carry) > 100 { continue; }
 
-        let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
-        spawn.schedule(used_names, AbsoluteCreepPrototype { 
-            body: IMPORT_TRUCK_TEMPLATE.scaled(spawn.future_energy, None), 
-            role: CreepRole::ImportTruck(ImportTruckState::default()), 
-            home: colony.name
-        });
+        let roster = rosters.rosters.get(&colony.name).unwrap();
+        if roster.creeps.values()
+            .filter(|proto| matches!(proto.role, CreepRole::ImportTruck(_)))
+            .map(|proto| proto.body.part_count(Part::Carry))
+            .sum::<usize>() > 100 { 
+                continue; 
+            }
+
+        rosters.schedule(|info| {
+            Some(CreepPrototype::absolute(
+                IMPORT_TRUCK_TEMPLATE.scaled(info.future_energy, None), 
+                CreepRole::ImportTruck(ImportTruckState::default()), 
+                colony.name
+            ))
+        }).log_err();
     }
 }
 
 static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Claim, Move]) });
-fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+fn schedule_flagships(rosters: &mut Rosters, mem: &mut Memory) {
     let coordinator = &mut mem.flagship_coordinator;
     if coordinator.rooms.is_empty() { return; }
 
-    let flagship_count = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Flagship(_))).count();
+    let flagship_count = rosters.creeps.values().filter(|proto| matches!(proto.role(), CreepRole::Flagship(_))).count();
     if flagship_count > 0 { return; }
 
-    let Some(spawner) = schedule.spawners().filter_free().next() else { return; };
-
-    spawner.schedule_or_block(used_names, AbsoluteCreepPrototype { 
-        body: FLAGSHIP_TEMPLATE.clone(), 
-        role: CreepRole::Flagship(FlagshipCreep::default()), 
-        home: spawner.room
-    });
-}*/
+    rosters.schedule(|_| {
+        Some(CreepPrototype::relative(  
+            FLAGSHIP_TEMPLATE.clone(), 
+            CreepRole::Flagship(FlagshipCreep::default())
+        ))
+    }).log_err();
+}
 
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     let tugged_body = Body::from(tugged);
@@ -767,7 +847,7 @@ fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     while roster.has_free() {
         let curr_work_count: usize = roster.creeps.values()
             .filter(|proto| matches!(proto.role, CreepRole::Fabricator(_)))
-            .map(|proto| proto.part_count(Part::Work))
+            .map(|proto| proto.body.part_count(Part::Work))
             .sum();
 
         if curr_work_count >= work_target { break; }
@@ -781,25 +861,28 @@ fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     }
 }
 
-/*fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
     for colony in mem.colonies.view_all() {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
-        if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).next().is_some() { continue; }
 
-        let Some(spawn) = schedule.spawners().filter_free().next() else { continue; };
-        spawn.schedule(used_names, AbsoluteCreepPrototype { 
-            body: FABRICATOR_TEMPLATE.scaled(spawn.future_energy, None), 
-            role: CreepRole::Fabricator(FabricatorCreep::default()), 
-            home: colony.name
-        });
+        let roster = rosters.rosters.get(&colony.name).unwrap();
+        if roster.creeps.values().any(|proto| matches!(proto.role, CreepRole::Fabricator(_))) { continue; }
+
+        rosters.schedule(|info| {
+            Some(CreepPrototype::absolute(
+                FABRICATOR_TEMPLATE.scaled(info.future_energy, None), 
+                CreepRole::Fabricator(FabricatorCreep::default()), 
+                colony.name
+            ))
+        }).log_err();
     }
-}*/
+}
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut rosters = Rosters::new(mem);
 
-    for (colony, roster) in &mut rosters.0 {
+    for (colony, roster) in &mut rosters.rosters {
         let view = mem.colonies.view(*colony).unwrap();
 
         schedule_excavators(roster, &view);
@@ -808,9 +891,9 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
         schedule_fabricators(roster, &view);
     }
 
-    /*schedule_remote_fabricators(mem, &mut schedule, &mut used_names);
-    schedule_flagships(mem, &mut schedule, &mut used_names);
-    schedule_import_trucks(mem, &mut schedule, &mut used_names);*/
+    schedule_remote_fabricators(&mut rosters, mem);
+    schedule_flagships(&mut rosters, mem);
+    schedule_import_trucks(&mut rosters, mem);
 
     rosters.gather_new_creeps(mem);
 }
