@@ -157,6 +157,29 @@ impl ColonySyndrome {
                     }).collect()
         }
     }
+
+    fn any_problems(&self) -> bool {
+        !self.any_trucks || !self.any_excavating_excavators || !self.excavators.is_empty()
+    }
+
+    fn tugged_order(&self) -> Option<Vec<Creep>> {
+        if self.any_problems() {
+            Some(
+                if self.any_trucks {
+                    self.excavators.values().filter_map(|excavator| {
+                        match excavator {
+                            ExcavatorSyndrome::NoExcavator => None,
+                            ExcavatorSyndrome::NoTugboatFor(creep ) => Some(creep.resolve())
+                        }
+                    }).collect()
+                } else { 
+                    Vec::new()
+                }
+            )
+        } else { 
+            None 
+        }
+    }
 }
 
 enum EnergyPoolType {
@@ -619,7 +642,11 @@ fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
         .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
         .sum::<f32>();
 
-    let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
+    let target_carry = if roster.syndrome.any_problems() { 
+        1
+    } else {
+        ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize
+    };
 
     while roster.has_free() {
         let current_carry: usize = roster.creeps.values()
@@ -695,7 +722,15 @@ impl TugboatRequests {
 }
 
 fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRequests) {
-    for tugged in &tugboat_requests.0 {
+    let tugged = roster.syndrome.tugged_order()
+        .unwrap_or_else(|| {
+            tugboat_requests.0.iter()
+            .filter(|tugged| roster.creeps.contains_key(&tugged.id()))
+            .cloned()
+            .collect_vec()
+        });
+
+    for tugged in tugged {
         if !roster.has_free() { continue; }
 
         let already_exists = roster.creeps.values()
@@ -709,7 +744,7 @@ fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatReques
             },
             |info| {
                 Some(RelativeCreepPrototype { 
-                    body: get_tugboat_body(info.future_energy, tugged), 
+                    body: get_tugboat_body(info.future_energy, &tugged), 
                     role: CreepRole::Tugboat(tugged.id(), info.spawn.id()) 
                 })
             }
@@ -722,6 +757,8 @@ const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
 const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
 fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+    if roster.syndrome.any_problems() { return }
+
     let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
     let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
@@ -763,8 +800,8 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     for (colony, roster) in &mut rosters.0 {
         let view = mem.colonies.view(*colony).unwrap();
 
-        schedule_tugboats(roster, &tugboat_requests);
         schedule_excavators(roster, &view);
+        schedule_tugboats(roster, &tugboat_requests);
         schedule_trucks(roster, &view);
         schedule_fabricators(roster, &view);
     }
