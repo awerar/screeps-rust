@@ -267,10 +267,6 @@ struct ExtensionGroup {
 
 impl ExtensionGroup {
     pub fn new(extensions: Vec<StructureExtension>, refilled: bool, central: bool) -> Self {
-        let extensions = extensions.into_iter()
-            .filter(|extension| extension.used_energy_capacity() > 0)
-            .collect_vec();
-
         Self { 
             energy: EnergyPool::new(
                 extensions.iter().map(EnergyStoreAccessors::used_energy_capacity).sum::<u32>(),
@@ -279,7 +275,10 @@ impl ExtensionGroup {
                     extensions.iter().map(EnergyStoreAccessors::energy_capacity).sum::<u32>()
                 )
             ),
-            extensions_left: extensions,
+            extensions_left: extensions.into_iter()
+                .filter(|extension| extension.used_energy_capacity() > 0)
+                .rev()
+                .collect_vec(),
             central
         }
     }
@@ -320,7 +319,7 @@ impl ColonyExtensions {
     }
 
     fn allocate(&mut self, mut amount: u32) -> Vec<StructureExtension> {
-        assert!(self.energy() <= amount);
+        assert!(self.energy() >= amount);
 
         let mut extensions = Vec::new();
         for group in self.0.iter_mut().sorted_by_key(|group| !group.energy.is_refilled()) {
@@ -329,14 +328,14 @@ impl ColonyExtensions {
             let group_amount = amount.min(group.energy.current);
             amount -= group_amount;
 
-            extensions.extend(group.allocate(amount));
+            extensions.extend(group.allocate(group_amount));
         }
 
         extensions
     }
 
     fn reserve_future(&mut self, mut amount: u32) {
-        assert!(self.future_energy() <= amount);
+        assert!(self.future_energy() >= amount);
 
         for group in self.0.iter_mut().sorted_by_key(|group| !group.energy.is_refilled()) {
             if amount == 0 { return }
@@ -344,7 +343,7 @@ impl ColonyExtensions {
             let group_amount = amount.min(group.energy.future_energy());
             amount -= group_amount;
 
-            group.reserve_future(amount);
+            group.reserve_future(group_amount);
         }
     }
 }
@@ -700,8 +699,9 @@ fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     let tugged_body = Body::from(tugged);
     let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.part_count(Part::Move));
+    
     let tugged_empty_carry = tugged.store().get_free_capacity(None).div_floor(50) as usize;
-    let target_tugboat_move_parts = target_tugboat_move_parts - tugged_empty_carry;
+    let target_tugboat_move_parts = target_tugboat_move_parts.saturating_sub(tugged_empty_carry);
 
     if target_tugboat_move_parts == 0 {
         warn!("Creep {} has requested tugboat, but doesn't actually benefit from it", tugged.name());
