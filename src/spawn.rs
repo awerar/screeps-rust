@@ -1,11 +1,12 @@
-use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc, sync::LazyLock};
 
 use derive_deref::Deref;
 use itertools::Itertools;
+use log::warn;
 use screeps::{Creep, HasPosition, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, SpawnOptions, StructureExtension, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, logging::LogResultErr, memory::Memory, names::UsedNames};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, truck::TruckCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName, ObjectId, ResolvableId}, logging::LogResultErr, memory::Memory, names::UsedNames};
 
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
@@ -374,6 +375,7 @@ impl<'a> Iterator for ColonySpawnIterator<'a> {
 }
 
 struct SpawnInfo {
+    spawn: StructureSpawn,
     energy: u32,
     future_energy: u32
 }
@@ -471,6 +473,7 @@ impl ColonyRoster {
         let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Err(ScheduleError::NoSpawn) };
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
         let spawn_info = SpawnInfo {
+            spawn: spawn.spawn.clone(),
             energy: self.extensions.energy() + spawn.energy.current,
             future_energy: self.extensions.future_energy() + spawn.energy.future_energy()
         };
@@ -586,7 +589,6 @@ fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
     }
 }
 
-/*
 // Truck capacity C = 50y energy
 // Roundtrip time T = 2x ticks
 // Production P = 10 energy per tick
@@ -611,30 +613,32 @@ fn get_truck_body(energy: u32) -> Body {
     TRUCK_TEMPLATE.scaled(energy.min(*MAX_TRUCK_ENERGY), Some(2))
 }
 
-fn schedule_trucks(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames) {
-    for colony in mem.colonies.view_all() {
-        let total_carry_for_sources = colony.plan.sources.values()
-            .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
-            .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
-            .sum::<f32>();
+fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+    let total_carry_for_sources = colony.plan.sources.values()
+        .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
+        .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
+        .sum::<f32>();
 
-        let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
+    let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
 
-        loop {
-            let current_carry = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Truck(_))).part_count(Part::Carry);
-            if current_carry >= target_carry { break; }
+    while roster.has_free() {
+        let current_carry: usize = roster.creeps.values()
+            .filter(|proto| matches!(proto.role, CreepRole::Truck(_)))
+            .map(|proto| proto.part_count(Part::Carry))
+            .sum();
 
-            let Some(spawner) = schedule.spawners().filter_free().next() else { break };
-            if spawner.schedule_or_block(used_names, AbsoluteCreepPrototype { 
-                role: CreepRole::Truck(TruckCreep::default()), 
-                home: colony.name, 
-                body: get_truck_body(spawner.future_energy)
-            }).is_none() { break }
-        }
+        if current_carry >= target_carry { break; }
+
+        roster.schedule(|info| {
+            Some(RelativeCreepPrototype {
+                body: get_truck_body(info.future_energy),
+                role: CreepRole::Truck(TruckCreep::default())
+            })
+        }).log_err();
     }
 }
 
-static IMPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry]) });
+/*static IMPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Move, Carry]) });
 fn schedule_import_trucks(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
@@ -664,11 +668,11 @@ fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names
         role: CreepRole::Flagship(FlagshipCreep::default()), 
         home: spawner.room
     });
-}
+}*/
 
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     let tugged_body = Body::from(tugged);
-    let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.num(Part::Move));
+    let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.part_count(Part::Move));
     let tugged_empty_carry = tugged.store().get_free_capacity(None).div_floor(50) as usize;
     let target_tugboat_move_parts = target_tugboat_move_parts - tugged_empty_carry;
 
@@ -677,7 +681,7 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     }
 
     Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (energy / 50) as usize)
-}*/
+}
 
 pub struct TugboatRequests(Vec<Creep>);
 impl TugboatRequests {
@@ -690,19 +694,26 @@ impl TugboatRequests {
     }
 }
 
-/*fn schedule_tugboats(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames, tugboat_requests: &TugboatRequests) {
+fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRequests) {
     for tugged in &tugboat_requests.0 {
-        let already_exists = schedule.all_creeps()
+        if !roster.has_free() { continue; }
+
+        let already_exists = roster.creeps.values()
             .any(|proto| matches!(&proto.role, CreepRole::Tugboat(tugged2, _) if *tugged2 == tugged.id()));
         if already_exists { continue; }
 
-        let Some(spawner) = schedule.spawners().filter_free().next() else { continue; };
-
-        spawner.schedule_or_block(used_names, AbsoluteCreepPrototype { 
-            body: get_tugboat_body(spawner.future_energy, tugged),
-            role: CreepRole::Tugboat(tugged.id(), spawner.structure.id()), 
-            home: schedule.view().name
-        });
+        roster.schedule_selected(
+            |iter| {
+                iter.min_by_key(|(_, spawn)| spawn.spawn.pos().get_range_to(tugged.pos()))
+                    .map(|(ix, _)| ix)
+            },
+            |info| {
+                Some(RelativeCreepPrototype { 
+                    body: get_tugboat_body(info.future_energy, tugged), 
+                    role: CreepRole::Tugboat(tugged.id(), info.spawn.id()) 
+                })
+            }
+        ).log_err();
     }
 }
 
@@ -710,28 +721,28 @@ const TARGET_IDLE_FABRICATOR_WORK_COUNT: usize = 20;
 const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
 const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body(vec![Carry, Carry, Move, Work, Carry]) });
-fn schedule_fabricators(schedule: &mut ColonySpawnSchedule<'_, '_>, used_names: &mut UsedNames) {
-    for colony in mem.colonies.view_all() {
-        let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
-        let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
+fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+    let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
+    let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
 
-        loop {
-            let curr_work_count = schedule.all_creeps().filter_role(|role| matches!(role, CreepRole::Fabricator(_))).part_count(Part::Work);
-            if curr_work_count >= work_target { break; }
+    while roster.has_free() {
+        let curr_work_count: usize = roster.creeps.values()
+            .filter(|proto| matches!(proto.role, CreepRole::Fabricator(_)))
+            .map(|proto| proto.part_count(Part::Work))
+            .sum();
 
-            let Some(spawner) = schedule.spawners().filter_free().next() else { break; };
-            let body = FABRICATOR_TEMPLATE.scaled(spawner.future_energy, None);
+        if curr_work_count >= work_target { break; }
 
-            if spawner.schedule(used_names, AbsoluteCreepPrototype { 
-                body, 
-                role: CreepRole::Fabricator(FabricatorCreep::default()), 
-                home: spawner.room
-            }).is_none() { break; }
-        }
+        roster.schedule(|info| {
+            Some(RelativeCreepPrototype { 
+                body: FABRICATOR_TEMPLATE.scaled(info.future_energy, None), 
+                role: CreepRole::Fabricator(FabricatorCreep::default()) 
+            })
+        }).log_err();
     }
 }
 
-fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
+/*fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names: &mut UsedNames) {
     for colony in mem.colonies.view_all() {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
         if schedule.all_creeps().filter_home(colony.name).filter_role(|role| matches!(role, CreepRole::Fabricator(_))).next().is_some() { continue; }
@@ -749,13 +760,13 @@ fn schedule_remote_fabricators(mem: &mut Memory, schedule: &mut SpawnSchedule, u
 pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut rosters = Rosters::new(mem);
 
-    for (colony, roster) in rosters.0.iter_mut() {
+    for (colony, roster) in &mut rosters.0 {
         let view = mem.colonies.view(*colony).unwrap();
 
-        //schedule_tugboats(&mut schedule, &mut used_names, &tugboat_requests);
+        schedule_tugboats(roster, &tugboat_requests);
         schedule_excavators(roster, &view);
-        //schedule_trucks(&mut schedule, &mut used_names);
-        //schedule_fabricators(&mut schedule, &mut used_names);
+        schedule_trucks(roster, &view);
+        schedule_fabricators(roster, &view);
     }
 
     /*schedule_remote_fabricators(mem, &mut schedule, &mut used_names);
