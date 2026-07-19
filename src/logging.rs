@@ -113,8 +113,8 @@ pub trait LogResultErr<T> {
 impl<T, E: std::error::Error> LogResultErr<T> for Result<T, E> {
     #[track_caller]
     fn log_err(self) -> Option<T> {
+        let loc = panic::Location::caller();
         self.map_err(|err| {
-            let loc = panic::Location::caller();
             log::logger().log(
                 &log::Record::builder()
                     .args(format_args!("{err}"))

@@ -2,8 +2,8 @@ use std::{cell::RefCell, collections::HashMap, iter, ops::{Add, Mul}, rc::Rc, sy
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use log::warn;
-use screeps::{Creep, HasPosition, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, SpawnOptions, StructureExtension, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
+use log::{info, warn};
+use screeps::{Creep, HasPosition, MAX_CREEP_SIZE, Part, RoomName, SPAWN_ENERGY_CAPACITY, Source, SpawnOptions, Structure, StructureExtension, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
 use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, truck::TruckCreep, }, domain_traits::{CreepId, EnergyStoreAccessors, HasId, HasName, ObjectId, ResolvableId}, logging::LogResultErr, memory::Memory, names::UsedNames};
@@ -207,7 +207,7 @@ impl EnergyPool {
     pub fn future_energy(&self) -> u32 {
         match &self.ty {
             EnergyPoolType::Finite => self.current,
-            EnergyPoolType::RefilledTo(capacity) => *capacity,
+            EnergyPoolType::RefilledTo(capacity) => (*capacity).max(self.current),
         }
     }
 
@@ -517,16 +517,18 @@ impl ColonyRoster {
 
         spawn.energy.current -= spawn_cost;
         let extensions = self.extensions.allocate(extension_cost);
+        let energy_structures = vec![Structure::from(spawn.spawn.clone())].into_iter()
+            .chain(extensions.into_iter().map(Structure::from));
 
         let name = self.names.borrow_mut().generate_new(proto.role());
         spawn.spawn.spawn_creep_with_options(
             &proto.body().0, 
             &name, 
-            &SpawnOptions::new().energy_structures(extensions)
+            &SpawnOptions::new().energy_structures(energy_structures)
         ).map_err(ScheduleError::SpawnError)?;
 
         let id = game::creeps().get(name).unwrap().id();
-        spawn.state = SpawnState::Spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home.clone() });
+        spawn.state = SpawnState::Spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home });
         
         Ok(ScheduleDecision::Scheduled(id, proto))
     }
@@ -589,7 +591,7 @@ impl Rosters {
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };
-    let excavator_works = energy.saturating_sub(50).div_floor(Part::Work.cost()).min(target_excavator_works);
+    let excavator_works = energy.saturating_sub(Part::Carry.cost()).div_floor(Part::Work.cost()).min(target_excavator_works);
     Body::from(Part::Carry) + Body::from(Part::Work) * (excavator_works as usize)
 }
 
@@ -699,7 +701,7 @@ fn schedule_flagships(mem: &mut Memory, schedule: &mut SpawnSchedule, used_names
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     let tugged_body = Body::from(tugged);
     let target_tugboat_move_parts = tugged_body.0.len().saturating_sub(2 * tugged_body.part_count(Part::Move));
-    
+
     let tugged_empty_carry = tugged.store().get_free_capacity(None).div_floor(50) as usize;
     let target_tugboat_move_parts = target_tugboat_move_parts.saturating_sub(tugged_empty_carry);
 
