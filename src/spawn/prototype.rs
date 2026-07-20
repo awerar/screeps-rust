@@ -32,6 +32,14 @@ impl Body {
         }
     }
 
+    pub fn of_creep(creep: &Creep) -> Self {
+        Body(creep.body().into_iter().map(|bodypart| bodypart.part()).collect())
+    }
+
+    pub fn of_part(part: Part, count: usize) -> Self {
+        Body(iter::repeat_n(part, count).collect())
+    }
+
     pub fn energy_required(&self) -> u32 {
         self.0.iter().map(|part| part.cost()).sum()
     }
@@ -65,21 +73,9 @@ impl Add for Body {
     }
 }
 
-impl From<Part> for Body {
-    fn from(value: Part) -> Self {
-        Body(vec![value])
-    }
-}
-
 impl From<Vec<Part>> for Body {
     fn from(parts: Vec<Part>) -> Self {
         Body(parts)
-    }
-}
-
-impl From<&Creep> for Body {
-    fn from(value: &Creep) -> Self {
-        Body(value.body().into_iter().map(|bodypart| bodypart.part()).collect())
     }
 }
 

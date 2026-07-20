@@ -9,7 +9,7 @@ use crate::{colony::{ColonyView, planning::plan::SourcePlan, steps::ColonyStep},
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };
     let excavator_works = energy.saturating_sub(Part::Carry.cost()).div_floor(Part::Work.cost()).min(target_excavator_works);
-    Body::from(Part::Carry) + Body::from(Part::Work) * (excavator_works as usize)
+    Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, excavator_works as usize)
 }
 
 pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
@@ -112,7 +112,7 @@ pub fn schedule_flagships(rosters: &mut Rosters, mem: &mut Memory) {
 }
 
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
-    let tugged_body = Body::from(tugged);
+    let tugged_body = Body::of_creep(tugged);
     let target_tugboat_move_parts = tugged_body.total_parts().saturating_sub(2 * tugged_body.part_count(Part::Move));
 
     let tugged_empty_carry = tugged.store().get_free_capacity(None).div_floor(50) as usize;
@@ -122,7 +122,7 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
         warn!("Creep {} has requested tugboat, but doesn't actually benefit from it", tugged.name());
     }
 
-    Body::from(Part::Move) * target_tugboat_move_parts.clamp(0, (energy / 50) as usize)
+    Body::of_part(Part::Move, target_tugboat_move_parts.clamp(0, (energy / 50) as usize))
 }
 
 pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRequests) {
