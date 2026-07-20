@@ -234,13 +234,17 @@ impl ColonyRoster {
         assert!(spawn.is_free());
 
         let cost = proto.body().energy_required();
+
         let spawn_cost = cost.min(spawn.energy.current);
+        let future_spawn_cost = cost.min(spawn.energy.future_energy());
+
         let extension_cost = cost - spawn_cost;
+        let future_extension_cost = cost - future_spawn_cost;
 
         if cost > spawn.energy.future_energy() + self.extensions.future_energy() { return Err(ColonyScheduleError::NotEnoughEnergy) }
         if cost > spawn.energy.current + self.extensions.energy() {
             spawn.block();
-            self.extensions.reserve_future(extension_cost);
+            self.extensions.reserve_future(future_extension_cost);
             return Ok(ScheduleDecision::WaitingForEnergy)
         }
 

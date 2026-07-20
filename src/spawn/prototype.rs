@@ -8,7 +8,7 @@ use crate::{creeps::{CreepData, CreepRole}, domain_traits::{CreepId, ResolvableI
 pub struct Body(Vec<Part>);
 
 impl Body {
-    pub fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Body {
+    pub fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Option<Body> {
         let min_parts = min_parts.unwrap_or(self.0.len());
 
         let mut counts: Vec<usize> = vec![0; self.0.len()];
@@ -19,11 +19,13 @@ impl Body {
             for (i, part )in self.0.iter().enumerate() {
                 cost += part.cost();
 
-                if part_count >= MAX_CREEP_SIZE || (energy < cost && part_count as usize >= min_parts)  {
-                    return Body(self.0.iter()
+                if part_count >= MAX_CREEP_SIZE || energy < cost  {
+                    return (part_count as usize >= min_parts).then(|| {
+                        Body(self.0.iter()
                         .zip(counts)
                         .flat_map(|(part, count)| vec![*part; count].into_iter())
-                        .collect());
+                        .collect())
+                    });
                 }
 
                 counts[i] += 1;

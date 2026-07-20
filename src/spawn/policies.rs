@@ -48,7 +48,7 @@ const TRUCK_CARRY_MARGIN: f32 = 0.25;
 
 static TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Move, Carry, Carry]) });
 static MAX_TRUCK_ENERGY: LazyLock<u32> = LazyLock::new(||  (TRUCK_TEMPLATE.clone() * 10).energy_required());
-fn get_truck_body(energy: u32) -> Body {
+fn get_truck_body(energy: u32) -> Option<Body> {
     TRUCK_TEMPLATE.scaled(energy.min(*MAX_TRUCK_ENERGY), Some(2))
 }
 
@@ -69,7 +69,7 @@ pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
 
         roster.schedule(|info| {
             Some(RelativePrototype::new(
-                get_truck_body(info.future_energy),
+                get_truck_body(info.future_energy)?,
                 CreepRole::Truck(TruckCreep::default())
             ))
         }).log_err();
@@ -88,7 +88,7 @@ pub fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
 
         rosters.schedule(|info| {
             Some(Prototype::absolute(
-                IMPORT_TRUCK_TEMPLATE.scaled(info.future_energy, None),
+                IMPORT_TRUCK_TEMPLATE.scaled(info.future_energy, None)?,
                 CreepRole::ImportTruck(ImportTruckState::default()),
                 colony.name
             ))
@@ -168,7 +168,7 @@ pub fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) 
 
         roster.schedule(|info| {
             Some(RelativePrototype::new(
-                FABRICATOR_TEMPLATE.scaled(info.future_energy, None),
+                FABRICATOR_TEMPLATE.scaled(info.future_energy, None)?,
                 CreepRole::Fabricator(FabricatorCreep::default())
             ))
         }).log_err();
@@ -184,7 +184,7 @@ pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
 
         rosters.schedule(|info| {
             Some(Prototype::absolute(
-                FABRICATOR_TEMPLATE.scaled(info.future_energy, None),
+                FABRICATOR_TEMPLATE.scaled(info.future_energy, None)?,
                 CreepRole::Fabricator(FabricatorCreep::default()),
                 colony.name
             ))
