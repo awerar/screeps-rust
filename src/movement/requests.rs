@@ -6,13 +6,29 @@ use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
 use screeps::{Creep, HasPosition, Position, RectStyle, RoomVisual, StructureSpawn, game};
 
-use crate::{domain_traits::{CreepId, HasId, ResolvableId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, spawn::TugboatRequests, statemachine::ShouldYield};
+use crate::{domain_traits::{CreepId, HasId, ResolvableId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, statemachine::ShouldYield};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(CreepId);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugged(CreepId);
+
+pub struct TugboatRequests(Vec<Creep>);
+
+impl TugboatRequests {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn add_request_for(&mut self, tugged: Creep) {
+        self.0.push(tugged);
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Creep> {
+        self.0.iter()
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MoveToResult {

@@ -4,7 +4,7 @@ use anyhow::Result;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::Body, statemachine::ShouldYield};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::prototype::Body, statemachine::ShouldYield};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
