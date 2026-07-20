@@ -78,7 +78,7 @@ impl RawMoveCreeps {
 }
 
 fn has_move_parts(creep: &Creep) -> bool {
-    Body::from(creep).part_count(Part::Move) > 0
+    Body::of_creep(creep).part_count(Part::Move) > 0
 }
 
 impl RawTrain {

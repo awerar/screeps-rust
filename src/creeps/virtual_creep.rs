@@ -165,7 +165,7 @@ impl VirtualCreep {
     }
 
     pub fn body(&self) -> Body {
-        Body::from(&self.creep)
+        Body::of_creep(&self.creep)
     }
 
     pub fn ticks_to_live(&self) -> Option<u32> {
