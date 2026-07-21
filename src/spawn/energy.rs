@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use screeps::{SPAWN_ENERGY_CAPACITY, Source, StructureExtension, StructureSpawn};
+use screeps::{Direction, SPAWN_ENERGY_CAPACITY, Source, StructureExtension, StructureSpawn};
 
 use crate::{creeps::CreepData, domain_traits::{CreepId, EnergyStoreAccessors, ObjectId}, memory::Memory};
 
@@ -40,12 +40,12 @@ impl EnergyPool {
 enum SpawnState {
     Free,
     Blocked,
-    Spawning(CreepId, CreepData)
+    Spawning(CreepId, CreepData, Vec<Direction>)
 }
 
 pub enum ColonySpawnType {
     Central,
-    Source(ObjectId<Source>)
+    Source(ObjectId<Source>, Direction)
 }
 
 pub struct ColonySpawn {
@@ -77,17 +77,30 @@ impl ColonySpawn {
         matches!(self.ty, ColonySpawnType::Central)
     }
 
+    pub fn is_source_spawn(&self, source: &ObjectId<Source>) -> bool {
+        matches!(self.ty, ColonySpawnType::Source(source2, _) if *source == source2)
+    }
+
+    pub fn source_direction(&self) -> Option<Direction> {
+        if let ColonySpawnType::Source(_, dir) = &self.ty { 
+            Some(*dir) 
+        } else { 
+            None 
+        }
+    }
+
     pub fn block(&mut self) {
         self.state = SpawnState::Blocked;
     }
 
-    pub fn begin_spawning(&mut self, id: CreepId, data: CreepData) {
-        self.state = SpawnState::Spawning(id, data);
+    pub fn begin_spawning(&mut self, id: CreepId, data: CreepData, dirs: Vec<Direction>) {
+        self.state = SpawnState::Spawning(id, data, dirs);
     }
 
     pub fn gather_new_creeps(self, mem: &mut Memory) {
-        if let SpawnState::Spawning(id, creep_data) = self.state  {
-            mem.creeps.insert(id, creep_data);
+        if let SpawnState::Spawning(id, creep_data, dirs) = self.state  {
+            mem.creeps.insert(id.clone(), creep_data);
+            mem.movement.spawning_directions.insert(id, dirs);
         }
     }
 }

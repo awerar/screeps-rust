@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet}, hash::Hash, marker::PhantomData, ops:
 use derive_deref::{Deref, DerefMut};
 use derive_where::derive_where;
 use itertools::Itertools;
-use screeps::{Position, RoomName};
+use screeps::{Direction, Position, RoomName};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 
 use crate::ids::{CheckState, Checked, Unchecked};
@@ -15,6 +15,7 @@ impl TriviallyChecked for u32 {}
 impl TriviallyChecked for Position {}
 impl TriviallyChecked for () {}
 impl TriviallyChecked for RoomName {}
+impl TriviallyChecked for Vec<Direction> {}
 
 pub trait CheckFrom: Sized {
     type Unchecked: DeserializeOwned;

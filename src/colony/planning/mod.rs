@@ -91,7 +91,7 @@ fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<V
         );
 
         planner.plan_road(main_road_pos, BuildArterialRoads);
-        //planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?; //TODO: Fix
+        planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?;
 
         let mut slots = slots.filter(|slot| *slot != main_road_pos);
         let link_slot = slots.next().ok_or(anyhow!("No slots for link around source"))?;

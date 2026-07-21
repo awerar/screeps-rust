@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
+use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -182,10 +182,12 @@ impl ColonyPlanner {
             .map(|source| source.id())
             .map(|source| {
                 let container = self.get_structure_ref(SourceContainer(source))?;
+                let spawn = self.get_structure_ref(SourceSpawn(source))?;
 
                 let plan = SourcePlan {
+                    spawn_direction: spawn.pos.get_direction_to(container.pos).unwrap(),
                     distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
-                    spawn: /*self.get_structure_ref(SourceSpawn(source))?.into() /* TODO: FIX*/*/ OptionalPlannedStructureRef(None),
+                    spawn: spawn.into(),
                     container: container.into(),
                     link: self.get_structure_ref(SourceLink(source))?.into(),
                     extensions: self.get_structure_refs(SourceExtension(source)),

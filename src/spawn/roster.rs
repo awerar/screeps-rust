@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::{HashMap, hash_map}, rc::Rc};
 
 use derive_deref::Deref;
 use itertools::Itertools;
-use screeps::{Creep, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
+use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
 use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyExtensions, ColonySpawn, ColonySpawnType, ExtensionGroup}, prototype::{AbsolutePrototype, Prototype, RelativePrototype}}};
@@ -163,14 +163,32 @@ impl ColonyRoster {
             ));
         }
 
+        let mut spawns = Vec::new();
+
+        spawns.extend(
+            colony.plan.center.spawn.resolve().map(|spawn| {
+                ColonySpawn::new(
+                    spawn,
+                    ColonySpawnType::Central,
+                    syndrome.any_trucks && syndrome.any_excavating_excavators
+                )
+            })
+        );
+
+        spawns.extend(
+            colony.plan.sources.iter().filter_map(|(source, plan)| {
+                let source = source.resolve()?.id();
+
+                Some(ColonySpawn::new(
+                    plan.spawn.resolve()?,
+                    ColonySpawnType::Source(source, plan.spawn_direction),
+                    !syndrome.excavators.contains_key(&source)
+                ))
+            })
+        );
+
         Self {
-            spawns:
-                colony.plan.center.spawn.resolve().map(|spawn| {
-                    ColonySpawn::new(
-                        spawn,
-                        ColonySpawnType::Central,
-                        syndrome.any_trucks && syndrome.any_excavating_excavators)
-                }).into_iter().collect(),
+            spawns,
             extensions: ColonyExtensions::new(extensions),
             names,
             name: colony.name,
@@ -260,8 +278,18 @@ impl ColonyRoster {
             &SpawnOptions::new().energy_structures(energy_structures)
         )?;
 
+        let dirs = if let Some(dir) = spawn.source_direction() {
+            if let CreepRole::Excavator(_, source) = proto.role() && spawn.is_source_spawn(source) {
+                vec![dir]
+            } else {
+                Direction::iter().filter(|dir2| **dir2 != dir).copied().collect_vec()
+            }
+        } else {
+            Direction::iter().copied().collect_vec()
+        };
+
         let id = game::creeps().get(name).unwrap().id();
-        spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home() });
+        spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home() }, dirs);
 
         Ok(ScheduleDecision::Scheduled(id, proto))
     }

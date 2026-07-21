@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, hash::Hash, ops::Deref};
 
-use screeps::{Creep, HasPosition, Position, SharedCreepProperties, Spawning, StructureSpawn};
+use screeps::{Creep, Direction, HasPosition, Position, SharedCreepProperties, Spawning, StructureSpawn};
 use serde::{Deserialize, Serialize};
 use crate::{check::{TriviallyChecked, filter_check_any_key_map}, commands::{Command, pop_command}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}};
 
@@ -27,7 +27,10 @@ fn has_selected(creep: &Creep) -> bool {
 #[derive(Serialize, Deserialize, Default)]
 pub struct MovementMemory {
     #[serde(with = "filter_check_any_key_map")]
-    paths: HashMap<CreepId, CachedPath>
+    paths: HashMap<CreepId, CachedPath>,
+
+    #[serde(with = "filter_check_any_key_map")]
+    pub spawning_directions: HashMap<CreepId, Vec<Direction>>
 }
 
 #[derive(Serialize, Deserialize)]

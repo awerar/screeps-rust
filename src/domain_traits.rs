@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use derive_where::derive_where;
-use screeps::{Creep, ResourceType, action_error_codes::{CreepRepairErrorCode, TransferErrorCode, WithdrawErrorCode}, game};
+use screeps::{Creep, ResourceType, Spawning, action_error_codes::{CreepRepairErrorCode, TransferErrorCode, WithdrawErrorCode}, game};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wasm_bindgen::JsCast;
@@ -245,6 +245,14 @@ impl HasId for Creep {
     fn id(&self) -> Self::Id<Checked> {
         ObjectId::try_new(self)
             .map_or_else(|| CreepId::Name(CreepNameId::of(self)), CreepId::Id)
+    }
+}
+
+impl HasId for Spawning {
+    type Id<S: CheckState> = CreepId<S>;
+
+    fn id(&self) -> Self::Id<Checked> {
+        game::creeps().get(self.name().into()).unwrap().id()
     }
 }
 

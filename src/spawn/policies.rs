@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyView, planning::plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };
@@ -16,15 +16,25 @@ pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
     for (source, source_plan) in &view.plan.sources {
         let Some(source) = source.resolve() else { continue; };
         if !roster.has_free() { continue; }
-
         if roster.local_creeps().of_role(RoleSelector::SourceExcavator(source.id())).next().is_some() { continue; }
 
-        roster.schedule(|info| {
-            Some(RelativePrototype::new(
-                get_excavator_body(info.future_energy, source_plan),
-                CreepRole::Excavator(ExcavatorCreep::default(), source.id())
-            ))
-        }).log_err();
+        let has_source_spawn = source_plan.spawn.resolve().is_some();
+
+        roster.schedule_selected(
+            |mut iter| {
+                if has_source_spawn {
+                    iter.find(|(_, spawn)| spawn.is_source_spawn(&source.id())).map(|(ix, _)| ix)
+                } else {
+                    ColonyRoster::default_select(iter)
+                }
+            },
+            |info| {
+                Some(RelativePrototype::new(
+                    get_excavator_body(info.future_energy, source_plan),
+                    CreepRole::Excavator(ExcavatorCreep::default(), source.id())
+                ))
+            }
+        ).log_err();
     }
 }
 

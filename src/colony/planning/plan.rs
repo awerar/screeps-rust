@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use log::warn;
 use itertools::Itertools;
-use screeps::{HasPosition, ObjectId, OwnedStructureProperties, Position, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find, look};
+use screeps::{Direction, HasPosition, ObjectId, OwnedStructureProperties, Position, Room, RoomName, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find, look};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 use anyhow::anyhow;
@@ -45,7 +45,8 @@ pub struct SourcePlan {
     pub link: OptionalPlannedStructureRef<StructureLink>,
     pub extensions: PlannedStructureRefs<StructureExtension>,
 
-    pub distance: u32
+    pub distance: u32,
+    pub spawn_direction: Direction
 }
 
 #[derive(Clone, Serialize, Deserialize)]

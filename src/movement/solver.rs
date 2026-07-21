@@ -155,8 +155,16 @@ impl<'m> MovementSolver<'m> {
     }
 
     fn solve_spawning(&mut self, spawning: &SpawningID) {
-        let dirs = Direction::iter().copied();
-        let dir = Self::best_by_priority(dirs, |dir| self.position_priority(spawning.pos() + *dir));
+        let dirs = self.mem.spawning_directions.get(&spawning.spawning.id())
+            .map_or_else(
+                || {
+                    warn!("Didn't find spawn directions");
+                    Direction::iter().copied().collect_vec()
+                }, 
+                Clone::clone
+            );
+
+        let dir = Self::best_by_priority(dirs.into_iter(), |dir| self.position_priority(spawning.pos() + *dir));
         if let Some(dir) = dir {
             self.give_spawning_action(spawning, dir);
         } else {
