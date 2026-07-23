@@ -8,6 +8,9 @@ use anyhow::{Result, anyhow};
 
 use crate::{check::Check, colony::{ColonyBuffer, ColonyView, steps::ColonyStep}, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
+pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
+const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
+
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; ConsumerTruckStop<S>, ColonyBuffer<S>, S)]
 pub enum ImportTruckState<S: CheckState = Checked> {
@@ -49,7 +52,7 @@ impl ImportTruckState {
         match self {
             Self::Idle => {
                 let export_colony = colonies.values()
-                    .filter(|colony| colony.step > ColonyStep::UpgradeToLevel4)
+                    .filter(|colony| colony.step >= START_EXPORT_STEP)
                     .max_by_key(|colony| colony.buffer.as_ref().map_or(0, EnergyStoreAccessors::used_energy_capacity))
                     .filter(|colony| colony.buffer.as_ref().is_some_and(|buffer| buffer.used_energy_capacity() > ENERGY_THRESHOLD));
                 
