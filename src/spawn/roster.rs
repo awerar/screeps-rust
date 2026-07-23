@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyExtensions, ColonySpawn, ColonySpawnType, ExtensionGroup}, prototype::{AbsolutePrototype, Prototype, RelativePrototype}}};
+use crate::{colony::{ColonyView, planning::planned_ref::ResolvableStructureRef}, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Prototype, RelativePrototype}}};
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
 
@@ -83,11 +83,73 @@ impl ColonyCreeps {
     }
 }
 
+enum SpawnState {
+    Free,
+    Blocked,
+    Spawning(CreepId, CreepData, Vec<Direction>)
+}
+
+pub enum ColonySpawnType {
+    Central,
+    Source(ObjectId<Source>, Direction)
+}
+
+pub struct ColonySpawn {
+    pub spawn: StructureSpawn,
+    state: SpawnState,
+    ty: ColonySpawnType
+}
+
+impl ColonySpawn {
+    pub fn new(spawn: StructureSpawn, ty: ColonySpawnType) -> Self {
+        Self {
+            state: if spawn.spawning().is_some() { SpawnState::Blocked } else { SpawnState::Free },
+            spawn,
+            ty
+        }
+    }
+
+    pub fn is_free(&self) -> bool {
+        matches!(self.state, SpawnState::Free)
+    }
+
+    pub fn is_central(&self) -> bool {
+        matches!(self.ty, ColonySpawnType::Central)
+    }
+
+    pub fn is_source_spawn(&self, source: &ObjectId<Source>) -> bool {
+        matches!(self.ty, ColonySpawnType::Source(source2, _) if *source == source2)
+    }
+
+    pub fn source_direction(&self) -> Option<Direction> {
+        if let ColonySpawnType::Source(_, dir) = &self.ty { 
+            Some(*dir) 
+        } else { 
+            None 
+        }
+    }
+
+    pub fn block(&mut self) {
+        self.state = SpawnState::Blocked;
+    }
+
+    pub fn begin_spawning(&mut self, id: CreepId, data: CreepData, dirs: Vec<Direction>) {
+        self.state = SpawnState::Spawning(id, data, dirs);
+    }
+
+    pub fn gather_new_creeps(self, mem: &mut Memory) {
+        if let SpawnState::Spawning(id, creep_data, dirs) = self.state  {
+            mem.creeps.insert(id.clone(), creep_data);
+            mem.movement.spawning_directions.insert(id, dirs);
+        }
+    }
+}
+
 pub struct ColonyRoster {
     name: RoomName,
 
     spawns: Vec<ColonySpawn>,
-    extensions: ColonyExtensions,
+    energy: ColonyEnergy,
     local_creeps: ColonyCreeps,
 
     syndrome: ColonySyndrome,
@@ -125,13 +187,13 @@ pub struct SpawnInfo {
 
 pub enum ScheduleDecision {
     Scheduled(CreepId, AbsolutePrototype),
-    WaitingForEnergy
+    WaitingForEnergy,
+    WaitingForSpawn
 }
 
 #[derive(Debug, Error)]
 pub enum ColonyScheduleError {
     #[error(transparent)] SpawnError(#[from] SpawnCreepErrorCode),
-    #[error("No valid spawn")] NoSpawn,
     #[error("No prototype")] NoPrototype,
     #[error("Not enough energy")] NotEnoughEnergy
 }
@@ -143,53 +205,60 @@ impl ColonyRoster {
         let local_creeps = ColonyCreeps::new(colony.name, mem);
         let syndrome = ColonySyndrome::new(&local_creeps, colony);
 
-        let mut extensions = Vec::new();
+        let mut groups = Vec::new();
 
-        extensions.push(ExtensionGroup::new(
-            colony.plan.center.extensions.resolve().into_iter()
-                .sorted_by_cached_key(|extension| extension.pos().get_range_to(colony.center))
-                .collect(),
-            syndrome.any_excavating_excavators && syndrome.any_trucks,
-            true
+        groups.push(EnergyGroup::new(
+            colony.plan.center.spawn.resolve()
+                .map(|spawn| EnergyStructure::Spawn(spawn.id()))
+                .into_iter()
+                .chain(
+                    colony.plan.center.extensions.resolve().into_iter()
+                    .sorted_by_cached_key(|extension| extension.pos().get_range_to(colony.center))
+                    .map(|ext| EnergyStructure::Extension(ext.id()))
+                ).collect(),
+            syndrome.any_excavating_excavators && syndrome.any_trucks
         ));
 
         for (source, source_plan) in &colony.plan.sources {
             let Some(source) = source.resolve().map(|src| src.id()) else { continue; };
 
-            extensions.push(ExtensionGroup::new(
-                source_plan.extensions.resolve(),
-                !syndrome.excavators.contains_key(&source),
-                false
+            groups.push(EnergyGroup::new(
+                source_plan.spawn.resolve()
+                    .map(|spawn| EnergyStructure::Spawn(spawn.id()))
+                    .into_iter()
+                    .chain(
+                        source_plan.extensions.resolve().into_iter()
+                            .map(|ext| EnergyStructure::Extension(ext.id())))
+                    .collect(),
+                !syndrome.excavators.contains_key(&source)
             ));
         }
 
         let mut spawns = Vec::new();
 
         spawns.extend(
-            colony.plan.center.spawn.resolve().map(|spawn| {
-                ColonySpawn::new(
-                    spawn,
-                    ColonySpawnType::Central,
-                    syndrome.any_trucks && syndrome.any_excavating_excavators
-                )
-            })
+            colony.plan.center.spawn.resolve()
+                .map(|spawn| {
+                    ColonySpawn::new(
+                        spawn,
+                        ColonySpawnType::Central 
+                    )
+                })
         );
-
+        
         spawns.extend(
-            colony.plan.sources.iter().filter_map(|(source, plan)| {
-                let source = source.resolve()?.id();
-
-                Some(ColonySpawn::new(
-                    plan.spawn.resolve()?,
-                    ColonySpawnType::Source(source, plan.spawn_direction),
-                    !syndrome.excavators.contains_key(&source)
-                ))
-            })
+            colony.plan.sources.iter()
+                .filter_map(|(source, plan)| {
+                    Some(ColonySpawn::new(
+                        plan.spawn.resolve()?,
+                        ColonySpawnType::Source(source.resolve()?.id(), plan.spawn_direction)
+                    ))
+                })
         );
 
         Self {
             spawns,
-            extensions: ColonyExtensions::new(extensions),
+            energy: ColonyEnergy::new(groups),
             names,
             name: colony.name,
             local_creeps,
@@ -199,26 +268,6 @@ impl ColonyRoster {
 
     fn free_spawns(&self) -> impl Iterator<Item = &ColonySpawn> {
         self.spawns.iter().filter(|spawn| spawn.is_free())
-    }
-
-    pub fn max_spawnable_energy(&self) -> u32 {
-        self.free_spawns()
-            .map(|spawn| spawn.energy.current)
-            .max()
-            .map_or(
-                0,
-                |spawn_energy| spawn_energy + self.extensions.energy()
-            )
-    }
-
-    pub fn max_future_spawnable_energy(&self) -> u32 {
-        self.free_spawns()
-            .map(|spawn| spawn.energy.future_energy())
-            .max()
-            .map_or(
-                0,
-                |spawn_energy| spawn_energy + self.extensions.future_energy()
-            )
     }
 
     pub fn has_free(&self) -> bool {
@@ -239,12 +288,12 @@ impl ColonyRoster {
         S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Option<usize>,
         P: FnOnce(SpawnInfo) -> Option<AbsolutePrototype>
     {
-        let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Err(ColonyScheduleError::NoSpawn) };
+        let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Ok(ScheduleDecision::WaitingForSpawn) };
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
         let spawn_info = SpawnInfo {
             spawn: spawn.spawn.clone(),
-            energy: self.extensions.energy() + spawn.energy.current,
-            future_energy: self.extensions.future_energy() + spawn.energy.future_energy()
+            energy: self.energy.energy(),
+            future_energy: self.energy.future_energy()
         };
 
         let proto = make_proto(spawn_info).ok_or(ColonyScheduleError::NoPrototype)?;
@@ -253,29 +302,21 @@ impl ColonyRoster {
 
         let cost = proto.body().energy_required();
 
-        let spawn_cost = cost.min(spawn.energy.current);
-        let future_spawn_cost = cost.min(spawn.energy.future_energy());
-
-        let extension_cost = cost - spawn_cost;
-        let future_extension_cost = cost - future_spawn_cost;
-
-        if cost > spawn.energy.future_energy() + self.extensions.future_energy() { return Err(ColonyScheduleError::NotEnoughEnergy) }
-        if cost > spawn.energy.current + self.extensions.energy() {
+        if cost > self.energy.future_energy() { return Err(ColonyScheduleError::NotEnoughEnergy) }
+        if cost > self.energy.energy() {
             spawn.block();
-            self.extensions.reserve_future(future_extension_cost);
+            self.energy.reserve_future(cost);
             return Ok(ScheduleDecision::WaitingForEnergy)
         }
 
-        spawn.energy.current -= spawn_cost;
-        let extensions = self.extensions.allocate(extension_cost);
-        let energy_structures = vec![Structure::from(spawn.spawn.clone())].into_iter()
-            .chain(extensions.into_iter().map(Structure::from));
+        let structures = self.energy.allocate(cost);
 
         let name = self.names.borrow_mut().generate_new(proto.role());
         spawn.spawn.spawn_creep_with_options(
             proto.body().parts(),
             &name,
-            &SpawnOptions::new().energy_structures(energy_structures)
+            &SpawnOptions::new()
+                .energy_structures(structures.into_iter().map_into::<Structure>())
         )?;
 
         let dirs = if let Some(dir) = spawn.source_direction() {
@@ -310,9 +351,7 @@ impl ColonyRoster {
     }
 
     pub fn default_select(iter: ColonySpawnIterator<'_>) -> Option<usize> {
-        iter.max_by_key(|(_, spawn)| {
-            (spawn.energy.future_energy(), spawn.energy.current, spawn.is_central())
-        }).map(|(ix, _)| ix)
+        iter.max_by_key(|(_, spawn)| spawn.is_central()).map(|(ix, _)| ix)
     }
 
     pub fn schedule<P>(&mut self, make_proto: P) -> ColonyScheduleResult
@@ -401,8 +440,7 @@ impl Rosters {
     }
 
     pub fn default_select(iter: hash_map::Iter<'_, RoomName, ColonyRoster>) -> Option<RoomName> {
-        iter.max_by_key(|(_, roster)| roster.max_future_spawnable_energy())
-            .map(|(room, _)| *room)
+        iter.max_by_key(|(_, roster)| roster.energy.future_energy()).map(|(room, _)| *room)
     }
 
     pub fn schedule<P>(&mut self, make_proto: P) -> GlobalScheduleResult

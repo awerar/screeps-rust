@@ -1,7 +1,51 @@
 use itertools::Itertools;
-use screeps::{Direction, SPAWN_ENERGY_CAPACITY, Source, StructureExtension, StructureSpawn};
+use screeps::{Direction, Source, Structure, StructureExtension, StructureSpawn};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::{creeps::CreepData, domain_traits::{CreepId, EnergyStoreAccessors, ObjectId}, memory::Memory};
+use crate::{check::{Check, CheckFrom}, creeps::CreepData, domain_traits::{CreepId, EnergyStoreAccessors, HasStore, IdResolutionError, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, memory::Memory};
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub enum EnergyStructure<S: CheckState = Checked> {
+    Spawn(ObjectId<StructureSpawn, S>),
+    Extension(ObjectId<StructureExtension, S>)
+}
+
+impl HasStore for EnergyStructure {
+    fn store(&self) -> screeps::Store {
+        match self {
+            EnergyStructure::Spawn(id) => id.resolve().store(),
+            EnergyStructure::Extension(id) => id.resolve().store(),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum EnergyStructureCheckError {
+    #[error(transparent)] Spawn(#[from] IdResolutionError<StructureSpawn>),
+    #[error(transparent)] Extension(#[from] IdResolutionError<StructureExtension>)
+}
+
+impl CheckFrom for EnergyStructure {
+    type Unchecked = EnergyStructure<Unchecked>;
+    type Err = EnergyStructureCheckError;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(match uc {
+            EnergyStructure::Spawn(id) => Self::Spawn(id.check()?),
+            EnergyStructure::Extension(id) => Self::Extension(id.check()?),
+        })
+    }
+}
+
+impl From<EnergyStructure> for Structure {
+    fn from(value: EnergyStructure) -> Self {
+        match value {
+            EnergyStructure::Extension(id) => id.resolve().into(),
+            EnergyStructure::Spawn(id) => id.resolve().into()
+        }
+    }
+}
 
 enum EnergyPoolType {
     Finite,
@@ -37,111 +81,41 @@ impl EnergyPool {
     }
 }
 
-enum SpawnState {
-    Free,
-    Blocked,
-    Spawning(CreepId, CreepData, Vec<Direction>)
+pub struct EnergyGroup {
+    structures_left: Vec<EnergyStructure>,
+    energy: EnergyPool
 }
 
-pub enum ColonySpawnType {
-    Central,
-    Source(ObjectId<Source>, Direction)
-}
-
-pub struct ColonySpawn {
-    pub spawn: StructureSpawn,
-    state: SpawnState,
-    ty: ColonySpawnType,
-
-    pub energy: EnergyPool,
-}
-
-impl ColonySpawn {
-    pub fn new(spawn: StructureSpawn, ty: ColonySpawnType, gets_energy: bool) -> Self {
+impl EnergyGroup {
+    pub fn new(structures: Vec<EnergyStructure>, refilled: bool) -> Self {
         Self {
             energy: EnergyPool::new(
-                spawn.used_energy_capacity(),
-                EnergyPoolType::refilled_if(gets_energy, SPAWN_ENERGY_CAPACITY)
-            ),
-            state: if spawn.spawning().is_some() { SpawnState::Blocked } else { SpawnState::Free },
-            spawn,
-            ty
-        }
-    }
-
-    pub fn is_free(&self) -> bool {
-        matches!(self.state, SpawnState::Free)
-    }
-
-    pub fn is_central(&self) -> bool {
-        matches!(self.ty, ColonySpawnType::Central)
-    }
-
-    pub fn is_source_spawn(&self, source: &ObjectId<Source>) -> bool {
-        matches!(self.ty, ColonySpawnType::Source(source2, _) if *source == source2)
-    }
-
-    pub fn source_direction(&self) -> Option<Direction> {
-        if let ColonySpawnType::Source(_, dir) = &self.ty { 
-            Some(*dir) 
-        } else { 
-            None 
-        }
-    }
-
-    pub fn block(&mut self) {
-        self.state = SpawnState::Blocked;
-    }
-
-    pub fn begin_spawning(&mut self, id: CreepId, data: CreepData, dirs: Vec<Direction>) {
-        self.state = SpawnState::Spawning(id, data, dirs);
-    }
-
-    pub fn gather_new_creeps(self, mem: &mut Memory) {
-        if let SpawnState::Spawning(id, creep_data, dirs) = self.state  {
-            mem.creeps.insert(id.clone(), creep_data);
-            mem.movement.spawning_directions.insert(id, dirs);
-        }
-    }
-}
-
-pub struct ExtensionGroup {
-    extensions_left: Vec<StructureExtension>,
-    energy: EnergyPool,
-    central: bool
-}
-
-impl ExtensionGroup {
-    pub fn new(extensions: Vec<StructureExtension>, refilled: bool, central: bool) -> Self {
-        Self {
-            energy: EnergyPool::new(
-                extensions.iter().map(EnergyStoreAccessors::used_energy_capacity).sum::<u32>(),
+                structures.iter().map(EnergyStoreAccessors::used_energy_capacity).sum::<u32>(),
                 EnergyPoolType::refilled_if(
                     refilled,
-                    extensions.iter().map(EnergyStoreAccessors::energy_capacity).sum::<u32>()
+                    structures.iter().map(EnergyStoreAccessors::energy_capacity).sum::<u32>()
                 )
             ),
-            extensions_left: extensions.into_iter()
+            structures_left: structures.into_iter()
                 .filter(|extension| extension.used_energy_capacity() > 0)
                 .rev()
-                .collect_vec(),
-            central
+                .collect_vec()
         }
     }
 
-    pub fn allocate(&mut self, mut amount: u32) -> Vec<StructureExtension> {
+    pub fn allocate(&mut self, mut amount: u32) -> Vec<EnergyStructure> {
         assert!(self.energy.current >= amount);
 
-        let mut extensions = Vec::new();
+        let mut structures = Vec::new();
         while amount > 0 {
-            let extension = self.extensions_left.pop().unwrap();
+            let extension = self.structures_left.pop().unwrap();
             amount = amount.saturating_sub(extension.used_energy_capacity());
             self.energy.current -= extension.used_energy_capacity();
 
-            extensions.push(extension);
+            structures.push(extension);
         }
 
-        extensions
+        structures
     }
 
     pub fn reserve_future(&mut self, amount: u32) {
@@ -153,10 +127,10 @@ impl ExtensionGroup {
     }
 }
 
-pub struct ColonyExtensions(Vec<ExtensionGroup>);
+pub struct ColonyEnergy(Vec<EnergyGroup>);
 
-impl ColonyExtensions {
-    pub fn new(groups: Vec<ExtensionGroup>) -> Self {
+impl ColonyEnergy {
+    pub fn new(groups: Vec<EnergyGroup>) -> Self {
         Self(groups)
     }
 
@@ -168,7 +142,7 @@ impl ColonyExtensions {
         self.0.iter().map(|group| group.energy.future_energy()).sum()
     }
 
-    pub fn allocate(&mut self, mut amount: u32) -> Vec<StructureExtension> {
+    pub fn allocate(&mut self, mut amount: u32) -> Vec<EnergyStructure> {
         assert!(self.energy() >= amount);
 
         let mut extensions = Vec::new();
