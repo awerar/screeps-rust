@@ -4,7 +4,7 @@ use itertools::Itertools;
 use screeps::{CircleStyle, LineStyle, RoomName, RoomVisual, RoomXY, StructureType, TextAlign, TextStyle};
 use strum::IntoEnumIterator;
 
-use crate::{colony::{planning::plan::{ColonyPlan, ColonyPlanDiff}, steps::ColonyStep}, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{plan::{ColonyPlan, ColonyPlanDiff}, steps::ColonyStep}, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
 pub fn draw_roads(visuals: &RoomVisual, roads: &HashSet<RoomXY>) {
     let connections: HashSet<_> = roads.iter()

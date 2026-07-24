@@ -6,7 +6,7 @@ use log::info;
 use screeps::{RoomName, StructureProperties, find, game};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{colony::planning::plan::ColonyPlan, visuals};
+use crate::{colony::plan::ColonyPlan, visuals};
 
 thread_local! {
     static COMMANDS: RefCell<HashSet<Command>> = RefCell::new(HashSet::new());

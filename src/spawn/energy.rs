@@ -1,9 +1,9 @@
 use itertools::Itertools;
-use screeps::{Direction, Source, Structure, StructureExtension, StructureSpawn};
+use screeps::{Structure, StructureExtension, StructureSpawn};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{check::{Check, CheckFrom}, creeps::CreepData, domain_traits::{CreepId, EnergyStoreAccessors, HasStore, IdResolutionError, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, memory::Memory};
+use crate::{check::{Check, CheckFrom}, domain_traits::{EnergyStoreAccessors, HasStore, IdResolutionError, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}};
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum EnergyStructure<S: CheckState = Checked> {

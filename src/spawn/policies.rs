@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::ResolvableStructureRef}, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep, STOP_IMPORT_STEP}}, domain_traits::{EnergyStoreAccessors, HasId, HasName}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyView, plan::{SourcePlan, refs::ResolvableStructureRef}, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep, STOP_IMPORT_STEP}}, domain_traits::{EnergyStoreAccessors, HasId, HasName}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };

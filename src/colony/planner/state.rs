@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, Direction, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, CostMatrixSet, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::colony::{planning::{floodfill::{DiagonalWalkableNeighs, FloodFill}, plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan}, planned_ref::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
+use crate::colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan, refs::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
@@ -45,12 +45,12 @@ impl PlannedStructure {
         match self {
             PlannedStructure::MainSpawn
             | PlannedStructure::SourceSpawn(_) => Spawn,
-            PlannedStructure::SourceContainer(_) 
-            | PlannedStructure::ContainerStorage 
+            PlannedStructure::SourceContainer(_)
+            | PlannedStructure::ContainerStorage
             | PlannedStructure::MineralContainer => Container,
-            PlannedStructure::Extension 
+            PlannedStructure::Extension
             | PlannedStructure::SourceExtension(_) => Extension,
-            PlannedStructure::CentralLink 
+            PlannedStructure::CentralLink
             | PlannedStructure::SourceLink(_) => Link,
             PlannedStructure::Storage => Storage,
             PlannedStructure::Tower => Tower,
@@ -115,13 +115,13 @@ impl ColonyPlanner {
             }
         }
 
-        ColonyPlanner { 
-            cost_matrix, 
-            terrain, 
+        ColonyPlanner {
+            cost_matrix,
+            terrain,
             room,
             roads: HashMap::new(),
             structures: HashMap::new(),
-            pos2structure: HashMap::new(), 
+            pos2structure: HashMap::new(),
             structures2pos: HashMap::new(),
             structure_type_steps: HashMap::new()
         }
@@ -132,7 +132,7 @@ impl ColonyPlanner {
 
         for step in ColonyStep::iter() {
             let mut plan_step = ColonyPlanStep::default();
-            
+
             plan_step.new_roads.extend(self.roads.iter()
                 .filter(|(_, road_step)| **road_step == step)
                 .map(|(pos, _)| *pos)
@@ -148,7 +148,7 @@ impl ColonyPlanner {
 
         let center = self.compile_center()?;
 
-        Ok(ColonyPlan { 
+        Ok(ColonyPlan {
             steps: plan_steps,
             sources: self.compile_sources(center.pos.xy())?,
             mineral: self.compile_mineral(center.pos.xy())?,
@@ -164,13 +164,13 @@ impl ColonyPlanner {
 
         Ok(CenterPlan {
             pos: storage_ref.pos,
-            spawn: self.get_structure_ref(MainSpawn)?, 
+            spawn: self.get_structure_ref(MainSpawn)?,
             storage: storage_ref.into(),
-            container_storage: self.get_structure_ref(ContainerStorage)?.into(), 
-            link: self.get_structure_ref(CentralLink)?.into(), 
-            terminal: self.get_structure_ref(Terminal)?.into(), 
-            observer: self.get_structure_ref(Observer)?.into(), 
-            towers: self.get_structure_refs(Tower), 
+            container_storage: self.get_structure_ref(ContainerStorage)?.into(),
+            link: self.get_structure_ref(CentralLink)?.into(),
+            terminal: self.get_structure_ref(Terminal)?.into(),
+            observer: self.get_structure_ref(Observer)?.into(),
+            towers: self.get_structure_refs(Tower),
             extensions: self.get_structure_refs(Extension)
         })
     }
@@ -205,7 +205,7 @@ impl ColonyPlanner {
         Ok(MineralPlan {
             distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
             container: container.into(),
-            extractor: self.get_structure_ref(Extractor)?.into(), 
+            extractor: self.get_structure_ref(Extractor)?.into(),
         })
     }
 
@@ -215,7 +215,7 @@ impl ColonyPlanner {
             .and_then(|positions| {
                 if positions.is_empty() { Err(anyhow!("No {structure:?} was found")) }
                 else if positions.len() > 1 { Err(anyhow!("Unable to determine unique {structure:?}")) }
-                else { Ok(*positions.iter().next().unwrap()) } 
+                else { Ok(*positions.iter().next().unwrap()) }
             })
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
     }
@@ -243,7 +243,7 @@ impl ColonyPlanner {
 
     pub fn num_placed_by(&self, ty: StructureType, step: ColonyStep) -> u32 {
         self.structure_type_steps.get(&ty)
-            .map_or(0, |x| 
+            .map_or(0, |x|
                 x.iter()
                     .take_while(|(place_step, _)| **place_step <= step)
                     .map(|(_, count)| *count)
@@ -316,7 +316,7 @@ impl ColonyPlanner {
         for pos in built_roads {
             cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
         }
-        
+
         let options = FindPathOptions::<fn(_, CostMatrix) -> SingleRoomCostResult, SingleRoomCostResult>::default()
             .cost_callback(|_, _| SingleRoomCostResult::CostMatrix(cost_matrix.clone()));
 
@@ -339,53 +339,6 @@ impl ColonyPlanner {
             if self.pos2structure.get(&pos.xy()).is_none_or(PlannedStructure::walkable) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
                 self.plan_road(pos.xy(), step);
             }
-        }
-    }
-}
-
-pub struct CenterPlanner {
-    flood_fill: FloodFill<DiagonalWalkableNeighs>,
-    roads_utility_increases: HashMap<RoomXY, Vec<ColonyStep>>
-}
-
-impl CenterPlanner {
-    pub fn new(planner: &ColonyPlanner, center: RoomXY) -> Self {
-        Self { 
-            flood_fill: FloodFill::new(vec![center], planner.room.get_terrain()), 
-            roads_utility_increases: HashMap::new()
-        }
-    }
-
-    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {        
-        for (_, pos) in self.flood_fill.by_ref() {
-            if planner.pos2structure.contains_key(&pos) { continue; }
-
-            let road_neighs: Vec<_> = Direction::iter()
-                .filter(|dir| dir.is_orthogonal())
-                .filter_map(|dir| pos.checked_add_direction(*dir))
-                .filter(|neigh| planner.terrain.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
-                .collect();
-
-            for road_neigh in road_neighs {
-                let road_utility_increases = self.roads_utility_increases.entry(road_neigh).or_default();
-                road_utility_increases.push(step);
-            }
-
-            return Ok(pos); 
-        }
-
-        Err(anyhow!("No more positions in center"))
-    }
-
-    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedStructure) -> anyhow::Result<()> {
-        let pos = self.next_structure_pos(planner, step)?;
-        planner.plan_structure(pos, step, structure)
-    }
-
-    pub fn plan_roads(self, planner: &mut ColonyPlanner) {
-        for (road_pos, increases) in self.roads_utility_increases {
-            let Some(plan_step) = increases.into_iter().sorted().nth(2) else { continue; };
-            planner.plan_road(road_pos, plan_step);
         }
     }
 }

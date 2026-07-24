@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{ConstructionSite, HasId, Part, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, planning::{plan::SourcePlan, planned_ref::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, defer, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{colony::{ColonyView, plan::{SourcePlan, refs::{PlannedStructureRef, ResolvableSiteRef, ResolvableStructureRef}}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, defer, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {

@@ -63,12 +63,17 @@ code that touches persisted IDs.
 
 ### Colonies (`src/colony/`)
 
-A "colony" is an owned room. `update_colonies` (`src/colony/mod.rs`) tracks the set of owned rooms and,
-for each, owns a `(ColonyPlan, ColonyStep)` pair:
-- `colony/planning/` computes a full base layout (`ColonyPlan`) for a room via a floodfill-based
-  planner (`planner.rs`, `floodfill.rs`), independent of what's currently built. `plan.diff_with(&room)`
-  compares the plan against reality; incompatible diffs block progress until a `MigrateColony` command
-  is issued.
+A "colony" is an owned room. `update_colonies` (`src/colony/lifecycle.rs`) tracks the set of owned
+rooms and, for each, owns a `(ColonyPlan, ColonyStep)` pair. The module is split along the
+plan-creation vs per-tick-runtime seam:
+- `colony/planner/` is the factory side (runs at plan creation, CPU-heavy): it computes a full base
+  layout (`ColonyPlan`) for a room via a floodfill-based planner (`state.rs` holds the bookkeeping,
+  `center.rs`/`sources.rs`/`connectivity.rs` the placement strategies), independent of what's
+  currently built.
+- `colony/plan/` is the product side (pure data + per-tick consumers): the `ColonyPlan` data model
+  (`mod.rs`), self-healing structure refs (`refs.rs`), plan-vs-reality comparison (`diff.rs` —
+  `plan.diff_with(&room)`; incompatible diffs block progress until a `MigrateColony` command is
+  issued), and construction-site placement / migration (`execute.rs`).
 - `colony/steps.rs` (`ColonyStep`) is a per-colony state machine (driven by the same
   `statemachine::step` engine creeps use) that advances the room from bare plan toward the full build,
   placing construction sites etc. as it goes.
