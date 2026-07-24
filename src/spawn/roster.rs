@@ -311,14 +311,6 @@ impl ColonyRoster {
 
         let structures = self.energy.allocate(cost);
 
-        let name = self.names.borrow_mut().generate_new(proto.role());
-        spawn.spawn.spawn_creep_with_options(
-            proto.body().parts(),
-            &name,
-            &SpawnOptions::new()
-                .energy_structures(structures.into_iter().map_into::<Structure>())
-        )?;
-
         let dirs = if let Some(dir) = spawn.source_direction() {
             if let CreepRole::Excavator(_, source) = proto.role() && spawn.is_source_spawn(source) {
                 vec![dir]
@@ -328,6 +320,15 @@ impl ColonyRoster {
         } else {
             Direction::iter().copied().collect_vec()
         };
+
+        let name = self.names.borrow_mut().generate_new(proto.role());
+        spawn.spawn.spawn_creep_with_options(
+            proto.body().parts(),
+            &name,
+            &SpawnOptions::new()
+                .energy_structures(structures.into_iter().map_into::<Structure>())
+                .directions(&dirs)
+        )?;
 
         let id = game::creeps().get(name).unwrap().id();
         spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home() }, dirs);
