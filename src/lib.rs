@@ -65,6 +65,11 @@ pub fn game_loop() {
         game::cpu::bucket()
     );
 
+    if mem.get_average_tick_rate_over(100) > f64::from(game::cpu::limit()) * 0.75 && game::cpu::bucket() < 2000 {
+        info!("Waiting for buckets {}/2000", game::cpu::bucket());
+        return;
+    }
+
     update_coordinators(&mut mem);
     let tugboat_requests = do_creeps(&mut mem);
 

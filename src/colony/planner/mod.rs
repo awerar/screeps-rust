@@ -1,4 +1,4 @@
-use screeps::{Direction, HasPosition, Room, find};
+use screeps::{HasPosition, Room, find};
 use anyhow::anyhow;
 
 use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, connectivity::ensure_connectivity, sources::plan_sources, state::{ColonyPlanner, PlannedStructure}}, steps::ColonyStep};
@@ -15,9 +15,9 @@ impl ColonyPlan {
 
         let mut planner = ColonyPlanner::new(room.clone());
         let center = find_center(room);
-        planner.plan_structure(center + Direction::Right, BuildBufferAndSourceContainers, PlannedStructure::ContainerStorage)?;
-
+        
         let mut center_planner = CenterPlanner::new(&planner, center);
+        planner.plan_structure(center_planner.container_buffer_pos(), BuildBufferAndSourceContainers, PlannedStructure::ContainerStorage)?;
 
         center_planner.plan_structure(&mut planner, BuildLvl4, PlannedStructure::Storage)?;
         center_planner.plan_structure(&mut planner, BuildSpawn, PlannedStructure::MainSpawn)?;

@@ -1,43 +1,73 @@
-use std::{cmp::Reverse, collections::{HashMap, HashSet}};
+use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}};
 
 use itertools::Itertools;
 use screeps::{Direction, HasPosition, Position, Room, RoomXY, Terrain, find};
-use anyhow::anyhow;
+use anyhow::bail;
 
-use crate::{colony::{planner::{floodfill::{DiagonalWalkableNeighs, FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, PlannedStructure}}, steps::ColonyStep}, pathfinding};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, StarWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, PlannedStructure}}, steps::ColonyStep}, pathfinding, visuals::{RoomDrawerType, draw_in_room}};
 
 pub struct CenterPlanner {
-    flood_fill: FloodFill<DiagonalWalkableNeighs>,
-    roads_utility_increases: HashMap<RoomXY, Vec<ColonyStep>>
+    road_iter: FloodFill<StarWalkableNeighs>,
+    roads: HashSet<RoomXY>,
+    structure_queue: VecDeque<RoomXY>,
+    placed_structures: HashMap<RoomXY, ColonyStep>,
+
+    storage_buffer_pos: RoomXY
 }
 
+// TODO: Ensure correct usage of ColonyPlanner
 impl CenterPlanner {
     pub fn new(planner: &ColonyPlanner, center: RoomXY) -> Self {
+        let mut visited_structure_positions = HashSet::new();
+        let mut structure_queue = VecDeque::new();
+
+        let mut floodfill = FloodFill::new(vec![center], OrthogonalWalkableNeighs::new(planner.room.get_terrain())).peekable();
+
+        while let Some((_, pos)) = floodfill.next_if(|(dist, _)| *dist < 2) {
+            visited_structure_positions.insert(pos);
+            structure_queue.push_back(pos);
+        }
+
+        let seed = floodfill
+            .take_while(|(dist, _)| *dist == 2)
+            .map(|(_, pos)| pos)
+            .collect_vec();
+
         Self {
-            flood_fill: FloodFill::new(vec![center], planner.room.get_terrain()),
-            roads_utility_increases: HashMap::new()
+            storage_buffer_pos: seed[0],
+            road_iter: FloodFill::new(seed, StarWalkableNeighs::new(planner.room.get_terrain(), center)),
+            placed_structures: HashMap::new(),
+            roads: HashSet::new(),
+            structure_queue,
         }
     }
 
     pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {
-        for (_, pos) in self.flood_fill.by_ref() {
-            if planner.pos2structure.contains_key(&pos) { continue; }
-
-            let road_neighs: Vec<_> = Direction::iter()
-                .filter(|dir| dir.is_orthogonal())
-                .filter_map(|dir| pos.checked_add_direction(*dir))
-                .filter(|neigh| planner.terrain.get(neigh.x.u8(), neigh.y.u8()) != Terrain::Wall)
-                .collect();
-
-            for road_neigh in road_neighs {
-                let road_utility_increases = self.roads_utility_increases.entry(road_neigh).or_default();
-                road_utility_increases.push(step);
+        loop {
+            if let Some(pos) = self.structure_queue.pop_front() {
+                self.placed_structures.insert(pos, step);
+                return Ok(pos) 
             }
 
-            return Ok(pos);
-        }
+            let Some((_, road)) = self.road_iter.next() else { bail!("Not enough roads"); };
+            if planner.pos2structure.contains_key(&road) { continue; }
 
-        Err(anyhow!("No more positions in center"))
+            draw_in_room(planner.room.name(), RoomDrawerType::Plan, move |visuals| {
+                visuals.circle(road.x.u8().into(), road.y.u8().into(), None);
+            });
+
+            self.roads.insert(road);
+    
+            self.structure_queue.extend(
+                Direction::iter()
+                    .filter_map(|dir| road.checked_add_direction(*dir))
+                    .filter(|neigh| !self.road_iter.neighs().eligible(*neigh))
+                    .filter(|neigh| planner.is_free_at(*neigh))
+                    .filter(|neigh| !self.placed_structures.contains_key(neigh))
+                    .filter(|neigh| !self.structure_queue.contains(neigh))
+                    .collect_vec()
+            );
+        }
     }
 
     pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedStructure) -> anyhow::Result<()> {
@@ -45,10 +75,16 @@ impl CenterPlanner {
         planner.plan_structure(pos, step, structure)
     }
 
+    pub fn container_buffer_pos(&self) -> RoomXY { self.storage_buffer_pos }
+
     pub fn plan_roads(self, planner: &mut ColonyPlanner) {
-        for (road_pos, increases) in self.roads_utility_increases {
-            let Some(plan_step) = increases.into_iter().sorted().nth(2) else { continue; };
-            planner.plan_road(road_pos, plan_step);
+        for road in &self.roads {
+            let Some(plan_step) = Direction::iter()
+                .filter_map(|dir| road.checked_add_direction(*dir))
+                .filter_map(|pos| self.placed_structures.get(&pos))
+                .sorted().nth(2) else { continue; };
+
+            planner.plan_road(*road, *plan_step);
         }
     }
 }
@@ -101,7 +137,7 @@ pub fn find_center(room: &Room) -> RoomXY {
     let exits = room.find(find::EXIT, None).into_iter()
         .map(|pos| Position::from(pos).xy());
 
-    let entrance_blocks = FloodFill::<WalkableNeighs>::new(exits, room.get_terrain())
+    let entrance_blocks = FloodFill::new(exits, WalkableNeighs::new(room.get_terrain()))
         .take_while(|(dist, _)| *dist <= MIN_ENTRANCE_DIST)
         .map(|(_, pos)| pos);
         //.inspect(|candidate| { let (x,y) = (candidate.x.u8(), candidate.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.2).fill("#f53636")))); });
@@ -110,7 +146,7 @@ pub fn find_center(room: &Room) -> RoomXY {
         .filter(|(x, y)| room.get_terrain().get(*x, *y) == Terrain::Wall)
         .map(|(x, y)| RoomXY::try_from((x, y)).unwrap());
 
-    let candidates = FloodFill::<OrthogonalWalkableNeighs>::new(wall_blocks.chain(entrance_blocks), room.get_terrain())
+    let candidates = FloodFill::new(wall_blocks.chain(entrance_blocks), OrthogonalWalkableNeighs::new(room.get_terrain()))
         .sorted_by_key(|(dist, pos)| (Reverse(*dist), *pos))
         .dedup_by(|(d1, p1), (d2, p2)| *d1 == *d2 && p1.get_range_to(*p2) <= MIN_CANDIDATE_DIST)
         .take(5)
