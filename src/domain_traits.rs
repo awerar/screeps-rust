@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 use derive_where::derive_where;
-use screeps::{Creep, ResourceType, Spawning, action_error_codes::{CreepRepairErrorCode, TransferErrorCode, WithdrawErrorCode}, game};
+use screeps::{ConstructionSite, Creep, HasPosition, Position, ResourceType, Spawning, StructureType, action_error_codes::{CreepRepairErrorCode, TransferErrorCode, WithdrawErrorCode}, game, look};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wasm_bindgen::JsCast;
@@ -104,10 +104,13 @@ pub trait ResolvableId {
 }
 
 pub trait HasId: Sized {
-    type Id<S: CheckState>: Serialize + Hash + Eq + Ord + Clone + Debug;
+    type Id<S: CheckState>: Serialize + Hash + Eq + Clone + Debug;
 
     fn id(&self) -> Self::Id<Checked>;
 }
+
+pub trait HasCheckableId = HasId where <Self as HasId>::Id<Checked>: CheckFrom<Unchecked = <Self as HasId>::Id<Unchecked>>;
+pub trait HasResolvableId = HasId where <Self as HasId>::Id<Checked> : ResolvableId<Target = Self>;
 
 #[derive_where(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ObjectId<T, S: CheckState = Checked> {
@@ -277,5 +280,73 @@ impl CheckFrom for CreepId {
                 ObjectId::try_new(&creep).map_or(CreepId::Name(name), CreepId::Id)
             },
         })
+    }
+}
+
+#[derive_where(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash; ObjectId<ConstructionSite, S>, ConstructionSiteLocator)]
+pub enum ConstructionSiteId<S: CheckState = Checked> {
+    Id(ObjectId<ConstructionSite, S>),
+    Locator(ConstructionSiteLocator)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+struct ConstructionSiteLocator {
+    pos: Position,
+    ty: StructureType
+}
+
+impl ConstructionSiteLocator {
+    pub fn try_locate(&self) -> Option<ConstructionSite> {
+        self.pos.look_for(look::CONSTRUCTION_SITES).unwrap_or_default().into_iter()
+            .find(|site| site.structure_type() == self.ty)
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ConstructionSiteIdCheckError {
+    #[error(transparent)] Id(#[from] IdResolutionError<ConstructionSite>),
+    #[error("No construction site of type {1} at {0}")] Locator(Position, StructureType)
+}
+
+impl CheckFrom for ConstructionSiteId {
+    type Unchecked = ConstructionSiteId<Unchecked>;
+    type Err = ConstructionSiteIdCheckError;
+
+    fn check_from(uc: Self::Unchecked) -> Result<Self, Self::Err> {
+        Ok(match uc {
+            ConstructionSiteId::Id(id) => 
+                Self::Id(id.check()?),
+            ConstructionSiteId::Locator(locator) => {
+                let site = locator.try_locate().ok_or_else(|| ConstructionSiteIdCheckError::Locator(locator.pos, locator.ty))?;
+
+                ObjectId::try_new(&site).map_or(ConstructionSiteId::Locator(locator), ConstructionSiteId::Id)
+            },
+        })
+    }
+}
+
+impl ResolvableId for ConstructionSiteId {
+    type Target = ConstructionSite;
+
+    fn resolve(&self) -> Self::Target {
+        match self {
+            ConstructionSiteId::Id(id) => id.resolve(),
+            ConstructionSiteId::Locator(locator) => locator.try_locate().unwrap(),
+        }
+    }
+}
+
+impl HasId for ConstructionSite {
+    type Id<S: CheckState> = ConstructionSiteId<S>;
+
+    fn id(&self) -> Self::Id<Checked> {
+        ObjectId::try_new(self)
+            .map_or_else(
+                || ConstructionSiteId::Locator(ConstructionSiteLocator { 
+                    pos: self.pos(), 
+                    ty: self.structure_type()
+                }), 
+                ConstructionSiteId::Id
+            )
     }
 }

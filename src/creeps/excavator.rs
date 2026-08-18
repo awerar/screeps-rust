@@ -67,17 +67,6 @@ impl EnergyDestination {
     }
 }
 
-/*
-    Should always try be as full as possible
-    Should always do as big outputs as possible
-
-    Should only output energy if will overflow
-
-
-    Should always mine if possible
-    Should only build 
-*/
-
 impl ExcavatorCreep {
     pub fn update(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
         use ExcavatorCreep::*;

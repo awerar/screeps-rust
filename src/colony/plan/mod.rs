@@ -4,7 +4,7 @@ use screeps::{Direction, HasPosition, ObjectId, OwnedStructureProperties, Positi
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 
-use crate::colony::{plan::refs::{OptionalPlannedStructureRef, PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep};
+use crate::colony::{plan::refs::{OptionalPlannedStructureRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep};
 
 mod diff;
 mod execute;
@@ -22,7 +22,7 @@ pub struct ColonyPlan {
     pub sources: SourcesPlan,
     pub center: CenterPlan,
     pub mineral: MineralPlan,
-    pub controller: PlannedStructureBuiltRef<StructureController>
+    pub controller: PlannedStructureRef<StructureController>
 }
 
 #[derive(Serialize, Deserialize, Clone)]

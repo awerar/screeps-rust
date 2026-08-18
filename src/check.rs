@@ -152,6 +152,22 @@ impl <K: CheckFrom + Hash + Eq, V: CheckFrom> FilterCheckFrom for HashMap<K, V> 
     }
 }
 
+impl<T: CheckFrom> FilterCheckFrom for Option<T> {
+    type Unchecked = Option<T::Unchecked>;
+    type Err = T::Err;
+
+    fn filter_check_from(uc: Self::Unchecked) -> (Self, Vec<Self::Err>) {
+        match uc {
+            None => (None, Vec::new()),
+            Some(x) => 
+                x.check().map_or_else(
+                    |err| (None, vec![err]), 
+                    |x| (Some(x), Vec::new())
+                ),
+        }
+    }
+}
+
 pub fn deserialize_filter_check<'de, D, B>(deserializer: D) -> Result<B, D::Error>
 where
     D : Deserializer<'de>,

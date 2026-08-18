@@ -1,23 +1,18 @@
-use std::{cell::RefCell, marker::PhantomData};
+use std::cell::RefCell;
 
 use derive_deref::Deref;
-use screeps::{ConstructionSite, MaybeHasId, ObjectId, OwnedStructureProperties, Position, RawObjectId, Room, RoomXY, StructureContainer, StructureExtension, StructureLink, StructureObject, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, look};
-use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsCast;
+use derive_where::derive_where;
+use option_entry::OptionEntry;
+use screeps::{ConstructionSite, OwnedStructureProperties, Position, StructureContainer, StructureExtension, StructureExtractor, StructureFactory, StructureLab, StructureLink, StructureNuker, StructureObject, StructureObserver, StructurePowerSpawn, StructureRampart, StructureRoad, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, StructureWall, look};
+use serde::{Deserialize, de::DeserializeOwned};
 
-pub trait StructureRefReq = JsCast + MaybeHasId + ConstructionType where StructureObject : TryInto<Self>;
-pub trait ResolvableStructureRef { 
-    type Structure;
+use crate::{check::FilterCheck, domain_traits::{ConstructionSiteId, HasCheckableId, HasId, HasResolvableId, ResolvableId}, ids::{CheckState, Checked, Unchecked}};
 
-    fn resolve(&self) -> Option<Self::Structure>; 
-}
-pub trait ResolvableSiteRef { fn resolve_site(&self) -> Option<ConstructionSite>; }
+#[derive_where(Serialize, Deserialize, Default, Clone; PlannedStructureRef<T>)]
+#[derive(Deref)]
+pub struct PlannedStructureRefs<T: HasId>(pub Vec<PlannedStructureRef<T>>);
 
-#[derive(Serialize, Deserialize, Default, Deref, Clone)]
-#[serde(bound = "")]
-pub struct PlannedStructureRefs<T>(pub Vec<PlannedStructureRef<T>>);
-
-impl<T: StructureRefReq> PlannedStructureRefs<T> {
+impl<T: HasResolvableId + HasStructureType + From<StructureObject>> PlannedStructureRefs<T> {
     #[expect(unused)]
     pub fn all_completed(&self) -> bool {
         self.0.iter().all(PlannedStructureRef::is_complete)
@@ -33,167 +28,133 @@ impl<T: StructureRefReq> PlannedStructureRefs<T> {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Default, Deref)]
-#[serde(bound = "")]
-pub struct OptionalPlannedStructureRef<T>(pub Option<PlannedStructureRef<T>>);
+#[derive_where(Serialize, Deserialize, Clone, Default; PlannedStructureRef<T>)]
+#[derive(Deref)]
+pub struct OptionalPlannedStructureRef<T: HasId>(pub Option<PlannedStructureRef<T>>);
 
-impl<T: StructureRefReq> OptionalPlannedStructureRef<T> {
+impl<T: HasResolvableId + HasStructureType + From<StructureObject>> OptionalPlannedStructureRef<T> {
+    fn resolve(&self) -> Option<T> {
+        self.0.as_ref().and_then(PlannedStructureRef::resolve)
+    }
+
     pub fn is_complete(&self) -> bool {
         self.0.as_ref().is_some_and(PlannedStructureRef::is_complete)
     }
-}
 
-impl<T: StructureRefReq> ResolvableStructureRef for OptionalPlannedStructureRef<T> {
-    type Structure = T;
-
-    fn resolve(&self) -> Option<T> {
-        self.0.as_ref().and_then(ResolvableStructureRef::resolve)
-    }
-}
-
-impl<T: StructureRefReq> ResolvableSiteRef for OptionalPlannedStructureRef<T> {
     fn resolve_site(&self) -> Option<ConstructionSite> {
-        self.0.as_ref().and_then(ResolvableSiteRef::resolve_site)
+        self.0.as_ref().and_then(PlannedStructureRef::resolve_site)
     }
 }
 
-impl<T> From<PlannedStructureRef<T>> for OptionalPlannedStructureRef<T> {
+impl<T: HasId> From<PlannedStructureRef<T>> for OptionalPlannedStructureRef<T> {
     fn from(value: PlannedStructureRef<T>) -> Self {
         Self(Some(value))
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(bound = "")]
-pub struct PlannedStructureRef<T> {
+#[derive_where(Serialize, Deserialize, Clone; T::Id<S>, S)]
+pub struct PlannedStructureRef<T: HasId, S: CheckState = Checked> {
     pub pos: Position,
 
-    pub structure: PlannedStructureBuiltRef<T>,
-    pub site: PlannedStructureSiteRef<T>
+    structure: RefCell<Option<T::Id<S>>>,
+    site: RefCell<Option<ConstructionSiteId<S>>>
 }
 
-impl<T> PlannedStructureRef<T> {
-    pub fn new(pos: RoomXY, room: &Room) -> Self {
-        let pos = Position::new(pos.x, pos.y, room.name());
+impl<'de, T: HasCheckableId> Deserialize<'de> for PlannedStructureRef<T> 
+where 
+    T::Id<Unchecked> : DeserializeOwned 
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let uc = PlannedStructureRef::<T, Unchecked>::deserialize(deserializer)?;
+        
+        Ok(Self {
+            pos: uc.pos,
+            structure: RefCell::new(uc.structure.into_inner().filter_check().0),
+            site: RefCell::new(uc.site.into_inner().filter_check().0),
+        })
+    }
+}
 
+impl<T: HasId> PlannedStructureRef<T> {
+    pub fn new(pos: Position) -> Self {
         Self {
             pos,
-            structure: PlannedStructureBuiltRef::new(pos),
-            site: PlannedStructureSiteRef::new(pos),
+            structure: RefCell::new(None),
+            site: RefCell::new(None),
         }
     }
 }
 
-impl<T: StructureRefReq> PlannedStructureRef<T> {
+impl<T : HasResolvableId + HasStructureType + From<StructureObject>> PlannedStructureRef<T> {
+    pub fn resolve(&self) -> Option<T> {
+        match self.structure.borrow_mut().entry() {
+            option_entry::Entry::Vacant(entry) => {
+                let structure: T = find_structure(self.pos, T::STRUCTURE_TYPE)?.try_into().ok().unwrap();
+                entry.insert_entry(structure.id());
+
+                Some(structure)
+            },
+            option_entry::Entry::Occupied(entry) => Some(entry.get().resolve()),
+        }
+    }
+
     pub fn is_complete(&self) -> bool {
-        self.structure.resolve().is_some()
+        self.resolve().is_some()
+    }
+
+    pub fn resolve_site(&self) -> Option<ConstructionSite> {
+        match self.site.borrow_mut().entry() {
+            option_entry::Entry::Vacant(entry) => {
+                let site = find_site(self.pos, T::STRUCTURE_TYPE)?;
+                entry.insert_entry(site.id());
+
+                Some(site)
+            },
+            option_entry::Entry::Occupied(entry) => Some(entry.get().resolve()),
+        }
     }
 
     pub fn is_being_built(&self) -> bool {
-        self.site.resolve_site().is_some()
-    }
-
-    #[expect(unused)]
-    pub fn is_empty(&self) -> bool {
-        !self.is_complete() && !self.is_being_built()
+        self.resolve_site().is_some()
     }
 }
 
-impl<T : StructureRefReq> ResolvableStructureRef for PlannedStructureRef<T> {
-    type Structure = T;
-
-    fn resolve(&self) -> Option<T> {
-        self.structure.resolve()
-    }
+fn find_site(pos: Position, ty: StructureType) -> Option<ConstructionSite> {
+    pos.look_for(look::CONSTRUCTION_SITES).ok()?.into_iter()
+        .find(|site| site.my() && site.structure_type() == ty)
 }
 
-impl<T : StructureRefReq> ResolvableSiteRef for PlannedStructureRef<T> {
-    fn resolve_site(&self) -> Option<ConstructionSite> {
-        self.site.resolve_site()
-    }
+fn find_structure(pos: Position, ty: StructureType) -> Option<StructureObject> {
+    pos.look_for(look::STRUCTURES).ok()?.into_iter()
+        .find(|structure| structure.as_owned().is_none_or(OwnedStructureProperties::my) && structure.structure_type() == ty)
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PlannedStructureBuiltRef<T> {
-    pub pos: Position,
-
-    id: RefCell<Option<RawObjectId>>,
-    phantom: PhantomData<fn() -> T>
-}
-
-impl<T> PlannedStructureBuiltRef<T> {
-    pub fn new(pos: Position) -> Self {
-        Self { pos, id: RefCell::new(None), phantom: PhantomData }
-    }
-}
-
-impl<T: StructureRefReq> ResolvableStructureRef for PlannedStructureBuiltRef<T> {
-    type Structure = T;
-
-    fn resolve(&self) -> Option<T> {
-        let id = *self.id.borrow();
-        if let Some(id) = id {
-            if let Some(structure) = ObjectId::<T>::from(id).resolve() {
-                return Some(structure);
+pub trait HasStructureType { const STRUCTURE_TYPE: StructureType; }
+macro_rules! structure_types {
+    ($(($structure:path, $ty:ident)),* $(,)?) => {
+        $(
+            impl HasStructureType for $structure {
+                const STRUCTURE_TYPE: StructureType = StructureType::$ty;
             }
-
-            self.id.replace(None);
-        }
-
-        let structure = self.pos.look_for(look::STRUCTURES).ok()?.into_iter()
-            .filter(|structure| structure.as_owned().is_none_or(OwnedStructureProperties::my))
-            .flat_map(TryInto::try_into)
-            .next()?;
-
-        if let Some(raw_id) = structure.try_raw_id() {
-            self.id.replace(Some(raw_id));
-        }
-
-        Some(structure)
-    }
+        )*
+    };
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PlannedStructureSiteRef<T> {
-    pub pos: Position,
-
-    id: RefCell<Option<ObjectId<ConstructionSite>>>,
-    phantom: PhantomData<T>
-}
-
-pub trait ConstructionType { fn structure_type() -> StructureType; }
-impl ConstructionType for StructureContainer { fn structure_type() -> StructureType { StructureType::Container } }
-impl ConstructionType for StructureSpawn { fn structure_type() -> StructureType { StructureType::Spawn } }
-impl ConstructionType for StructureStorage { fn structure_type() -> StructureType { StructureType::Storage } }
-impl ConstructionType for StructureExtension { fn structure_type() -> StructureType { StructureType::Extension } }
-impl ConstructionType for StructureLink { fn structure_type() -> StructureType { StructureType::Link } }
-impl ConstructionType for StructureTerminal { fn structure_type() -> StructureType { StructureType::Terminal } }
-impl ConstructionType for StructureTower { fn structure_type() -> StructureType { StructureType::Tower } }
-
-impl<T> PlannedStructureSiteRef<T> {
-    pub fn new(pos: Position) -> Self {
-        Self { pos, id: RefCell::new(None), phantom: PhantomData }
-    }
-}
-
-impl<T: ConstructionType> ResolvableSiteRef for PlannedStructureSiteRef<T> {
-    fn resolve_site(&self) -> Option<ConstructionSite> {
-        let id = *self.id.borrow();
-        if let Some(id) = id {
-            if let Some(site) = id.resolve() {
-                return Some(site);
-            }
-
-            self.id.replace(None);
-        }
-
-        let site = self.pos.look_for(look::CONSTRUCTION_SITES).ok()?.into_iter()
-            .find(|site| site.my() && site.structure_type() == T::structure_type())?;
-
-        if let Some(id) = site.try_id() {
-            self.id.replace(Some(id));
-        }
-
-        Some(site)
-    }
-}
+structure_types!(
+    (StructureContainer, Container),
+    (StructureSpawn, Spawn),
+    (StructureStorage, Storage),
+    (StructureExtension, Extension),
+    (StructureLink, Link),
+    (StructureTerminal, Terminal),
+    (StructureTower, Tower),
+    (StructureRoad, Road),
+    (StructureWall, Wall),
+    (StructureRampart, Rampart),
+    (StructureExtractor, Extractor),
+    (StructureLab, Lab),
+    (StructureNuker, Nuker),
+    (StructureFactory, Factory),
+    (StructureObserver, Observer),
+    (StructurePowerSpawn, PowerSpawn),
+);

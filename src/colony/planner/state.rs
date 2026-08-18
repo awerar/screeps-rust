@@ -1,20 +1,20 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use itertools::Itertools;
-use screeps::{CostMatrix, CostMatrixSet, FindPathOptions, HasId, HasPosition, ObjectId, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, CostMatrixSet, FindPathOptions, HasPosition, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 use anyhow::anyhow;
 use strum::IntoEnumIterator;
 
-use crate::colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan, refs::{PlannedStructureBuiltRef, PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep};
+use crate::{colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan, refs::{PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep}, domain_traits::HasId};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
     MainSpawn,
-    SourceSpawn(ObjectId<Source>),
-    SourceContainer(ObjectId<Source>),
-    SourceLink(ObjectId<Source>),
-    SourceExtension(ObjectId<Source>),
+    SourceSpawn(screeps::ObjectId<Source>),
+    SourceContainer(screeps::ObjectId<Source>),
+    SourceLink(screeps::ObjectId<Source>),
+    SourceExtension(screeps::ObjectId<Source>),
     Extension,
     Storage,
     Terminal,
@@ -153,7 +153,7 @@ impl ColonyPlanner {
             sources: self.compile_sources(center.pos.xy())?,
             mineral: self.compile_mineral(center.pos.xy())?,
             center,
-            controller: PlannedStructureBuiltRef::new(self.room.controller().ok_or(anyhow!("No controller"))?.pos())
+            controller: PlannedStructureRef::new(self.room.controller().ok_or(anyhow!("No controller"))?.pos())
         })
     }
 
@@ -209,7 +209,7 @@ impl ColonyPlanner {
         })
     }
 
-    pub fn get_structure_ref<T>(&self, structure: PlannedStructure) -> anyhow::Result<PlannedStructureRef<T>> {
+    pub fn get_structure_ref<T: HasId>(&self, structure: PlannedStructure) -> anyhow::Result<PlannedStructureRef<T>> {
         self.structures2pos.get(&structure)
             .ok_or(anyhow!("No {structure:?} was found"))
             .and_then(|positions| {
@@ -220,7 +220,7 @@ impl ColonyPlanner {
             .map(|pos| PlannedStructureRef::new(pos, &self.room))
     }
 
-    pub fn get_structure_refs<T>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
+    pub fn get_structure_refs<T: HasId>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
         let Some(positions) = self.structures2pos.get(&structure) else { return PlannedStructureRefs(Vec::new()) };
 
         PlannedStructureRefs(positions.iter()
