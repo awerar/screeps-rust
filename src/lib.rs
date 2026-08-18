@@ -17,7 +17,7 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::plan::refs::ResolvableStructureRef, creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
+use crate::{creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;

@@ -286,7 +286,7 @@ impl CheckFrom for CreepId {
 #[derive_where(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash; ObjectId<ConstructionSite, S>, ConstructionSiteLocator)]
 pub enum ConstructionSiteId<S: CheckState = Checked> {
     Id(ObjectId<ConstructionSite, S>),
-    Locator(ConstructionSiteLocator)
+    Locator(#[expect(private_interfaces)] ConstructionSiteLocator)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
@@ -317,7 +317,7 @@ impl CheckFrom for ConstructionSiteId {
             ConstructionSiteId::Id(id) => 
                 Self::Id(id.check()?),
             ConstructionSiteId::Locator(locator) => {
-                let site = locator.try_locate().ok_or_else(|| ConstructionSiteIdCheckError::Locator(locator.pos, locator.ty))?;
+                let site = locator.try_locate().ok_or(ConstructionSiteIdCheckError::Locator(locator.pos, locator.ty))?;
 
                 ObjectId::try_new(&site).map_or(ConstructionSiteId::Locator(locator), ConstructionSiteId::Id)
             },

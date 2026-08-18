@@ -4,7 +4,7 @@ use derive_where::derive_where;
 use screeps::{HasPosition, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom}, colony::{plan::{ColonyPlan, refs::ResolvableStructureRef}, steps::ColonyStep}, domain_traits::{HasId, HasStore, ObjectId, ResolvableId, Transferable, Withdrawable}, ids::{CheckState, Checked, Unchecked}};
+use crate::{check::{Check, CheckFrom}, colony::{plan::ColonyPlan, steps::ColonyStep}, domain_traits::{HasId, HasStore, ObjectId, ResolvableId, Transferable, Withdrawable}, ids::{CheckState, Checked, Unchecked}};
 
 mod lifecycle;
 pub mod plan;
@@ -59,6 +59,7 @@ impl Colonies {
         self.0.keys().filter_map(|name| self.view(*name))
     }
 
+    #[expect(unused)]
     pub fn rooms(&self) -> impl Iterator<Item = RoomName> {
         self.0.keys().copied()
     }

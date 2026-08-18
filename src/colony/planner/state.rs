@@ -179,7 +179,7 @@ impl ColonyPlanner {
         use PlannedStructure::*;
 
         self.room.find(find::SOURCES, None).into_iter()
-            .map(|source| source.id())
+            .map(|source| screeps::HasId::id(&source))
             .map(|source| {
                 let container = self.get_structure_ref(SourceContainer(source))?;
                 let spawn = self.get_structure_ref(SourceSpawn(source))?;
@@ -217,7 +217,7 @@ impl ColonyPlanner {
                 else if positions.len() > 1 { Err(anyhow!("Unable to determine unique {structure:?}")) }
                 else { Ok(*positions.iter().next().unwrap()) }
             })
-            .map(|pos| PlannedStructureRef::new(pos, &self.room))
+            .map(|pos| PlannedStructureRef::new(Position::new(pos.x, pos.y, self.room.name())))
     }
 
     pub fn get_structure_refs<T: HasId>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
@@ -225,7 +225,7 @@ impl ColonyPlanner {
 
         PlannedStructureRefs(positions.iter()
             .copied()
-            .map(|pos| PlannedStructureRef::new(pos, &self.room))
+            .map(|pos| PlannedStructureRef::new(Position::new(pos.x, pos.y, self.room.name())))
             .collect())
     }
 

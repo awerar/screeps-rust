@@ -12,7 +12,9 @@ use crate::{check::FilterCheck, domain_traits::{ConstructionSiteId, HasCheckable
 #[derive(Deref)]
 pub struct PlannedStructureRefs<T: HasId>(pub Vec<PlannedStructureRef<T>>);
 
-impl<T: HasResolvableId + HasStructureType + From<StructureObject>> PlannedStructureRefs<T> {
+impl<T: HasResolvableId + HasStructureType> PlannedStructureRefs<T> 
+    where StructureObject : TryInto<T>
+{
     #[expect(unused)]
     pub fn all_completed(&self) -> bool {
         self.0.iter().all(PlannedStructureRef::is_complete)
@@ -32,8 +34,10 @@ impl<T: HasResolvableId + HasStructureType + From<StructureObject>> PlannedStruc
 #[derive(Deref)]
 pub struct OptionalPlannedStructureRef<T: HasId>(pub Option<PlannedStructureRef<T>>);
 
-impl<T: HasResolvableId + HasStructureType + From<StructureObject>> OptionalPlannedStructureRef<T> {
-    fn resolve(&self) -> Option<T> {
+impl<T: HasResolvableId + HasStructureType> OptionalPlannedStructureRef<T> 
+    where StructureObject : TryInto<T>
+{
+    pub fn resolve(&self) -> Option<T> {
         self.0.as_ref().and_then(PlannedStructureRef::resolve)
     }
 
@@ -41,7 +45,7 @@ impl<T: HasResolvableId + HasStructureType + From<StructureObject>> OptionalPlan
         self.0.as_ref().is_some_and(PlannedStructureRef::is_complete)
     }
 
-    fn resolve_site(&self) -> Option<ConstructionSite> {
+    pub fn resolve_site(&self) -> Option<ConstructionSite> {
         self.0.as_ref().and_then(PlannedStructureRef::resolve_site)
     }
 }
@@ -85,7 +89,9 @@ impl<T: HasId> PlannedStructureRef<T> {
     }
 }
 
-impl<T : HasResolvableId + HasStructureType + From<StructureObject>> PlannedStructureRef<T> {
+impl<T : HasResolvableId + HasStructureType> PlannedStructureRef<T> 
+    where StructureObject : TryInto<T>
+{
     pub fn resolve(&self) -> Option<T> {
         match self.structure.borrow_mut().entry() {
             option_entry::Entry::Vacant(entry) => {
@@ -114,6 +120,7 @@ impl<T : HasResolvableId + HasStructureType + From<StructureObject>> PlannedStru
         }
     }
 
+    #[expect(unused)]
     pub fn is_being_built(&self) -> bool {
         self.resolve_site().is_some()
     }

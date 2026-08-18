@@ -3,12 +3,12 @@ use screeps::{Part, Source};
 use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId}, spawn::{prototype::{AbsolutePrototype, RelativePrototype}, roster::{ColonyCreeps, GlobalCreeps}}};
 
 pub enum RoleSelector {
-    Excavator,
+    #[expect(unused)] Excavator,
     SourceExcavator(ObjectId<Source>),
     Truck,
     ImportTruck,
     Flagship,
-    Tugboat,
+    #[expect(unused)] Tugboat,
     TugboatFor(CreepId),
     Fabricator
 }
@@ -43,6 +43,7 @@ impl GlobalCreeps {
         self.values().filter(move |proto| role.matches(proto.role()))
     }
 
+    #[expect(unused)]
     pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {
         self.of_role(role).map(|proto| proto.body().part_count(part)).sum()
     }
