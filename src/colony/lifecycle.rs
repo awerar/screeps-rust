@@ -24,6 +24,14 @@ pub fn update_colonies(mem: &mut Memory) {
             else { false }
         }).map(|(name, _)| name).collect();
 
+    let lost_colonies = prev_colonies.difference(&curr_colonies);
+    for room in lost_colonies {
+        mem.colonies.0.remove(room);
+        mem.truck_coordinators.remove(room);
+        mem.fabricator_coordinators.remove(room);
+        warn!("Lost colony {room}");
+    }
+
     if curr_colonies.len() == 1 {
         let room = curr_colonies.iter().next().unwrap();
         let room = game::rooms().get(*room).unwrap();
@@ -35,16 +43,11 @@ pub fn update_colonies(mem: &mut Memory) {
             && room.find(find::MY_CONSTRUCTION_SITES, None).is_empty()
             && room.find(find::FLAGS, None).is_empty() {
                 let spawn = room.find(find::MY_SPAWNS, None).into_iter().next().unwrap();
-                spawn.pos().create_flag(Some(&JsString::from("Center")), None, None).ok();
-            }
-    }
+                let center_pos = spawn.pos() + (0, 1);
+                center_pos.create_flag(Some(&JsString::from("Center")), None, None).ok();
 
-    let lost_colonies = prev_colonies.difference(&curr_colonies);
-    for room in lost_colonies {
-        mem.colonies.0.remove(room);
-        mem.truck_coordinators.remove(room);
-        mem.fabricator_coordinators.remove(room);
-        warn!("Lost colony {room}");
+                return;
+            }
     }
 
     for name in curr_colonies {

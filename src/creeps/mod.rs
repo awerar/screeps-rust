@@ -125,6 +125,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             if !mem.creeps.contains_key(&creep.id()) {
                 let Some(config) = CreepData::try_recover_from(creep, mem) else {
                     warn!("Unable to recover creep data for {}", creep.name());
+                    creep.suicide().unwrap();
                     return false;
                 };
 

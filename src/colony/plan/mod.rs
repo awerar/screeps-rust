@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use screeps::{Direction, HasPosition, ObjectId, OwnedStructureProperties, Position, Room, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find};
+use screeps::{Direction, HasPosition, ObjectId, OwnedStructureProperties, Position, Room, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObject, StructureObserver, StructureRoad, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 
@@ -47,6 +47,7 @@ pub struct SourcePlan {
     pub container: OptionalPlannedStructureRef<StructureContainer>,
     pub link: OptionalPlannedStructureRef<StructureLink>,
     pub extensions: PlannedStructureRefs<StructureExtension>,
+    pub road: PlannedStructureRef<StructureRoad>, // TODO: Remove this when I have a better repair system
 
     pub distance: u32,
     pub spawn_direction: Direction

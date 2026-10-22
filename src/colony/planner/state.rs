@@ -188,6 +188,7 @@ impl ColonyPlanner {
                     spawn_direction: spawn.pos.get_direction_to(container.pos).unwrap(),
                     distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
                     spawn: spawn.into(),
+                    road: PlannedStructureRef::new(container.pos),
                     container: container.into(),
                     link: self.get_structure_ref(SourceLink(source))?.into(),
                     extensions: self.get_structure_refs(SourceExtension(source)),

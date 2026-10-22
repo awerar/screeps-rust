@@ -121,7 +121,7 @@ impl FabricatorCoordinator {
     }
 
     fn assign_upgrade(&mut self, creep: &VirtualCreep, home: &ColonyView<'_>) -> bool {
-        if self.upgrade.unreserved_amount() > 0 && storage_fill_percentage(home.buffer.as_ref()).is_none_or(|x| x >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD) {
+        if self.upgrade.unreserved_amount() > 0 && storage_fill_percentage(home.buffer.as_ref()).is_some_and(|x| x >= super::STORAGE_UPGRADE_CONTROLLER_THRESHOLD) {
             self.upgrade.allocate(creep.handle(), creep.body().part_count(Part::Work) as u32, Expiration::new());
             return true;
         }

@@ -7,7 +7,14 @@ use screeps::{Creep, HasPosition, Part};
 use crate::{colony::{ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep, STOP_IMPORT_STEP}}, domain_traits::{EnergyStoreAccessors, HasId, HasName}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
-    let target_excavator_works = if source_plan.get_construction_site().is_some() { 7 } else { 5 };
+    // TODO: Look over numbers here
+    let target_excavator_works = if source_plan.get_construction_site().is_some() || source_plan.get_repair_target().is_some() { 
+        7 
+    } else { 
+        5 
+    };
+
+
     let excavator_works = energy.saturating_sub(Part::Carry.cost()).div_floor(Part::Work.cost()).min(target_excavator_works);
     Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, excavator_works as usize)
 }

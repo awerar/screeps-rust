@@ -1,9 +1,9 @@
 use std::cmp::Reverse;
 
-use screeps::{Creep, ResourceType, Room, StructureContainer, find};
+use screeps::{Creep, ResourceType, Room, StructureContainer, StructureLink, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::plan::{ColonyPlan, refs::{PlannedStructureRef, PlannedStructureRefs}}, coordination::{allocations::{AllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasId}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Filtered, TriviallyChecked, deserialize_filter_check}, colony::plan::{ColonyPlan, refs::PlannedStructureRef}, coordination::{allocations::{AllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, OverwriteableTaskData, Tasks}}, creeps::{truck::{state::TruckTask, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasId}, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TruckCoordinator {
@@ -46,7 +46,10 @@ impl TruckCoordinator {
 
         let creep_providers = provider_creeps.into_iter().map(|x| x.id()).map(ProviderTruckStop::Creep);
         let center_link = plan.center.link.resolve().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
-        let unlinked_source_containers = plan.unlinked_source_containers().0.into_iter().filter_map(|x| x.resolve()).map(ProviderStructure::new).map(ProviderTruckStop::Structure);
+
+        let source_providers = plan.get_source_providers();
+        let source_link_providers = source_providers.links.into_iter().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
+        let source_container_providers = source_providers.containers.into_iter().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
         
         let terminal = plan.center.terminal.resolve().map(ProviderStructure::new).map(ProviderTruckStop::Structure);
 
@@ -56,7 +59,8 @@ impl TruckCoordinator {
         providers.add_next_priority_group(tombstones);
         providers.add_next_priority_group(ruins);
         providers.add_next_priority_group(center_link).push_amount(0);
-        providers.add_next_priority_group(unlinked_source_containers).push_amount(500);
+        providers.add_next_priority_group(source_container_providers).push_amount(500);
+        providers.add_next_priority_group(source_link_providers).push_amount(400);
         providers.add_next_priority_group(terminal).min_leave(10_000);
 
         self.providers.set_tasks(providers.build());
@@ -90,9 +94,10 @@ impl TruckCoordinator {
         self.providers.iter_mut()
                 .filter(|(_, (_, collab))| collab.unreserved_amount() > 0)
                 .filter(|(_, (data, collab))| data.push_amount.is_some_and(|push_amount| collab.unreserved_amount() >= push_amount))
-                .max_by_key(|(provider, (data, _))|  {
+                .max_by_key(|(provider, (data, collab))|  {
                     (
-                        data.priority, 
+                        data.priority,
+                        collab.unreserved_amount().min(truck.next_free_capacity()),
                         Reverse(provider.pos().get_range_to(truck.pos()))
                     )
                 }).added_to_collab(truck.handle(), truck.next_free_capacity(), ())
@@ -123,18 +128,30 @@ impl TruckCoordinator {
     }
 }
 
+struct SourceProviders {
+    links: Vec<StructureLink>,
+    containers: Vec<StructureContainer>
+}
+
 impl ColonyPlan {
-    fn unlinked_source_containers(&self) -> PlannedStructureRefs<StructureContainer> {
+    fn get_source_providers(&self) -> SourceProviders {
         let center_link_exists = self.center.link.resolve().is_some();
 
-        PlannedStructureRefs(
-            self.sources.values()
-                .filter(|source_plan| {
-                    let source_link_exists = source_plan.link.resolve().is_some();
-                    !center_link_exists || !source_link_exists
-                }).filter_map(|source_plan| source_plan.container.0.clone())
-                .collect()
-        )
+        let mut source_providers = SourceProviders { containers: Vec::new(), links: Vec::new() };
+        for source in self.sources.values() {
+            let container_blocked = source.spawn.resolve().is_some();
+            
+            match (source.container.resolve(), source.link.resolve()) {
+                (_, Some(_)) if center_link_exists => (),
+                (Some(container), _) if !container_blocked => 
+                    source_providers.containers.push(container),
+                (_, Some(link)) => 
+                    source_providers.links.push(link),
+                (_, _) => ()
+            }
+        }
+
+        source_providers
     }
 }
 

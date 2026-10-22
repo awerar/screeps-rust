@@ -1,10 +1,10 @@
 use anyhow::{anyhow};
 use enum_display::EnumDisplay;
 use log::warn;
-use screeps::{ConstructionSite, HasId, Part, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
+use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, defer, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, defer, domain_traits::{EnergyStoreAccessors, HasHits}, movement::requests::MovementRequests, statemachine::Transition, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -18,6 +18,7 @@ impl SourcePlan {
         if let Some(site) = self.container.resolve_site() { return Some(site); }
         if let Some(site) = self.link.resolve_site() { return Some(site); }
         if let Some(site) = self.spawn.resolve_site() { return Some(site); }
+        if let Some(site) = self.road.resolve_site() { return Some(site); }
         self.extensions.iter().find_map(PlannedStructureRef::resolve_site)
     }
 
@@ -30,15 +31,31 @@ impl SourcePlan {
 
         fillable
     }
+    
+    pub fn get_repair_target(&self) -> Option<RepairableStructure> {
+        let structures = vec![ 
+            self.road.resolve().map(RepairableStructure::new),
+            self.container.resolve().map(RepairableStructure::new)
+        ];
+
+        structures.into_iter()
+            .flatten()
+            .map(|structure| (structure, structure.hits_max() - structure.hits()))
+            .max_by_key(|(_, missing_hits)| *missing_hits)
+            .filter(|(_, missing_hits)| *missing_hits > REPAIR_POWER * 10) // TODO: Improve this
+            .map(|(structure, _)| structure)
+    }
 
     fn get_energy_destination(&self) -> Option<EnergyDestination> {
-        self.get_construction_site().map(EnergyDestination::ConstructionSite)
+        self.get_repair_target().map(EnergyDestination::Repair)
+            .or_else(|| self.get_construction_site().map(EnergyDestination::ConstructionSite))
             .or_else(|| self.get_fill_target())
             .or_else(|| self.container.resolve().filter(|container| container.free_energy_capacity() > 0).map(EnergyDestination::Container))
     }
 }
 
 enum EnergyDestination {
+    Repair(RepairableStructure),
     ConstructionSite(ConstructionSite),
     Spawn(StructureSpawn),
     Extension(StructureExtension),
@@ -48,11 +65,13 @@ enum EnergyDestination {
 
 impl EnergyDestination {
     fn can_also_harvest(&self) -> bool {
-        !matches!(self, Self::ConstructionSite(_))
+        !matches!(self, Self::ConstructionSite(_) | Self::Repair(_))
     }
 
     fn recieve(self, creep: &mut VirtualCreep) -> Result<u32, IntentError> {
         match self {
+            EnergyDestination::Repair(structure) => 
+                creep.repair(structure),
             EnergyDestination::ConstructionSite(site) => 
                 creep.build(site.clone()),
             EnergyDestination::Spawn(spawn) => 

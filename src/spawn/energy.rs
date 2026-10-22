@@ -139,7 +139,7 @@ impl ColonyEnergy {
     }
 
     pub fn future_energy(&self) -> u32 {
-        self.0.iter().map(|group| group.energy.future_energy()).sum()
+        self.0.iter().map(|group| group.energy.future_energy()).sum::<u32>().max(300)
     }
 
     pub fn allocate(&mut self, mut amount: u32) -> Vec<EnergyStructure> {
