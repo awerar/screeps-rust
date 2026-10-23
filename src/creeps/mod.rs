@@ -153,8 +153,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             },
             ImportTruck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                let colonies = mem.colonies.view_all().map(|colony| (colony.name, colony)).collect();
-                step(state, |state| state.update(&mut vcreep, &home, &colonies, &mut movement, coordinator));
+                step(state, |state| state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), &mut movement, coordinator));
             }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();

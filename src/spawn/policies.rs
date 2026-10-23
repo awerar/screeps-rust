@@ -95,6 +95,8 @@ pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
 
 static IMPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Move, Carry]) });
 pub fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
+    if mem.colonies.view_export_colonies().is_empty() { return; }
+
     for colony in mem.colonies.view_all() {
         if colony.step >= STOP_IMPORT_STEP { continue; }
 

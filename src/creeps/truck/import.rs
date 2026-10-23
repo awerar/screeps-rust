@@ -1,12 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Deref};
 
+use derive_deref::Deref;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType, RoomName};
 use serde::Deserialize;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
-use crate::{check::Check, colony::{ColonyBuffer, ColonyView, steps::ColonyStep}, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
@@ -40,33 +41,61 @@ impl<'de> Deserialize<'de> for ImportTruckState {
 
 const ENERGY_THRESHOLD: u32 = 10_000;
 
+pub struct ExportColonyView<'a> {
+    view: ColonyView<'a>,
+    buffer: ColonyBuffer
+}
+
+impl<'a> Deref for ExportColonyView<'a> {
+    type Target = ColonyView<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
+#[derive(Deref)]
+pub struct ExportColonies<'a>(HashMap<RoomName, ExportColonyView<'a>>);
+
+impl Colonies {
+    pub fn view_export_colonies(&self) -> ExportColonies<'_> {
+        ExportColonies(
+            self.view_all()
+                .filter(|colony| colony.step >= START_EXPORT_STEP)
+                .filter_map(|colony| {
+                    Some(ExportColonyView {
+                        buffer: *colony.buffer.as_ref()?,
+                        view: colony
+                    })
+                })
+                .filter(|colony| colony.buffer.used_energy_capacity() > ENERGY_THRESHOLD)
+                .map(|colony| (colony.name, colony))
+                .collect()
+        )
+    }
+}
+
 impl ImportTruckState {
     fn finish_task(task_handle: CreepAllocationHandle<'_>) -> Self {
         task_handle.release();
         Self::ProvidingIdle
     }
 
-    pub fn update<'a>(self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Result<Transition<Self>> {
+    pub fn update<'a>(self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Result<Transition<Self>> {
         use Transition::*;
 
         match self {
             Self::Idle => {
-                let export_colony = colonies.values()
-                    .filter(|colony| colony.step >= START_EXPORT_STEP)
-                    .max_by_key(|colony| colony.buffer.as_ref().map_or(0, EnergyStoreAccessors::used_energy_capacity))
-                    .filter(|colony| colony.buffer.as_ref().is_some_and(|buffer| buffer.used_energy_capacity() > ENERGY_THRESHOLD));
-                
+                let export_colony = colonies.values().max_by_key(|colony| colony.buffer.used_energy_capacity());
                 let Some(export_colony) = export_colony else { done!(self) };
 
                 Ok(Next(Self::CollectingFrom(export_colony.name)))
             },
             Self::CollectingFrom(room_name) => {
-                let colony = colonies.get(&room_name).ok_or(anyhow!("Room is not a colony"))?;
-                let buffer = colony.buffer.as_ref().ok_or(anyhow!("{room_name} has no buffer"))?;
-                next_if!(buffer.used_energy_capacity() < ENERGY_THRESHOLD, Self::Idle);
+                let Some(colony) = colonies.get(&room_name) else { next!(Self::Idle) };
 
-                defer!(movement.move_vcreep_to(creep, buffer.pos(), 1), self)?;
-                defer_err!(creep.withdraw(*buffer, ResourceType::Energy, None), self)?;
+                defer!(movement.move_vcreep_to(creep, colony.buffer.pos(), 1), self)?;
+                defer_err!(creep.withdraw(colony.buffer, ResourceType::Energy, None), self)?;
                 
                 Ok(Next(Self::GoingHome))
             },
