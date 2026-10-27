@@ -65,16 +65,9 @@ pub struct MineralPlan {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ColonyPlanStep {
     pub new_structures: HashSet<(RoomXY, StructureType)>,
-    pub expired_structures: HashSet<(RoomXY, StructureType)>
-}
+    pub expired_structures: HashSet<(RoomXY, StructureType)>,
 
-impl ColonyPlanStep {
-    pub fn new() -> Self {
-        ColonyPlanStep { 
-            new_structures: HashSet::new(),
-            expired_structures: HashSet::new()
-        }
-    }
+    pub accumulated_structures: HashSet<(RoomXY, StructureType)>
 }
 
 pub fn get_all_structures_in(room: &Room) -> HashMap<(RoomXY, StructureType), bool> {

@@ -1,6 +1,6 @@
 use std::{fmt::Debug, mem};
 
-use anyhow::Ok;
+use anyhow::{Ok, anyhow};
 use enum_display::EnumDisplay;
 use screeps::Room;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,9 @@ impl ColonyStep {
         use Transition::*;
 
         let controller_level = colony_data.controller.level();
-        if self.controller_level() > controller_level { return Ok(Next(Self::first_at_level(controller_level))) }
+        if self.controller_level() > controller_level { 
+            anyhow!("Controller level is higher than expected");
+        }
 
         let controller_is_upgraded = controller_level > self.controller_level();
         let built_step = colony_data.plan.steps.get(&self).map_or(Ok(true), |step| step.build(room))?;

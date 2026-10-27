@@ -36,10 +36,12 @@ impl ColonyPlan {
             let Some(step) = self.steps.get(&step) else { continue; };
 
             for (pos, structure) in &step.new_structures {
-                draw_structure(visuals, *pos, *structure);
+                if !matches!(structure, StructureType::Road) {
+                    draw_structure(visuals, *pos, *structure);
+                } else {
+                    roads.insert(*pos);
+                }
             }
-
-            roads.extend(step.new_roads.iter().copied());
         }
 
         draw_roads(visuals, &roads);

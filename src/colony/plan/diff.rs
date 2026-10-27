@@ -7,8 +7,11 @@ use crate::colony::plan::{ColonyPlan, get_all_structures_in};
 
 impl ColonyPlan {
     pub fn diff_with(&self, room: &Room) -> ColonyPlanDiff {
-        let planned_structures = self.steps.values()
-            .flat_map(|step| step.new_structures.iter().map(|(a, b)| (*a, *b)))
+        let controller = room.controller().expect("ColonyPlan should only be created for rooms with controllers");
+
+        let planned_structures = self.steps.iter()
+            .take_while(|(step, _)| step.controller_level() <= controller.level())
+            .flat_map(|(_, step)| step.new_structures.iter().map(|(a, b)| (*a, *b)))
             .collect::<HashSet<_>>();
 
         let all_structures = get_all_structures_in(room).into_keys()
