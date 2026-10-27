@@ -76,7 +76,7 @@ pub fn update_colonies(mem: &mut Memory) {
                 }
             }
 
-            let plan = plan.tap_mut(|plan| plan.adapt_build_times_to(&room));
+            let plan = plan.tap_mut(|plan| plan.adapt_extensions_order(&room));
 
             e.insert((plan, ColonyStep::default()));
         }

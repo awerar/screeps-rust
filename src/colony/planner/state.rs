@@ -61,6 +61,10 @@ impl PlannedStructure {
     }
 }
 
+pub enum PlannedCreep {
+    Upgrader
+}
+
 #[derive(Clone, Copy)]
 enum TilePathing {
     BuiltRoad,
@@ -92,17 +96,37 @@ impl TilePathing {
     }
 }
 
+enum PlannedEntity {
+    Structure(PlannedStructure),
+    Creep(PlannedCreep)
+}
+
+impl PlannedEntity {
+    fn structure_type(&self) -> Option<StructureType> {
+        match self {
+            PlannedEntity::Structure(structure) => Some(structure.structure_type()),
+            PlannedEntity::Creep(_) => None,
+        }
+    }
+}
+
+struct LifeTime {
+    pub build_step: ColonyStep,
+    pub destroy_step: Option<ColonyStep>
+}
+
+impl LifeTime {
+    fn active_at(&self, step: ColonyStep) -> bool {
+        step >= self.build_step && self.destroy_step.is_none_or(|destroy_step| destroy_step > step)
+    }
+}
+
 pub struct ColonyPlanner {
     pub cost_matrix: CostMatrix,
     pub terrain: RoomTerrain,
     pub room: Room,
 
-    pub roads: HashMap<RoomXY, ColonyStep>,
-    pub structures: HashMap<RoomXY, ColonyStep>,
-
-    pub pos2structure: HashMap<RoomXY, PlannedStructure>,
-    pub structures2pos: HashMap<PlannedStructure, HashSet<RoomXY>>,
-    pub structure_type_steps: HashMap<StructureType, BTreeMap<ColonyStep, u32>>
+    pub entities: HashMap<RoomXY, Vec<(PlannedEntity, LifeTime)>>,
 }
 
 impl ColonyPlanner {
@@ -119,11 +143,7 @@ impl ColonyPlanner {
             cost_matrix,
             terrain,
             room,
-            roads: HashMap::new(),
-            structures: HashMap::new(),
-            pos2structure: HashMap::new(),
-            structures2pos: HashMap::new(),
-            structure_type_steps: HashMap::new()
+            entities: HashMap::new(),
         }
     }
 
@@ -138,7 +158,7 @@ impl ColonyPlanner {
                 .map(|(pos, _)| *pos)
             );
 
-            plan_step.new_structures.extend(self.structures.iter()
+            plan_step.new_structures.extend(self.entities.iter()
                 .filter(|(_, road_step)| **road_step == step)
                 .map(|(pos, _)| (*pos, self.pos2structure[pos].structure_type()))
             );
@@ -290,11 +310,11 @@ impl ColonyPlanner {
         if !structure.buildable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { return Err(anyhow!("Can't plan {structure:?} due to wall")) }
         if self.num_placed_by(structure.structure_type(), step) >= structure.structure_type().controller_structures(step.controller_level().into()) { return Err(anyhow!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}")); }
         if self.pos2structure.get(&xy).is_some_and(|other| structure != *other) { return Err(anyhow!("Can't plan {structure:?} due to overlap")) }
-        if self.structures.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
+        if self.entities.get(&xy).is_some_and(|old_step| step >= *old_step) { return Ok(()) }
 
         self.structures2pos.entry(structure).or_default().insert(xy);
         self.pos2structure.insert(xy, structure);
-        self.structures.insert(xy, step);
+        self.entities.insert(xy, step);
         *self.structure_type_steps.entry(structure.structure_type()).or_default().entry(step).or_default() += 1;
 
         if !structure.walkable() {

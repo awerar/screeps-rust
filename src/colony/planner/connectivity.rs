@@ -33,7 +33,7 @@ pub fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> anyho
             }
         }
 
-        let new_structures: Vec<_> = planner.structures.iter()
+        let new_structures: Vec<_> = planner.entities.iter()
             .filter(|(_, road_step)| step == **road_step)
             .map(|(pos, _)| pos)
             .filter(|pos| !matches!(planner.pos2structure[*pos], PlannedStructure::SourceContainer(_)))
