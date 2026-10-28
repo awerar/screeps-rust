@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{assert_matches, collections::{HashMap, HashSet}};
 
 use itertools::Itertools;
 use screeps::{CostMatrix, CostMatrixSet, FindPathOptions, HasPosition, Path, Position, Room, RoomTerrain, RoomXY, Source, Step, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
@@ -110,60 +110,62 @@ impl PlannedEntity {
     }
 }
 
+// Impassable structures are not allowed lifetimes
 struct LifeTime {
     pub build_step: ColonyStep,
     pub destroy_step: Option<ColonyStep>
 }
 
 impl LifeTime {
-    fn active_at(&self, step: ColonyStep) -> bool {
+    fn is_built_at(&self, step: ColonyStep) -> bool {
         step >= self.build_step && self.destroy_step.is_none_or(|destroy_step| destroy_step > step)
     }
-}
 
-pub struct ColonyPlanner {
-    pub cost_matrix: CostMatrix,
-    pub terrain: RoomTerrain,
-    pub room: Room,
-
-    pub entities: HashMap<RoomXY, Vec<(PlannedEntity, LifeTime)>>,
-}
-
-impl ColonyPlanner {
-    pub fn new(room: Room) -> Self {
-        let terrain = room.get_terrain();
-        let cost_matrix = CostMatrix::new();
-        for x in 0..50 {
-            for y in 0..50 {
-                cost_matrix.set(x, y, TilePathing::from(terrain.get(x, y)).cost());
-            }
-        }
-
-        ColonyPlanner {
-            cost_matrix,
-            terrain,
-            room,
-            entities: HashMap::new(),
-        }
+    fn is_planned_at(&self, step: ColonyStep) -> bool {
+        step < self.build_step
     }
 
-    pub fn compile(self) -> anyhow::Result<ColonyPlan> {
+    fn is_destroyed_at(&self, step: ColonyStep) -> bool {
+        self.destroy_step.is_some_and(|destroy_step| step > destroy_step)
+    }
+
+    fn union(&self, other: &Self) -> Self {
+        Self { 
+            build_step: self.build_step.min(other.build_step), 
+            destroy_step: match (self.destroy_step, other.destroy_step) {
+                (Some(step1), Some(step2)) => Some(step1.max(step2)),
+                (step1, step2) => step1.or(step2)
+            }
+        }
+    }
+}
+
+pub struct IntermediateColonyPlan {
+    pub room: Room,
+
+    pub new_structures: HashMap<ColonyStep, HashSet<(RoomXY, StructureType)>>,
+    pub expired_structures: HashMap<ColonyStep, HashSet<(RoomXY, StructureType)>>,
+
+    pub roads: RoadPlanner
+}
+
+impl IntermediateColonyPlan {
+    fn compile(self) -> anyhow::Result<ColonyPlan> {
         let mut plan_steps = HashMap::new();
 
+        let accumulated_structures = HashSet::new();
         for step in ColonyStep::iter() {
-            let mut plan_step = ColonyPlanStep::default();
+            let new_structures = self.new_structures.get(&step).unwrap();
+            let expired_structures = self.expired_structures.get(&step).unwrap();
 
-            plan_step.new_roads.extend(self.roads.iter()
-                .filter(|(_, road_step)| **road_step == step)
-                .map(|(pos, _)| *pos)
-            );
+            accumulated_structures.extend(new_structures.iter().cloned());
+            accumulated_structures = accumulated_structures.difference(expired_structures).cloned().collect();
 
-            plan_step.new_structures.extend(self.entities.iter()
-                .filter(|(_, road_step)| **road_step == step)
-                .map(|(pos, _)| (*pos, self.pos2structure[pos].structure_type()))
-            );
-
-            plan_steps.insert(step, plan_step);
+            plan_steps.insert(step, ColonyPlanStep { 
+                new_structures: new_structures.clone(), 
+                expired_structures: expired_structures.clone(), 
+                accumulated_structures: accumulated_structures.clone()
+            });
         }
 
         let center = self.compile_center()?;
@@ -176,6 +178,7 @@ impl ColonyPlanner {
             controller: PlannedStructureRef::new(self.room.controller().ok_or(anyhow!("No controller"))?.pos())
         })
     }
+
 
     fn compile_center(&self) -> anyhow::Result<CenterPlan> {
         use PlannedStructure::*;
@@ -206,7 +209,7 @@ impl ColonyPlanner {
 
                 let plan = SourcePlan {
                     spawn_direction: spawn.pos.get_direction_to(container.pos).unwrap(),
-                    distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
+                    distance: self.roads.find_path_between(center, container.pos.xy(), None).len() as u32,
                     spawn: spawn.into(),
                     road: PlannedStructureRef::new(container.pos),
                     container: container.into(),
@@ -224,13 +227,13 @@ impl ColonyPlanner {
         let container = self.get_structure_ref(MineralContainer)?;
 
         Ok(MineralPlan {
-            distance: self.find_path_between(center, container.pos.xy(), None).len() as u32,
+            distance: self.roads.find_path_between(center, container.pos.xy(), None).len() as u32,
             container: container.into(),
             extractor: self.get_structure_ref(Extractor)?.into(),
         })
     }
 
-    pub fn get_structure_ref<T: HasId>(&self, structure: PlannedStructure) -> anyhow::Result<PlannedStructureRef<T>> {
+    fn get_structure_ref<T: HasId>(&self, structure: PlannedStructure) -> anyhow::Result<PlannedStructureRef<T>> {
         self.structures2pos.get(&structure)
             .ok_or(anyhow!("No {structure:?} was found"))
             .and_then(|positions| {
@@ -241,13 +244,40 @@ impl ColonyPlanner {
             .map(|pos| PlannedStructureRef::new(Position::new(pos.x, pos.y, self.room.name())))
     }
 
-    pub fn get_structure_refs<T: HasId>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
+    fn get_structure_refs<T: HasId>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
         let Some(positions) = self.structures2pos.get(&structure) else { return PlannedStructureRefs(Vec::new()) };
 
         PlannedStructureRefs(positions.iter()
             .copied()
             .map(|pos| PlannedStructureRef::new(Position::new(pos.x, pos.y, self.room.name())))
             .collect())
+    }
+}
+
+pub struct ColonyPlanner {
+    pub room: Room,
+    pub terrain: RoomTerrain,
+
+    pub roads: RoadPlanner,
+    pub entities: HashMap<RoomXY, Vec<(PlannedEntity, LifeTime)>>,
+}
+
+impl ColonyPlanner {
+    pub fn new(room: Room) -> Self {
+        ColonyPlanner {
+            roads: RoadPlanner::new(room.clone()),
+            terrain: room.get_terrain(),
+            room,
+            entities: HashMap::new(),
+        }
+    }
+
+    fn compile_intermediate(self) -> anyhow::Result<IntermediateColonyPlan> {
+
+    }
+
+    pub fn compile(self) -> anyhow::Result<ColonyPlan> {
+        self.compile_intermediate()?.compile()
     }
 
     pub fn count_left_for(&self, structure: PlannedStructure, step: ColonyStep) -> u32 {
@@ -324,18 +354,70 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, step: Option<ColonyStep>) -> Vec<Step> {
-        let step = step.unwrap_or(ColonyStep::last());
+    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyStep) {
+        let path = self.find_path_between(point1, point2, Some(step));
+
+        let mut pos = Position::new(point1.x, point1.y, self.room.name());
+        for path_step in &path {
+            pos.offset(path_step.dx, path_step.dy);
+
+            if self.pos2structure.get(&pos.xy()).is_none_or(PlannedStructure::walkable) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
+                self.plan_road(pos.xy(), step);
+            }
+        }
+    }
+}
+
+struct RoadPlanner {
+    room: Room,
+    terrain: RoomTerrain,
+    cost_matrix: CostMatrix,
+
+    // We never rebuild a road, instead just extend the lifetime
+    roads: HashMap<RoomXY, LifeTime>,
+
+    // Once a blocker gets placed it will never disappear
+    blocks: HashMap<RoomXY, ColonyStep>
+}
+
+impl RoadPlanner {
+    pub fn new(room: Room) -> Self {
+        let terrain = room.get_terrain();
+        let cost_matrix = CostMatrix::new();
+        for x in 0..50 {
+            for y in 0..50 {
+                cost_matrix.set(x, y, TilePathing::from(terrain.get(x, y)).cost());
+            }
+        }
+
+        Self { 
+            terrain, 
+            cost_matrix, 
+            room,
+            roads: HashMap::new(),
+            blocks: HashMap::new()
+        }
+    }
+
+    // TODO: Split into road planning and distance checking
+    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> Vec<Step> {
+        let step = build_step.unwrap_or(ColonyStep::last());
+        let expiration_step = expiration_step.unwrap_or(ColonyStep::last());
 
         let mut cost_matrix = self.cost_matrix.clone();
 
-        let built_roads = self.roads.iter()
-            .filter(|(_, road_step)| **road_step <= step)
-            .filter(|(pos, _)| !self.pos2structure.contains_key(*pos))
-            .map(|(pos, _)| pos);
+        for (pos, lt) in &self.roads {
+            if lt.is_built_at(step) {
+                cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
+            } else if lt.is_planned_at(step) {
+                cost_matrix.set_xy(*pos, TilePathing::PlannedRoad.cost());
+            }
+        }
 
-        for pos in built_roads {
-            cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
+        for (pos, block_step) in &self.blocks {
+            if *block_step < expiration_step {
+                cost_matrix.set_xy(*pos, TilePathing::Impassable.cost());
+            }
         }
 
         let options = FindPathOptions::<fn(_, CostMatrix) -> SingleRoomCostResult, SingleRoomCostResult>::default()
@@ -350,16 +432,12 @@ impl ColonyPlanner {
         path
     }
 
-    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, step: ColonyStep) {
-        let path = self.find_path_between(point1, point2, Some(step));
+    pub fn add_blocker(&mut self, pos: RoomXY, step: ColonyStep) {
+        let prev = self.blocks.insert(pos, step);
+        assert_matches!(prev, None);
+    }
 
-        let mut pos = Position::new(point1.x, point1.y, self.room.name());
-        for path_step in &path {
-            pos.offset(path_step.dx, path_step.dy);
-
-            if self.pos2structure.get(&pos.xy()).is_none_or(PlannedStructure::walkable) && self.terrain.get(pos.x().u8(), pos.y().u8()) != Terrain::Wall {
-                self.plan_road(pos.xy(), step);
-            }
-        }
+    pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) {
+        self.roads.entry(pos).and_modify(|lt2| *lt2 = lt2.union(&lt)).or_insert(lt);
     }
 }
