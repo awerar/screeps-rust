@@ -2,7 +2,7 @@ use itertools::Itertools;
 use screeps::{HasId, HasPosition, RoomCoordinate, RoomXY, find};
 use anyhow::anyhow;
 
-use crate::colony::{planner::state::{ColonyPlanner, PlannedStructure}, steps::ColonyStep};
+use crate::colony::{planner::state::{ColonyPlanner, PlannedPermanentStructure}, steps::ColonyStep};
 
 pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<Vec<RoomXY>> {
     use ColonyStep::*;
@@ -21,7 +21,7 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         );
 
         planner.plan_road(excavator_pos, BuildArterialRoads);
-        planner.plan_structure(excavator_pos, BuildBufferAndSourceContainers, PlannedStructure::SourceContainer(source_id))?;
+        planner.plan_blocker(excavator_pos, BuildBufferAndSourceContainers, PlannedPermanentStructure::SourceContainer(source_id))?;
 
         let slots = excavator_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))
@@ -35,14 +35,14 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         );
 
         planner.plan_road(main_road_pos, BuildArterialRoads);
-        planner.plan_structure_earliest(main_road_pos, PlannedStructure::SourceSpawn(source_id))?;
+        planner.plan_blocker_earliest(main_road_pos, PlannedPermanentStructure::SourceSpawn(source_id))?;
 
         let mut slots = slots.filter(|slot| *slot != main_road_pos);
         let link_slot = slots.next().ok_or(anyhow!("No slots for link around source"))?;
-        planner.plan_structure_earliest(link_slot, PlannedStructure::SourceLink(source_id))?;
+        planner.plan_blocker_earliest(link_slot, PlannedPermanentStructure::SourceLink(source_id))?;
 
         for slot in slots {
-            planner.plan_structure_earliest(slot, PlannedStructure::SourceExtension(source_id))?;
+            planner.plan_blocker_earliest(slot, PlannedPermanentStructure::SourceExtension(source_id))?;
         }
 
         connection_points.push(main_road_pos);

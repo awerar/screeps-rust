@@ -1,7 +1,7 @@
 use screeps::{HasPosition, Room, find};
 use anyhow::anyhow;
 
-use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, connectivity::ensure_connectivity, sources::plan_sources, state::{ColonyPlanner, PlannedStructure}}, steps::ColonyStep};
+use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, connectivity::ensure_connectivity, sources::plan_sources, state::{ColonyPlanner, PlannedPermanentStructure}}, steps::ColonyStep};
 
 mod center;
 mod connectivity;
@@ -17,13 +17,13 @@ impl ColonyPlan {
         let center = find_center(room);
         
         let mut center_planner = CenterPlanner::new(&planner, center);
-        planner.plan_structure(center_planner.container_buffer_pos(), BuildBufferAndSourceContainers, PlannedStructure::ContainerStorage)?;
+        planner.plan_blocker(center_planner.container_buffer_pos(), BuildBufferAndSourceContainers, PlannedPermanentStructure::ContainerStorage)?;
 
-        center_planner.plan_structure(&mut planner, BuildLvl4, PlannedStructure::Storage)?;
-        center_planner.plan_structure(&mut planner, BuildSpawn, PlannedStructure::MainSpawn)?;
-        center_planner.plan_structure(&mut planner, BuildLvl5, PlannedStructure::CentralLink)?;
-        center_planner.plan_structure(&mut planner, BuildLvl6, PlannedStructure::Terminal)?;
-        center_planner.plan_structure(&mut planner, BuildLvl3, PlannedStructure::Tower)?;
+        center_planner.plan_structure(&mut planner, BuildLvl4, PlannedPermanentStructure::Storage)?;
+        center_planner.plan_structure(&mut planner, BuildSpawn, PlannedPermanentStructure::MainSpawn)?;
+        center_planner.plan_structure(&mut planner, BuildLvl5, PlannedPermanentStructure::CentralLink)?;
+        center_planner.plan_structure(&mut planner, BuildLvl6, PlannedPermanentStructure::Terminal)?;
+        center_planner.plan_structure(&mut planner, BuildLvl3, PlannedPermanentStructure::Tower)?;
 
         let excavator_positions = plan_sources(&mut planner, center)?;
 
@@ -39,13 +39,13 @@ impl ColonyPlan {
         }
 
         for deposit in room.find(find::MINERALS, None) {
-            planner.plan_structure(deposit.pos().xy(), BuildLvl6, PlannedStructure::Extractor)?;
+            planner.plan_blocker(deposit.pos().xy(), BuildLvl6, PlannedPermanentStructure::Extractor)?;
             planner.plan_road_between(center, deposit.pos().xy(), BuildLvl6);
 
             let container_pos = deposit.pos().xy().neighbors().into_iter()
                 .find(|neigh| planner.roads.contains_key(neigh))
                 .ok_or(anyhow!("Unable to find road around deposit"))?;
-            planner.plan_structure(container_pos, BuildLvl6, PlannedStructure::MineralContainer)?;
+            planner.plan_blocker(container_pos, BuildLvl6, PlannedPermanentStructure::MineralContainer)?;
         }
 
         ensure_connectivity(&mut planner, center)?;

@@ -4,7 +4,7 @@ use screeps::RoomXY;
 use strum::IntoEnumIterator;
 use unionfind::HashUnionFindByRank;
 
-use crate::colony::{planner::state::{ColonyPlanner, PlannedStructure}, steps::ColonyStep};
+use crate::colony::{planner::state::{ColonyPlanner, PlannedPermanentStructure}, steps::ColonyStep};
 
 pub fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<()> {
     let mut network = HashUnionFindByRank::new(vec![center]).unwrap();
@@ -36,7 +36,7 @@ pub fn ensure_connectivity(planner: &mut ColonyPlanner, center: RoomXY) -> anyho
         let new_structures: Vec<_> = planner.tiles.iter()
             .filter(|(_, road_step)| step == **road_step)
             .map(|(pos, _)| pos)
-            .filter(|pos| !matches!(planner.pos2structure[*pos], PlannedStructure::SourceContainer(_)))
+            .filter(|pos| !matches!(planner.pos2structure[*pos], PlannedPermanentStructure::SourceContainer(_)))
             .copied()
             .sorted()
             .collect();
