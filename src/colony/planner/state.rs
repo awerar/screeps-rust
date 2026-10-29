@@ -9,6 +9,8 @@ use strum::IntoEnumIterator;
 
 use crate::{colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan, refs::{PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep}, domain_traits::HasId};
 
+// TODO: Split this into many smaller files
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedPermanentStructure {
     MainSpawn,
@@ -146,6 +148,9 @@ impl PlannedBlocker {
     }
 }
 
+impl From<PlannedPermanentStructure> for PlannedBlocker { fn from(value: PlannedPermanentStructure) -> Self { Self::Structure(value) } }
+impl From<PlannedPermanentCreep> for PlannedBlocker { fn from(value: PlannedPermanentCreep) -> Self { Self::Creep(value) } }
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedEntity {
     Blocker(PlannedBlocker),
@@ -157,6 +162,13 @@ impl PlannedEntity {
         match self {
             PlannedEntity::Blocker(blocker) => blocker.structure_type(),
             PlannedEntity::TemporaryStructure(structure) => Some(structure.structure_type()),
+        }
+    }
+
+    fn plannable_on_wall(&self) -> bool {
+        match self {
+            PlannedEntity::Blocker(blocker) => blocker.plannable_on_wall(),
+            PlannedEntity::TemporaryStructure(_) => false,
         }
     }
 }
@@ -287,17 +299,17 @@ impl TilePathing {
 
 // Impassable structures are not allowed lifetimes
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
-struct LifeTime {
+pub struct LifeTime {
     pub build_step: ColonyStep,
     pub destroy_step: Option<ColonyStep>
 }
 
 impl LifeTime {
-    fn permanent(build: ColonyStep) -> Self {
+    pub fn permanent(build: ColonyStep) -> Self {
         LifeTime { build_step: build, destroy_step: None }
     }
 
-    fn temporary(build: ColonyStep, destroy: ColonyStep) -> Option<Self> {
+    pub fn temporary(build: ColonyStep, destroy: ColonyStep) -> Option<Self> {
         if destroy <= build { return None }
 
         Some(LifeTime { build_step: build, destroy_step: Some(destroy) })
@@ -364,7 +376,7 @@ impl IntermediateColonyPlan {
             sources: self.compile_sources()?,
             mineral: self.compile_mineral()?,
             center,
-            upgrader_pos: self.get_pos(Upgrader)?,
+            upgrader_pos: self.get_pos(Upgrader.into())?,
             controller: PlannedStructureRef::new(self.room.controller().ok_or(anyhow!("No controller"))?.pos())
         })
     }
@@ -374,18 +386,18 @@ impl IntermediateColonyPlan {
         use PlannedPermanentStructure::*;
         use PlannedTemporaryStructure::*;
 
-        let storage_ref = self.get_structure_ref(Storage)?;
+        let storage_ref = self.get_structure_ref(Storage.into())?;
 
         Ok(CenterPlan {
             pos: storage_ref.pos,
-            spawn: self.get_structure_ref(MainSpawn)?,
+            spawn: self.get_structure_ref(MainSpawn.into())?,
             storage: storage_ref.into(),
-            container_storage: self.get_structure_ref(ContainerBuffer)?.into(),
-            link: self.get_structure_ref(CentralLink)?.into(),
-            terminal: self.get_structure_ref(Terminal)?.into(),
-            observer: self.get_structure_ref(Observer)?.into(),
-            towers: self.get_structure_refs(Tower),
-            extensions: self.get_structure_refs(Extension)
+            container_storage: self.get_structure_ref(ContainerBuffer.into())?.into(),
+            link: self.get_structure_ref(CentralLink.into())?.into(),
+            terminal: self.get_structure_ref(Terminal.into())?.into(),
+            observer: self.get_structure_ref(Observer.into())?.into(),
+            towers: self.get_structure_refs(Tower.into()),
+            extensions: self.get_structure_refs(Extension.into())
         })
     }
 
@@ -395,8 +407,8 @@ impl IntermediateColonyPlan {
         self.room.find(find::SOURCES, None).into_iter()
             .map(|source| screeps::HasId::id(&source))
             .map(|source| {
-                let container = self.get_structure_ref(SourceContainer(source))?;
-                let spawn = self.get_structure_ref(SourceSpawn(source))?;
+                let container = self.get_structure_ref(SourceContainer(source).into())?;
+                let spawn = self.get_structure_ref(SourceSpawn(source).into())?;
 
                 let plan = SourcePlan {
                     spawn_direction: spawn.pos.get_direction_to(container.pos).unwrap(),
@@ -404,8 +416,8 @@ impl IntermediateColonyPlan {
                     spawn: spawn.into(),
                     road: PlannedStructureRef::new(container.pos),
                     container: container.into(),
-                    link: self.get_structure_ref(SourceLink(source))?.into(),
-                    extensions: self.get_structure_refs(SourceExtension(source)),
+                    link: self.get_structure_ref(SourceLink(source).into())?.into(),
+                    extensions: self.get_structure_refs(SourceExtension(source).into()),
                 };
 
                 Ok((source, plan))
@@ -415,17 +427,16 @@ impl IntermediateColonyPlan {
     fn compile_mineral(&self) -> anyhow::Result<MineralPlan> {
         use PlannedPermanentStructure::*;
 
-        let container = self.get_structure_ref(MineralContainer)?;
+        let container = self.get_structure_ref(MineralContainer.into())?;
 
         Ok(MineralPlan {
             distance: self.get_path_length(PathId::Mineral)?,
             container: container.into(),
-            extractor: self.get_structure_ref(Extractor)?.into(),
+            extractor: self.get_structure_ref(Extractor.into())?.into(),
         })
     }
 
-    fn get_pos<E : Into<PlannedEntity>>(&self, entity: E) -> anyhow::Result<Position> {
-        let entity = entity.into();
+    fn get_pos(&self, entity: PlannedEntity) -> anyhow::Result<Position> {
         self.entities2pos.get(&entity)
             .ok_or(anyhow!("No {entity:?} was found"))
             .and_then(|positions| {
@@ -435,14 +446,12 @@ impl IntermediateColonyPlan {
             }).map(|pos| Position::new(pos.x, pos.y, self.room.name()))
     }
 
-    fn get_structure_ref<T: HasId, S : Into<PlannedStructure>>(&self, structure: S) -> anyhow::Result<PlannedStructureRef<T>> {
-        let structure = structure.into();
-        self.get_pos(structure)
+    fn get_structure_ref<T: HasId>(&self, structure: PlannedStructure) -> anyhow::Result<PlannedStructureRef<T>> {
+        self.get_pos(structure.into())
             .map(|pos| PlannedStructureRef::new(pos))
     }
 
-    fn get_structure_refs<T: HasId, S : Into<PlannedStructure>>(&self, structure: S) -> PlannedStructureRefs<T> {
-        let structure = structure.into();
+    fn get_structure_refs<T: HasId>(&self, structure: PlannedStructure) -> PlannedStructureRefs<T> {
         let Some(positions) = self.entities2pos.get(&structure.into()) else { return PlannedStructureRefs(Vec::new()) };
 
         PlannedStructureRefs(positions.iter()
@@ -457,7 +466,7 @@ impl IntermediateColonyPlan {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum PathId {
+pub enum PathId {
     Mineral,
     Source(screeps::ObjectId<Source>)
 }
@@ -551,6 +560,13 @@ impl ColonyPlanner {
             .min().unwrap()
     }
 
+    pub fn get_earliest_step_for(&mut self, structure: StructureType) -> anyhow::Result<ColonyStep> {
+        Ok(self.calculate_all_avaliable_at(structure).into_iter()
+            .rev()
+            .take_while(|(_, avaliable)| *avaliable > 0)
+            .last().ok_or(anyhow!("Unable to build any more {structure:?}"))?.0)
+    }
+
     pub fn is_free_at(&self, pos: RoomXY) -> bool {
         self.terrain.get(pos.x.u8(), pos.y.u8()) != Terrain::Wall && !self.tiles.contains_key(&pos)
     }
@@ -586,30 +602,31 @@ impl ColonyPlanner {
             }).1
     }
 
-    pub fn plan_blocker_earliest(&mut self, xy: RoomXY, blocker: PlannedBlocker) -> anyhow::Result<ColonyStep> {
-        let mut earliest = match self.tiles.get(&xy) {
-            Some(history) => history.get_earliest_extension_step().ok_or_else(|| anyhow!("Can't extend history"))?,
-            None => ColonyStep::default(),
-        };
+    fn check_entity_plannable_at(&self, xy: RoomXY, step: ColonyStep, entity: PlannedEntity) -> anyhow::Result<()> {
+        if !entity.plannable_on_wall() && self.terrain.get(xy.x.u8(), xy.y.u8()) == Terrain::Wall { bail!("Can't plan {entity:?} due to wall") }
 
-        if let Some(structure) = blocker.structure_type() {
-            earliest = earliest.max(
-                self.calculate_all_avaliable_at(structure).into_iter()
-                    .rev()
-                    .take_while(|(_, avaliable)| *avaliable > 0)
-                    .last().ok_or(anyhow!("Unable to build any more {structure:?}"))?.0
-            );
+        if let Some(structure) = entity.structure_type() && self.count_left_for(structure, step) == 0 {
+            bail!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}");
         }
 
-        self.plan_blocker(xy, earliest, blocker).map(|()| earliest)
+        Ok(())
+    }
+
+    pub fn plan_temporary(&mut self, xy: RoomXY, lt: LifeTime, structure: PlannedTemporaryStructure) -> anyhow::Result<()> {
+        self.check_entity_plannable_at(xy, lt.build_step, structure.into())?;
+
+        match self.tiles.entry(xy) {
+            hash_map::Entry::Occupied(mut entry) => entry.get_mut().add_temporary(lt, structure)?,
+            hash_map::Entry::Vacant(entry) => { entry.insert(TileHistory::Temporary(lt, structure, None)); },
+        }
+
+        self.add_structure_lifetime(structure.structure_type(), lt);
+
+        Ok(())
     }
 
     pub fn plan_blocker(&mut self, xy: RoomXY, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
-        if !blocker.plannable_on_wall() && self.terrain.get_xy(xy) == Terrain::Wall { bail!("Can't plan {blocker:?} due to wall") }
-
-        if let Some(structure) = blocker.structure_type() && self.count_left_for(structure, step) == 0 {
-            bail!("Can't plan {structure:?} due to insufficient number of buildings at {step:?}");
-        }
+        self.check_entity_plannable_at(xy, step, blocker.into())?;
 
         match self.tiles.entry(xy) {
             hash_map::Entry::Occupied(mut entry) => entry.get_mut().block(step, blocker)?,
@@ -621,6 +638,28 @@ impl ColonyPlanner {
         }
 
         Ok(())
+    }
+
+    pub fn plan_blocker_earliest(&mut self, xy: RoomXY, blocker: PlannedBlocker) -> anyhow::Result<ColonyStep> {
+        let mut earliest = match self.tiles.get(&xy) {
+            Some(history) => history.get_earliest_extension_step().ok_or_else(|| anyhow!("Can't extend history"))?,
+            None => ColonyStep::default(),
+        };
+
+        if let Some(structure) = blocker.structure_type() {
+            earliest = earliest.max(self.get_earliest_step_for(structure)?);
+        }
+
+        self.plan_blocker(xy, earliest, blocker).map(|()| earliest)
+    }
+
+    pub fn find_all(&self, entity: PlannedEntity) -> Vec<RoomXY> {
+        self.tiles.iter()
+            .filter_map(|(xy, history)| {
+                history.clone().into_iter()
+                    .find(|(e, _)| *e == entity)
+                    .map(|_| *xy)
+            }).collect()
     }
 
     pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, lt: LifeTime, id: Option<PathId>) -> anyhow::Result<()> {

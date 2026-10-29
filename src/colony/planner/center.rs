@@ -1,10 +1,10 @@
 use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}};
 
 use itertools::Itertools;
-use screeps::{Direction, HasPosition, Position, Room, RoomXY, Terrain, find};
+use screeps::{Direction, HasPosition, Position, Room, RoomXY, StructureType, Terrain, find};
 use anyhow::bail;
 
-use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, StarWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, PlannedPermanentStructure}}, steps::ColonyStep}, pathfinding, visuals::{RoomDrawerType, draw_in_room}};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, StarWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedPermanentStructure}}, steps::ColonyStep}, pathfinding};
 
 pub struct CenterPlanner {
     road_iter: FloodFill<StarWalkableNeighs>,
@@ -50,14 +50,8 @@ impl CenterPlanner {
             }
 
             let Some((_, road)) = self.road_iter.next() else { bail!("Not enough roads"); };
-            if planner.pos2structure.contains_key(&road) { continue; }
-
-            draw_in_room(planner.room.name(), RoomDrawerType::Plan, move |visuals| {
-                visuals.circle(road.x.u8().into(), road.y.u8().into(), None);
-            });
 
             self.roads.insert(road);
-    
             self.structure_queue.extend(
                 Direction::iter()
                     .filter_map(|dir| road.checked_add_direction(*dir))
@@ -72,7 +66,7 @@ impl CenterPlanner {
 
     pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedPermanentStructure) -> anyhow::Result<()> {
         let pos = self.next_structure_pos(planner, step)?;
-        planner.plan_blocker(pos, step, structure)
+        planner.plan_blocker(pos, step, structure.into())
     }
 
     pub fn container_buffer_pos(&self) -> RoomXY { self.storage_buffer_pos }
@@ -84,7 +78,7 @@ impl CenterPlanner {
                 .filter_map(|pos| self.placed_structures.get(&pos))
                 .sorted().nth(2) else { continue; };
 
-            planner.plan_road(*road, *plan_step);
+            planner.plan_road(*road, LifeTime::permanent(*plan_step));
         }
     }
 }
@@ -96,11 +90,11 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
         }
 
         let step = ColonyStep::first_at_level(controller_level);
-        let plan_extensions = planner.count_left_for(PlannedPermanentStructure::Extension, step);
-        let plan_towers = planner.count_left_for(PlannedPermanentStructure::Tower, step);
+        let plan_extensions = planner.count_left_for(StructureType::Extension, step);
+        let plan_towers = planner.count_left_for(StructureType::Tower, step);
 
         let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(planner, step)).collect::<Result<_, _>>()?;
-        let mut towers = planner.structures2pos.get(&PlannedPermanentStructure::Tower).cloned().unwrap_or_default();
+        let mut towers: HashSet<_> = planner.find_all(PlannedPermanentStructure::Tower.into()).into_iter().collect();
         let mut new_towers = Vec::new();
 
         for _ in 0..plan_towers {
@@ -116,11 +110,11 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
         }
 
         for pos in avaliable_positions {
-            planner.plan_blocker(pos, step, PlannedPermanentStructure::Extension)?;
+            planner.plan_blocker(pos, step, PlannedPermanentStructure::Extension.into())?;
         }
 
         for pos in new_towers {
-            planner.plan_blocker(pos, step, PlannedPermanentStructure::Tower)?;
+            planner.plan_blocker(pos, step, PlannedPermanentStructure::Tower.into())?;
         }
     }
 
