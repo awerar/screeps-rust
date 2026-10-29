@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use crate::colony::{planner::state::{ColonyPlanner, PlannedPermanentStructure}, steps::ColonyStep};
 
 pub struct SourceData {
-    pub connection_point: RoomXY,
+    pub access_pos: RoomXY,
     pub link_step: ColonyStep,
     pub source: screeps::ObjectId<Source>
 }
@@ -19,32 +19,29 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         let source_id = source.id();
 
         let link_step = planner.get_earliest_step_for(StructureType::Link)?;
-        let path = planner.find_path_between(source_pos, center, Some(BuildArterialRoads), Some(link_step));
+        let connection = planner.find_wall_connection(center, source_pos, Some(BuildArterialRoads), Some(link_step))?;
 
-        let excavator_pos = *path.first().ok_or(anyhow!("Path to source had zero elements"))?;
-        let main_road_pos = *path.get(1).ok_or(anyhow!("Path to source had one element"))?;
+        planner.plan_blocker(connection.creep_pos, BuildBufferAndSourceContainers, PlannedPermanentStructure::SourceContainer(source_id).into())?;
 
-        planner.plan_blocker(excavator_pos, BuildBufferAndSourceContainers, PlannedPermanentStructure::SourceContainer(source_id).into())?;
-
-        let slots = excavator_pos.neighbors().into_iter()
+        let slots = connection.creep_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))
             .collect_vec()
             .into_iter();
 
 
-        planner.plan_blocker_earliest(main_road_pos, PlannedPermanentStructure::SourceSpawn(source_id).into())?;
+        planner.plan_blocker_earliest(connection.access_pos, PlannedPermanentStructure::SourceSpawn(source_id))?;
 
-        let mut slots = slots.filter(|slot| *slot != main_road_pos);
+        let mut slots = slots.filter(|slot| *slot != connection.access_pos);
         let link_slot = slots.next().ok_or(anyhow!("No slots for link around source"))?;
         planner.plan_blocker(link_slot, link_step, PlannedPermanentStructure::SourceLink(source_id).into())?;
 
         for slot in slots {
-            planner.plan_blocker_earliest(slot, PlannedPermanentStructure::SourceExtension(source_id).into())?;
+            planner.plan_blocker_earliest(slot, PlannedPermanentStructure::SourceExtension(source_id))?;
         }
 
         source_datas.push(
             SourceData { 
-                connection_point: main_road_pos, 
+                access_pos: connection.access_pos, 
                 link_step,
                 source: source.id()
             }

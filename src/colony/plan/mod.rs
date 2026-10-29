@@ -63,6 +63,7 @@ pub struct MineralPlan {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[expect(clippy::struct_field_names)]
 pub struct ColonyPlanStep {
     pub new_structures: HashSet<(RoomXY, StructureType)>,
     pub expired_structures: HashSet<(RoomXY, StructureType)>,

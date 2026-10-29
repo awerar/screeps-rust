@@ -9,7 +9,7 @@ impl ColonyPlanStep {
         for (xy, ty) in &self.expired_structures {
             let structures = room.look_for_at_xy(look::STRUCTURES, xy.x.u8(), xy.y.u8());
             if let Some(structure) = structures.into_iter().find(|structure| structure.structure_type() == *ty) {
-                structure.as_structure().destroy();
+                structure.as_structure().destroy()?;
             }
         }
 

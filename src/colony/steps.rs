@@ -1,6 +1,6 @@
 use std::{fmt::Debug, mem};
 
-use anyhow::{Ok, anyhow};
+use anyhow::{Ok, bail};
 use enum_display::EnumDisplay;
 use screeps::Room;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ impl ColonyStep {
 
         let controller_level = colony_data.controller.level();
         if self.controller_level() > controller_level { 
-            anyhow!("Controller level is higher than expected");
+            bail!("Controller level is higher than expected");
         }
 
         let controller_is_upgraded = controller_level > self.controller_level();

@@ -1,10 +1,9 @@
 use screeps::{HasPosition, Room, find};
 use anyhow::anyhow;
 
-use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, connectivity::ensure_connectivity, sources::plan_sources, state::{ColonyPlanner, LifeTime, PathId, PlannedPermanentStructure, PlannedTemporaryStructure}}, steps::ColonyStep};
+use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, sources::plan_sources, state::{ColonyPlanner, LifeTime, PathId, PlannedPermanentCreep, PlannedPermanentStructure, PlannedTemporaryStructure}}, steps::ColonyStep};
 
 mod center;
-mod connectivity;
 mod floodfill;
 mod sources;
 mod state;
@@ -21,7 +20,7 @@ impl ColonyPlan {
         planner.plan_temporary(
         center_planner.container_buffer_pos(), 
         LifeTime::temporary(BuildBufferAndSourceContainers, 
-            UpgradeToLevel5).unwrap(), PlannedTemporaryStructure::ContainerBuffer.into()
+            UpgradeToLevel5).unwrap(), PlannedTemporaryStructure::ContainerBuffer
         )?;
 
         center_planner.plan_structure(&mut planner, BuildLvl4, PlannedPermanentStructure::Storage)?;
@@ -32,20 +31,22 @@ impl ColonyPlan {
 
         let source_datas = plan_sources(&mut planner, center)?;
 
-        plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
+        let controller = room.controller().unwrap().pos().xy();
+        let controller_connection = planner.find_wall_connection(center, controller, Some(BuildArterialRoads), None)?;
+        planner.plan_blocker(controller_connection.creep_pos, ColonyStep::BuildSpawn, PlannedPermanentCreep::Upgrader.into())?;
 
+        plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
         center_planner.plan_roads(&mut planner);
 
-        let controller = room.controller().unwrap().pos().xy();
-        planner.plan_road_between(center, controller, LifeTime::permanent(BuildArterialRoads), None);
+        planner.plan_road_between(center, controller_connection.access_pos, LifeTime::permanent(BuildArterialRoads), None)?;
 
         for source_data in source_datas {
             planner.plan_road_between(
-                source_data.connection_point, 
+                source_data.access_pos, 
                 center, 
                 LifeTime::temporary(BuildArterialRoads, source_data.link_step).unwrap(),
                 Some(PathId::Source(source_data.source))
-            );
+            )?;
         }
 
         let deposits = room.find(find::MINERALS, None);
@@ -54,15 +55,13 @@ impl ColonyPlan {
 
         if let Some(deposit) = deposit {
             planner.plan_blocker(deposit.pos().xy(), BuildLvl6, PlannedPermanentStructure::Extractor.into())?;
-            planner.plan_road_between(center, deposit.pos().xy(), LifeTime::permanent(BuildLvl6), Some(PathId::Mineral));
+            planner.plan_road_between(center, deposit.pos().xy(), LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
 
             let container_pos = deposit.pos().xy().neighbors().into_iter()
                 .find(|neigh| planner.roads.contains_key(neigh))
                 .ok_or(anyhow!("Unable to find road around deposit"))?;
             planner.plan_blocker(container_pos, BuildLvl6, PlannedPermanentStructure::MineralContainer.into())?;
         }
-
-        ensure_connectivity(&mut planner, center)?;
 
         planner.compile()
     }

@@ -17,7 +17,7 @@ impl ColonyPlan {
         let all_structures = get_all_structures_in(room).into_keys()
             .collect::<HashSet<_>>();
 
-        ColonyPlanDiff(all_structures.difference(&planned_structures).cloned().collect_vec())
+        ColonyPlanDiff(all_structures.difference(&planned_structures).copied().collect_vec())
     }
 }
 

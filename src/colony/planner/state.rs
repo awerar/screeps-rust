@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap, HashSet, hash_map}, mem, ops::Not};
+use std::{collections::{BTreeMap, HashMap, HashSet, hash_map}, ops::Not};
 
 use itertools::Itertools;
 use option_entry::OptionEntry;
@@ -69,7 +69,7 @@ pub enum PlannedTemporaryStructure {
 }
 
 impl PlannedTemporaryStructure {
-    fn structure_type(&self) -> StructureType {
+    fn structure_type(self) -> StructureType {
         match self {
             PlannedTemporaryStructure::ContainerBuffer => StructureType::Container
         }
@@ -95,6 +95,7 @@ impl From<PlannedTemporaryStructure> for PlannedStructure {
 }
 
 impl PlannedStructure {
+    #[expect(unused)]
     fn structure_type(&self) -> StructureType {
         match self {
             PlannedStructure::Temporary(structure) => structure.structure_type(),
@@ -244,7 +245,7 @@ impl Iterator for TileHistoryIterator {
     type Item = (PlannedEntity, LifeTime);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match mem::replace(&mut self.0, None) {
+        match self.0.take() {
             None => None,
             Some(TileHistory::Temporary(lt, structure, future)) => {
                 self.0 = future.map(|x| *x);
@@ -315,19 +316,19 @@ impl LifeTime {
         Some(LifeTime { build_step: build, destroy_step: Some(destroy) })
     }
 
-    fn is_built_at(&self, step: ColonyStep) -> bool {
+    fn is_built_at(self, step: ColonyStep) -> bool {
         step >= self.build_step && self.destroy_step.is_none_or(|destroy_step| destroy_step > step)
     }
 
-    fn is_planned_at(&self, step: ColonyStep) -> bool {
+    fn is_planned_at(self, step: ColonyStep) -> bool {
         step < self.build_step
     }
 
-    fn is_destroyed_at(&self, step: ColonyStep) -> bool {
+    fn is_destroyed_at(self, step: ColonyStep) -> bool {
         self.destroy_step.is_some_and(|destroy_step| step >= destroy_step)
     }
 
-    fn union(&self, other: &Self) -> Self {
+    fn union(self, other: Self) -> Self {
         Self { 
             build_step: self.build_step.min(other.build_step), 
             destroy_step: match (self.destroy_step, other.destroy_step) {
@@ -359,8 +360,8 @@ impl IntermediateColonyPlan {
             let new_structures = self.new_structures.get(&step).cloned().unwrap_or_default();
             let expired_structures = self.expired_structures.get(&step).cloned().unwrap_or_default();
 
-            accumulated_structures.extend(new_structures.iter().cloned());
-            accumulated_structures = accumulated_structures.difference(&expired_structures).cloned().collect();
+            accumulated_structures.extend(new_structures.iter().copied());
+            accumulated_structures = accumulated_structures.difference(&expired_structures).copied().collect();
 
             plan_steps.insert(step, ColonyPlanStep { 
                 new_structures, 
@@ -412,7 +413,7 @@ impl IntermediateColonyPlan {
 
                 let plan = SourcePlan {
                     spawn_direction: spawn.pos.get_direction_to(container.pos).unwrap(),
-                    distance: self.get_path_length(PathId::Source(source))?,
+                    distance: self.get_path_length(&PathId::Source(source))?,
                     spawn: spawn.into(),
                     road: PlannedStructureRef::new(container.pos),
                     container: container.into(),
@@ -430,7 +431,7 @@ impl IntermediateColonyPlan {
         let container = self.get_structure_ref(MineralContainer.into())?;
 
         Ok(MineralPlan {
-            distance: self.get_path_length(PathId::Mineral)?,
+            distance: self.get_path_length(&PathId::Mineral)?,
             container: container.into(),
             extractor: self.get_structure_ref(Extractor.into())?.into(),
         })
@@ -460,8 +461,8 @@ impl IntermediateColonyPlan {
             .collect())
     }
 
-    fn get_path_length(&self, id: PathId) -> anyhow::Result<u32> {
-        Ok(self.paths.get(&id).ok_or(anyhow!("No path found"))?.len() as u32)
+    fn get_path_length(&self, id: &PathId) -> anyhow::Result<u32> {
+        Ok(self.paths.get(id).ok_or(anyhow!("No path found"))?.len() as u32)
     }
 }
 
@@ -469,6 +470,11 @@ impl IntermediateColonyPlan {
 pub enum PathId {
     Mineral,
     Source(screeps::ObjectId<Source>)
+}
+
+pub struct WallConnection {
+    pub creep_pos: RoomXY,
+    pub access_pos: RoomXY
 }
 
 pub struct ColonyPlanner {
@@ -506,7 +512,7 @@ impl ColonyPlanner {
         }
     }
 
-    fn compile_intermediate(self) -> anyhow::Result<IntermediateColonyPlan> {
+    fn compile_intermediate(self) -> IntermediateColonyPlan {
         let mut new_structures: HashMap<_, HashSet<_>> = HashMap::new();
         let mut expired_structures: HashMap<_, HashSet<_>> = HashMap::new();
 
@@ -540,17 +546,17 @@ impl ColonyPlanner {
                     .map(|(entity, _)| (entity, *xy))
             }).into_group_map();
 
-        Ok(IntermediateColonyPlan { 
+        IntermediateColonyPlan { 
             room: self.room, 
             new_structures, 
             expired_structures, 
             entities2pos, 
             paths: self.paths
-        })
+        }
     }
 
     pub fn compile(self) -> anyhow::Result<ColonyPlan> {
-        self.compile_intermediate()?.compile()
+        self.compile_intermediate().compile()
     }
 
     pub fn count_left_for(&self, structure: StructureType, step: ColonyStep) -> u32 {
@@ -580,7 +586,7 @@ impl ColonyPlanner {
     }
 
     pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) {
-        self.roads.entry(pos).and_modify(|lt2| *lt2 = lt2.union(&lt)).or_insert(lt);
+        self.roads.entry(pos).and_modify(|lt2| *lt2 = lt2.union(lt)).or_insert(lt);
         self.add_structure_lifetime(StructureType::Road, lt);
 
     }
@@ -594,7 +600,7 @@ impl ColonyPlanner {
             .fold((0_u32, BTreeMap::new()), |(mut count_acc, mut map_acc), (step, count)| {
                 count_acc = count_acc.checked_add_signed(count).unwrap();
 
-                let max = structure.controller_structures(step.controller_level() as u32);
+                let max = structure.controller_structures(u32::from(step.controller_level()));
                 let avaliable = max - count_acc;
                 map_acc.insert(step,  avaliable);
 
@@ -640,17 +646,15 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn plan_blocker_earliest(&mut self, xy: RoomXY, blocker: PlannedBlocker) -> anyhow::Result<ColonyStep> {
+    pub fn plan_blocker_earliest(&mut self, xy: RoomXY, blocker: PlannedPermanentStructure) -> anyhow::Result<ColonyStep> {
         let mut earliest = match self.tiles.get(&xy) {
             Some(history) => history.get_earliest_extension_step().ok_or_else(|| anyhow!("Can't extend history"))?,
             None => ColonyStep::default(),
         };
 
-        if let Some(structure) = blocker.structure_type() {
-            earliest = earliest.max(self.get_earliest_step_for(structure)?);
-        }
+        earliest = earliest.max(self.get_earliest_step_for(blocker.structure_type())?);
 
-        self.plan_blocker(xy, earliest, blocker).map(|()| earliest)
+        self.plan_blocker(xy, earliest, blocker.into()).map(|()| earliest)
     }
 
     pub fn find_all(&self, entity: PlannedEntity) -> Vec<RoomXY> {
@@ -678,15 +682,15 @@ impl ColonyPlanner {
     }
 
     pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> Vec<RoomXY> {
-        let step = build_step.unwrap_or(ColonyStep::last());
+        let build_step = build_step.unwrap_or(ColonyStep::last());
         let expiration_step = expiration_step.unwrap_or(ColonyStep::last());
 
         let mut cost_matrix = self.base_cost_matrix.clone();
 
         for (pos, lt) in &self.roads {
-            if lt.is_built_at(step) {
+            if lt.is_built_at(build_step) {
                 cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
-            } else if lt.is_planned_at(step) {
+            } else if lt.is_planned_at(build_step) {
                 cost_matrix.set_xy(*pos, TilePathing::PlannedRoad.cost());
             }
         }
@@ -716,5 +720,13 @@ impl ColonyPlanner {
                 (path, curr_pos)
             }
         ).0
+    }
+
+    pub fn find_wall_connection(&self, center_pos: RoomXY, wall_pos: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> anyhow::Result<WallConnection> {
+        let path = self.find_path_between(wall_pos, center_pos, build_step, expiration_step);
+        let creep_pos = *path.first().ok_or(anyhow!("Path to source had zero elements"))?;
+        let connection_pos = *path.get(1).ok_or(anyhow!("Path to source had one element"))?;
+
+        Ok(WallConnection { creep_pos, access_pos: connection_pos })
     }
 }

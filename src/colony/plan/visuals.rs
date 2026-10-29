@@ -36,10 +36,10 @@ impl ColonyPlan {
             let Some(step) = self.steps.get(&step) else { continue; };
 
             for (pos, structure) in &step.new_structures {
-                if !matches!(structure, StructureType::Road) {
-                    draw_structure(visuals, *pos, *structure);
-                } else {
+                if matches!(structure, StructureType::Road) {
                     roads.insert(*pos);
+                } else {
+                    draw_structure(visuals, *pos, *structure);
                 }
             }
         }

@@ -15,7 +15,6 @@ pub struct CenterPlanner {
     storage_buffer_pos: RoomXY
 }
 
-// TODO: Ensure correct usage of ColonyPlanner
 impl CenterPlanner {
     pub fn new(planner: &ColonyPlanner, center: RoomXY) -> Self {
         let mut visited_structure_positions = HashSet::new();
