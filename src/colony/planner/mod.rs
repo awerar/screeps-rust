@@ -1,5 +1,4 @@
 use screeps::{HasPosition, Room, find};
-use anyhow::anyhow;
 
 use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, sources::plan_sources, state::{ColonyPlanner, LifeTime, PathId, PlannedPermanentCreep, PlannedPermanentStructure, PlannedTemporaryStructure}}, steps::ColonyStep};
 
@@ -7,6 +6,7 @@ mod center;
 mod floodfill;
 mod sources;
 mod state;
+mod block_checker;
 
 impl ColonyPlan {
     pub fn create_for(room: &Room) -> anyhow::Result<Self> {
@@ -35,6 +35,18 @@ impl ColonyPlan {
         let controller_connection = planner.find_wall_connection(center, controller, Some(BuildArterialRoads), None)?;
         planner.plan_blocker(controller_connection.creep_pos, ColonyStep::BuildSpawn, PlannedPermanentCreep::Upgrader.into())?;
 
+        let deposits = room.find(find::MINERALS, None);
+        assert!(deposits.len() <= 1);
+        let deposit = deposits.into_iter().next().map(|deposit| deposit.pos().xy());
+        let deposit_connection = if let Some(deposit) = deposit {
+            let connection = planner.find_wall_connection(center, deposit, Some(BuildLvl6), None)?;
+
+            planner.plan_blocker(deposit, BuildLvl6, PlannedPermanentStructure::Extractor.into())?;
+            planner.plan_blocker(connection.creep_pos, BuildLvl6, PlannedPermanentStructure::MineralContainer.into())?;
+
+            Some(connection)
+        } else { None };
+
         plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
         center_planner.plan_roads(&mut planner);
 
@@ -49,18 +61,8 @@ impl ColonyPlan {
             )?;
         }
 
-        let deposits = room.find(find::MINERALS, None);
-        assert!(deposits.len() <= 1);
-        let deposit = deposits.into_iter().next();
-
-        if let Some(deposit) = deposit {
-            planner.plan_blocker(deposit.pos().xy(), BuildLvl6, PlannedPermanentStructure::Extractor.into())?;
-            planner.plan_road_between(center, deposit.pos().xy(), LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
-
-            let container_pos = deposit.pos().xy().neighbors().into_iter()
-                .find(|neigh| planner.roads.contains_key(neigh))
-                .ok_or(anyhow!("Unable to find road around deposit"))?;
-            planner.plan_blocker(container_pos, BuildLvl6, PlannedPermanentStructure::MineralContainer.into())?;
+        if let Some(connection) = deposit_connection {
+            planner.plan_road_between(center, connection.access_pos, LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
         }
 
         planner.compile()

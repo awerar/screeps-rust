@@ -24,7 +24,7 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         planner.plan_blocker(connection.creep_pos, BuildBufferAndSourceContainers, PlannedPermanentStructure::SourceContainer(source_id).into())?;
 
         let slots = connection.creep_pos.neighbors().into_iter()
-            .filter(|neigh| planner.is_free_at(*neigh))
+            .filter(|neigh| planner.can_block_at(*neigh, None))
             .collect_vec()
             .into_iter();
 

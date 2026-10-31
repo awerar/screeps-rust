@@ -2,12 +2,12 @@ use std::{collections::{BTreeMap, HashMap, HashSet, hash_map}, ops::Not};
 
 use itertools::Itertools;
 use option_entry::OptionEntry;
-use screeps::{CostMatrix, CostMatrixSet, FindPathOptions, HasPosition, Path, Position, Room, RoomTerrain, RoomXY, Source, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
+use screeps::{CostMatrix, CostMatrixSet, FindPathOptions, HasPosition, Path, Position, Room, RoomCoordinate, RoomTerrain, RoomXY, Source, StructureType, Terrain, find, pathfinder::SingleRoomCostResult};
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, bail};
 use strum::IntoEnumIterator;
 
-use crate::{colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan, refs::{PlannedStructureRef, PlannedStructureRefs}}, steps::ColonyStep}, domain_traits::HasId};
+use crate::{colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan, SourcePlan, SourcesPlan, refs::{PlannedStructureRef, PlannedStructureRefs}}, planner::block_checker::BlockChecker, steps::ColonyStep}, domain_traits::HasId, utils::GetXYGood};
 
 // TODO: Split this into many smaller files
 
@@ -245,13 +245,12 @@ impl Iterator for TileHistoryIterator {
     type Item = (PlannedEntity, LifeTime);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.0.take() {
-            None => None,
-            Some(TileHistory::Temporary(lt, structure, future)) => {
+        match self.0.take()? {
+            TileHistory::Temporary(lt, structure, future) => {
                 self.0 = future.map(|x| *x);
                 Some((PlannedEntity::TemporaryStructure(structure), lt))
             },
-            Some(TileHistory::Blocker(step, blocker)) => {
+            TileHistory::Blocker(step, blocker) => {
                 Some((PlannedEntity::Blocker(blocker), LifeTime::permanent(step)))
             },
         }
@@ -472,6 +471,7 @@ pub enum PathId {
     Source(screeps::ObjectId<Source>)
 }
 
+#[derive(Debug)]
 pub struct WallConnection {
     pub creep_pos: RoomXY,
     pub access_pos: RoomXY
@@ -480,6 +480,8 @@ pub struct WallConnection {
 pub struct ColonyPlanner {
     pub room: Room,
     pub terrain: RoomTerrain,
+
+    pub block_checker: BlockChecker,
 
     pub base_cost_matrix: CostMatrix,
 
@@ -504,11 +506,12 @@ impl ColonyPlanner {
         ColonyPlanner {
             base_cost_matrix,
             terrain,
-            room,
             structure_steps: HashMap::new(),
             roads: HashMap::new(),
             tiles: HashMap::new(),
-            paths: HashMap::new()
+            paths: HashMap::new(),
+            block_checker: BlockChecker::new(&room),
+            room,
         }
     }
 
@@ -516,20 +519,24 @@ impl ColonyPlanner {
         let mut new_structures: HashMap<_, HashSet<_>> = HashMap::new();
         let mut expired_structures: HashMap<_, HashSet<_>> = HashMap::new();
 
-        let tile_structures: HashMap<_, _> = self.tiles.iter()
+        let mut tile_structures: HashMap<_, _> = self.tiles.iter()
             .map(|(xy, history)| {
-                let mut structures = history.clone().into_iter()
-                    .filter_map(|(entity, lt)| {
-                        entity.structure_type().map(|structure| (structure, lt))
-                    })
-                    .collect_vec();
-
-                if let Some(lt) = self.roads.get(xy) {
-                    structures.push((StructureType::Road, *lt));
-                }
-
-                (*xy, structures)
+                (
+                    *xy, 
+                    history.clone().into_iter()
+                        .filter_map(|(entity, lt)| {
+                            entity.structure_type().map(|structure| (structure, lt))
+                        })
+                        .collect_vec()
+                )
             }).collect();
+
+        for (road, lt) in self.roads {
+            tile_structures.entry(road).or_default().push((StructureType::Road, lt));
+        }
+
+        let controller = self.room.controller().unwrap().pos().xy();
+        tile_structures.entry(controller).or_default().push((StructureType::Controller, LifeTime::permanent(ColonyStep::BuildSpawn)));
 
         for (pos, structures) in tile_structures {
             for (structure, lt) in structures {
@@ -573,8 +580,12 @@ impl ColonyPlanner {
             .last().ok_or(anyhow!("Unable to build any more {structure:?}"))?.0)
     }
 
-    pub fn is_free_at(&self, pos: RoomXY) -> bool {
-        self.terrain.get(pos.x.u8(), pos.y.u8()) != Terrain::Wall && !self.tiles.contains_key(&pos)
+    pub fn can_block_at(&self, pos: RoomXY, step: Option<ColonyStep>) -> bool {
+        let step = step.unwrap_or(ColonyStep::BuildSpawn);
+
+        self.tiles.get(&pos).is_none_or(|history| 
+            history.get_earliest_extension_step().is_some_and(|ext_step| step >= ext_step)
+        ) && self.block_checker.can_block(pos)
     }
 
     fn add_structure_lifetime(&mut self, structure: StructureType, lt: LifeTime) {
@@ -633,6 +644,7 @@ impl ColonyPlanner {
 
     pub fn plan_blocker(&mut self, xy: RoomXY, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
         self.check_entity_plannable_at(xy, step, blocker.into())?;
+        if self.terrain.get_xy_good(xy) != Terrain::Wall { self.block_checker.block(xy)?; }
 
         match self.tiles.entry(xy) {
             hash_map::Entry::Occupied(mut entry) => entry.get_mut().block(step, blocker)?,
@@ -711,22 +723,18 @@ impl ColonyPlanner {
 
         let Path::Vectorized(path) = path else { unreachable!() };
 
-        path.into_iter().fold(
-            (vec![point1.xy()], point1), 
-            |(mut path, mut curr_pos), step| {
-                curr_pos.offset(step.dx, step.dy);
-                path.push(curr_pos.xy());
-
-                (path, curr_pos)
-            }
-        ).0
+        path.into_iter().map(|step| 
+            RoomXY::new(
+                RoomCoordinate::new(step.x as u8).unwrap(),
+                RoomCoordinate::new(step.y as u8).unwrap()
+            )
+        ).collect_vec()
     }
 
     pub fn find_wall_connection(&self, center_pos: RoomXY, wall_pos: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> anyhow::Result<WallConnection> {
         let path = self.find_path_between(wall_pos, center_pos, build_step, expiration_step);
-        let creep_pos = *path.first().ok_or(anyhow!("Path to source had zero elements"))?;
-        let connection_pos = *path.get(1).ok_or(anyhow!("Path to source had one element"))?;
+        let beginning = path.first_chunk::<2>().ok_or(anyhow!("Path to wall had too few positions"))?;
 
-        Ok(WallConnection { creep_pos, access_pos: connection_pos })
+        Ok(WallConnection { creep_pos: beginning[0], access_pos: beginning[1] })
     }
 }

@@ -10,6 +10,7 @@ impl ColonyPlan {
         let controller = room.controller().expect("ColonyPlan should only be created for rooms with controllers");
 
         let planned_structures = self.steps.iter()
+            .sorted_by_key(|(step, _)| **step)
             .take_while(|(step, _)| step.controller_level() <= controller.level())
             .flat_map(|(_, step)| step.new_structures.iter().map(|(a, b)| (*a, *b)))
             .collect::<HashSet<_>>();

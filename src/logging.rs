@@ -33,6 +33,7 @@ impl log::Log for JsNotify {
 pub fn setup_logging(verbosity: log::LevelFilter) {
     fern::Dispatch::new()
         .level(verbosity)
+        .level_for("ena", log::LevelFilter::Warn)
         .format(|out, message, record| {
             out.finish(format_args!(
                 "({}) {}:{}: {}",

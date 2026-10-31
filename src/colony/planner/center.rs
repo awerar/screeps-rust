@@ -55,7 +55,7 @@ impl CenterPlanner {
                 Direction::iter()
                     .filter_map(|dir| road.checked_add_direction(*dir))
                     .filter(|neigh| !self.road_iter.neighs().eligible(*neigh))
-                    .filter(|neigh| planner.is_free_at(*neigh))
+                    .filter(|neigh| planner.can_block_at(*neigh, None))
                     .filter(|neigh| !self.placed_structures.contains_key(neigh))
                     .filter(|neigh| !self.structure_queue.contains(neigh))
                     .collect_vec()
