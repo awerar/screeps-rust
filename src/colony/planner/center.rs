@@ -5,7 +5,7 @@ use log::info;
 use screeps::{Direction, HasPosition, Position, Room, RoomXY, StructureType, Terrain, find};
 use anyhow::{bail, anyhow};
 
-use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedPermanentStructure, PlannedTemporaryStructure}}, steps::ColonyStep}, pathfinding};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedImpassableStructure, PlannedContainer}}, steps::ColonyStep}, pathfinding};
 
 struct XYAncestry {
     dist: u32,
@@ -72,7 +72,7 @@ impl CenterPlanner {
     pub fn next_structure_pos(&mut self, planner: &mut ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {
         loop {
             while let Some((dist, pos)) = self.structure_queue.pop_front() {
-                if !planner.can_block_at(pos, Some(step)) { 
+                if !planner.is_free_at(pos) { 
                     self.road_pq.push(Reverse((dist, pos)));
 
                     continue; 
@@ -111,14 +111,14 @@ impl CenterPlanner {
         }
     }
 
-    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedPermanentStructure) -> anyhow::Result<()> {
+    pub fn plan_structure(&mut self, planner: &mut ColonyPlanner, step: ColonyStep, structure: PlannedImpassableStructure) -> anyhow::Result<()> {
         let pos = self.next_structure_pos(planner, step)?;
         planner.plan_blocker(pos, step, structure.into())
     }
 
     pub fn plan_container_buffer(&mut self, planner: &mut ColonyPlanner, lt: LifeTime) -> anyhow::Result<()> { 
         self.structure_lifetimes.insert(self.container_buffer_pos, lt);
-        planner.plan_temporary(self.container_buffer_pos, lt, PlannedTemporaryStructure::ContainerBuffer)
+        planner.plan_container(self.container_buffer_pos, lt, PlannedContainer::ContainerBuffer)
     }
 
     pub fn plan_roads(self, planner: &mut ColonyPlanner) {
@@ -162,7 +162,7 @@ impl CenterPlanner {
 pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_planner: &mut CenterPlanner) -> anyhow::Result<()> {
     for controller_level in 1_u8..=8 {
         if controller_level == 8 {
-            center_planner.plan_structure(planner, ColonyStep::BuildLvl8, PlannedPermanentStructure::Observer)?;
+            center_planner.plan_structure(planner, ColonyStep::BuildLvl8, PlannedImpassableStructure::Observer)?;
         }
 
         let step = ColonyStep::first_at_level(controller_level);
@@ -170,7 +170,7 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
         let plan_towers = planner.count_left_for(StructureType::Tower, step);
 
         let mut avaliable_positions: HashSet<_> = (0..(plan_extensions + plan_towers)).map(|_| center_planner.next_structure_pos(planner, step)).collect::<Result<_, _>>()?;
-        let mut towers: HashSet<_> = planner.find_all(PlannedPermanentStructure::Tower.into()).into_iter().collect();
+        let mut towers: HashSet<_> = planner.find_all(PlannedImpassableStructure::Tower.into()).into_iter().collect();
         let mut new_towers = Vec::new();
 
         for _ in 0..plan_towers {
@@ -186,11 +186,11 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
         }
 
         for pos in avaliable_positions {
-            planner.plan_blocker(pos, step, PlannedPermanentStructure::Extension.into())?;
+            planner.plan_blocker(pos, step, PlannedImpassableStructure::Extension.into())?;
         }
 
         for pos in new_towers {
-            planner.plan_blocker(pos, step, PlannedPermanentStructure::Tower.into())?;
+            planner.plan_blocker(pos, step, PlannedImpassableStructure::Tower.into())?;
         }
     }
 

@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap, HashSet, hash_map}, ops::Not};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use itertools::Itertools;
 use option_entry::OptionEntry;
@@ -12,10 +12,9 @@ use crate::{colony::{plan::{CenterPlan, ColonyPlan, ColonyPlanStep, MineralPlan,
 // TODO: Split this into many smaller files
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum PlannedPermanentStructure {
+pub enum PlannedImpassableStructure {
     MainSpawn,
     SourceSpawn(screeps::ObjectId<Source>),
-    SourceContainer(screeps::ObjectId<Source>),
     SourceLink(screeps::ObjectId<Source>),
     SourceExtension(screeps::ObjectId<Source>),
     Extension,
@@ -24,82 +23,59 @@ pub enum PlannedPermanentStructure {
     Tower,
     CentralLink,
     Extractor,
-    MineralContainer,
     Observer,
+    Controller
 }
 
-impl PlannedPermanentStructure {
-    fn walkable(&self) -> bool {
-        use PlannedPermanentStructure::*;
-
-        matches!(self, SourceContainer(_) | MineralContainer)
-    }
-
+impl PlannedImpassableStructure {
     fn buildable_on_wall(&self) -> bool {
-        use PlannedPermanentStructure::*;
+        use PlannedImpassableStructure::*;
 
-        matches!(self, Extractor)
+        matches!(self, Extractor | Controller)
     }
 
     fn structure_type(&self) -> StructureType {
         use StructureType::*;
 
         match self {
-            PlannedPermanentStructure::MainSpawn
-            | PlannedPermanentStructure::SourceSpawn(_) => Spawn,
-            PlannedPermanentStructure::SourceContainer(_)
-            | PlannedPermanentStructure::MineralContainer => Container,
-            PlannedPermanentStructure::Extension
-            | PlannedPermanentStructure::SourceExtension(_) => Extension,
-            PlannedPermanentStructure::CentralLink
-            | PlannedPermanentStructure::SourceLink(_) => Link,
-            PlannedPermanentStructure::Storage => Storage,
-            PlannedPermanentStructure::Tower => Tower,
-            PlannedPermanentStructure::Terminal => Terminal,
-            PlannedPermanentStructure::Extractor => Extractor,
-            PlannedPermanentStructure::Observer => Observer,
+            PlannedImpassableStructure::MainSpawn
+            | PlannedImpassableStructure::SourceSpawn(_) => Spawn,
+            PlannedImpassableStructure::Extension
+            | PlannedImpassableStructure::SourceExtension(_) => Extension,
+            PlannedImpassableStructure::CentralLink
+            | PlannedImpassableStructure::SourceLink(_) => Link,
+            PlannedImpassableStructure::Storage => Storage,
+            PlannedImpassableStructure::Tower => Tower,
+            PlannedImpassableStructure::Terminal => Terminal,
+            PlannedImpassableStructure::Extractor => Extractor,
+            PlannedImpassableStructure::Observer => Observer,
+            PlannedImpassableStructure::Controller => Controller
         }
     }
 }
 
-// Has to be walkable
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum PlannedTemporaryStructure {
-    ContainerBuffer
-}
-
-impl PlannedTemporaryStructure {
-    fn structure_type(self) -> StructureType {
-        match self {
-            PlannedTemporaryStructure::ContainerBuffer => StructureType::Container
-        }
-    }
+pub enum PlannedContainer {
+    ContainerBuffer,
+    SourceContainer(screeps::ObjectId<Source>),
+    MineralContainer,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedStructure {
-    Temporary(PlannedTemporaryStructure),
-    Permanent(PlannedPermanentStructure)
+    Container(PlannedContainer),
+    Impassable(PlannedImpassableStructure)
 }
 
-impl From<PlannedPermanentStructure> for PlannedStructure {
-    fn from(value: PlannedPermanentStructure) -> Self {
-        Self::Permanent(value)
-    }
-}
-
-impl From<PlannedTemporaryStructure> for PlannedStructure {
-    fn from(value: PlannedTemporaryStructure) -> Self {
-        Self::Temporary(value)
-    }
-}
+impl From<PlannedImpassableStructure> for PlannedStructure { fn from(value: PlannedImpassableStructure) -> Self { Self::Impassable(value) } }
+impl From<PlannedContainer> for PlannedStructure { fn from(value: PlannedContainer) -> Self { Self::Container(value) } }
 
 impl PlannedStructure {
     #[expect(unused)]
     fn structure_type(&self) -> StructureType {
         match self {
-            PlannedStructure::Temporary(structure) => structure.structure_type(),
-            PlannedStructure::Permanent(structure) => structure.structure_type(),
+            PlannedStructure::Container(structure) => StructureType::Container,
+            PlannedStructure::Impassable(structure) => structure.structure_type(),
         }
     }
 }
@@ -107,33 +83,30 @@ impl PlannedStructure {
 impl From<PlannedStructure> for PlannedEntity {
     fn from(value: PlannedStructure) -> Self {
         match value {
-            PlannedStructure::Temporary(structure) => 
-                PlannedEntity::TemporaryStructure(structure),
-            PlannedStructure::Permanent(structure) => 
-                PlannedEntity::Blocker(PlannedBlocker::Structure(structure)),
+            PlannedStructure::Container(structure) => PlannedEntity::Container(structure),
+            PlannedStructure::Impassable(structure) => PlannedEntity::Blocker(structure.into()),
         }
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum PlannedPermanentCreep {
-    Upgrader
+pub enum PlannedCreep {
+    Upgrader,
+    SourceHarvester(screeps::ObjectId<Source>),
+    MineralHarvester
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedBlocker {
-    Creep(PlannedPermanentCreep),
-    Structure(PlannedPermanentStructure)
+    Creep(PlannedCreep),
+    Structure(PlannedImpassableStructure)
 }
 
 impl PlannedBlocker {
-    fn walkable(&self) -> bool {
-        match self {
-            PlannedBlocker::Creep(_) => false,
-            PlannedBlocker::Structure(structure) => structure.walkable(),
-        }
+    fn is_creep(&self) -> bool {
+        matches!(self, Self::Creep(_))
     }
-
+        
     fn structure_type(&self) -> Option<StructureType> {
         match self {
             PlannedBlocker::Creep(_) => None,
@@ -149,120 +122,107 @@ impl PlannedBlocker {
     }
 }
 
-impl From<PlannedPermanentStructure> for PlannedBlocker { fn from(value: PlannedPermanentStructure) -> Self { Self::Structure(value) } }
-impl From<PlannedPermanentCreep> for PlannedBlocker { fn from(value: PlannedPermanentCreep) -> Self { Self::Creep(value) } }
+impl From<PlannedImpassableStructure> for PlannedBlocker { fn from(value: PlannedImpassableStructure) -> Self { Self::Structure(value) } }
+impl From<PlannedCreep> for PlannedBlocker { fn from(value: PlannedCreep) -> Self { Self::Creep(value) } }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedEntity {
     Blocker(PlannedBlocker),
-    TemporaryStructure(PlannedTemporaryStructure)
+    Container(PlannedContainer)
 }
 
 impl PlannedEntity {
     fn structure_type(&self) -> Option<StructureType> {
         match self {
             PlannedEntity::Blocker(blocker) => blocker.structure_type(),
-            PlannedEntity::TemporaryStructure(structure) => Some(structure.structure_type()),
+            PlannedEntity::Container(_) => Some(StructureType::Container),
         }
     }
 
     fn plannable_on_wall(&self) -> bool {
         match self {
             PlannedEntity::Blocker(blocker) => blocker.plannable_on_wall(),
-            PlannedEntity::TemporaryStructure(_) => false,
+            PlannedEntity::Container(_) => false,
         }
     }
 }
 
 impl From<PlannedBlocker> for PlannedEntity { fn from(value: PlannedBlocker) -> Self { Self::Blocker(value) }}
-impl From<PlannedTemporaryStructure> for PlannedEntity { fn from(value: PlannedTemporaryStructure) -> Self { Self::TemporaryStructure(value) }}
-impl From<PlannedPermanentStructure> for PlannedEntity { fn from(value: PlannedPermanentStructure) -> Self { Self::Blocker(PlannedBlocker::Structure(value)) }}
-impl From<PlannedPermanentCreep> for PlannedEntity { fn from(value: PlannedPermanentCreep) -> Self { Self::Blocker(PlannedBlocker::Creep(value)) }}
+impl From<PlannedContainer> for PlannedEntity { fn from(value: PlannedContainer) -> Self { Self::Container(value) }}
+impl From<PlannedImpassableStructure> for PlannedEntity { fn from(value: PlannedImpassableStructure) -> Self { Self::Blocker(PlannedBlocker::Structure(value)) }}
+impl From<PlannedCreep> for PlannedEntity { fn from(value: PlannedCreep) -> Self { Self::Blocker(PlannedBlocker::Creep(value)) }}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum TileHistory {
-    Temporary(LifeTime, PlannedTemporaryStructure, Option<Box<TileHistory>>),
-    Blocker(ColonyStep, PlannedBlocker)
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct TileTimeline {
+    blocker: Option<(ColonyStep, PlannedBlocker)>,
+    container: Option<(LifeTime, PlannedContainer)>,
+    road: Option<LifeTime>
 }
 
-impl TileHistory {
-    fn get_impassable_step(&self) -> Option<ColonyStep> {
-        match self {
-            TileHistory::Temporary(_, _, tile_history) => 
-                tile_history.as_ref().and_then(|future| future.get_impassable_step()),
-            TileHistory::Blocker(colony_step, blocker) => 
-                blocker.walkable().not().then_some(*colony_step),
+impl TileTimeline {
+    fn get_block_step(&self) -> Option<ColonyStep> {
+        self.blocker.map(|(step, _) | step)
+    }
+
+    fn is_free(&self) -> bool {
+        self.blocker.is_none() && self.container.is_none()
+    }
+
+    fn is_container_blocker_compatible(container_lt: LifeTime, block_step: ColonyStep, blocker: PlannedBlocker) -> bool {
+        blocker.is_creep() || container_lt.is_destroyed_at(block_step)
+    }
+
+    fn plan_container(&mut self, lt: LifeTime, container: PlannedContainer) -> anyhow::Result<()> {
+        if self.blocker.is_some_and(|(step, blocker)| !Self::is_container_blocker_compatible(lt, step, blocker)) { bail!("Container collides with blocker") }
+        
+        match self.container.entry() {
+            option_entry::Entry::Occupied(_) => bail!("Already planned a container"),
+            option_entry::Entry::Vacant(entry) => entry.insert((lt, container)),
+        };
+
+        Ok(())
+    }
+
+    fn plan_blocker(&mut self, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
+        if self.container.is_some_and(|(lt, _)| Self::is_container_blocker_compatible(lt, step, blocker)) { bail!("Blocker collides with container") }
+
+        match self.blocker.entry() {
+            option_entry::Entry::Occupied(_) => bail!("Already planned a blocker"),
+            option_entry::Entry::Vacant(entry) => entry.insert((step, blocker)),
+        };
+
+        if let Some(lt) = self.road.as_mut() {
+            *lt = lt.clip_stop(step).ok_or_else(|| anyhow!("Unable to move road earlier for blocker"))?;
         }
+
+        Ok(())
     }
 
-    fn get_earliest_extension_step(&self) -> Option<ColonyStep> {
-        match self {
-            TileHistory::Temporary(lt, _, future) => 
-                future.as_ref().map_or(lt.destroy_step, |future| future.get_earliest_extension_step()),
-            TileHistory::Blocker(_, _) => None,
+    fn plan_road(&mut self, mut lt: LifeTime) -> anyhow::Result<()> {
+        if let Some(old_lt) = self.road.take() {
+            lt = lt.union(old_lt);
         }
-    }
 
-    fn get_start_step(&self) -> ColonyStep {
-        match self {
-            TileHistory::Temporary(lt, _, _) => lt.build_step,
-            TileHistory::Blocker(step, _) => *step,
+        if let Some((block_step, _)) = self.blocker {
+            lt = lt.clip_stop(block_step).ok_or_else(|| anyhow!("Unable to move road earlier for blocker"))?;
         }
+
+        self.road = Some(lt);
+
+        Ok(())
     }
 
-    fn extend(&mut self, future: TileHistory) -> anyhow::Result<()> {
-        match self {
-            TileHistory::Temporary(lt, _, curr_future) => {
-                match curr_future.entry() {
-                    option_entry::Entry::Vacant(entry) => {
-                        if !lt.is_destroyed_at(future.get_start_step()) { 
-                            bail!("Can't extend history ending at {:?} with a history starting at {:?}", lt.destroy_step, future.get_start_step()) 
-                        }
-
-                        entry.insert(Box::new(future));
-                        Ok(())
-                    },
-                    option_entry::Entry::Occupied(mut entry) => 
-                        entry.get_mut().extend(future),
-                }
-            },
-            TileHistory::Blocker(_, _) => bail!("Can't extend a blocked history"),
-        }
+    fn structures(&self) -> impl Iterator<Item = (LifeTime, StructureType)> {
+        self.blocker.iter().filter_map(|(step, blocker)| {
+                let structure = blocker.structure_type()?;
+                Some((LifeTime::permanent(*step), structure))
+            }).chain(self.container.iter().map(|(lt, _)| (*lt, StructureType::Container)))
+            .chain(self.road.iter().map(|lt| (*lt, StructureType::Road)))
     }
 
-    fn add_temporary(&mut self, lt: LifeTime, structure: PlannedTemporaryStructure) -> anyhow::Result<()> {
-        self.extend(TileHistory::Temporary(lt, structure, None))
-    }
-
-    fn block(&mut self, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
-        self.extend(TileHistory::Blocker(step, blocker))
-    }
-}
-
-pub struct TileHistoryIterator(Option<TileHistory>);
-
-impl Iterator for TileHistoryIterator {
-    type Item = (PlannedEntity, LifeTime);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.take()? {
-            TileHistory::Temporary(lt, structure, future) => {
-                self.0 = future.map(|x| *x);
-                Some((PlannedEntity::TemporaryStructure(structure), lt))
-            },
-            TileHistory::Blocker(step, blocker) => {
-                Some((PlannedEntity::Blocker(blocker), LifeTime::permanent(step)))
-            },
-        }
-    }
-}
-
-impl IntoIterator for TileHistory {
-    type Item = (PlannedEntity, LifeTime);
-    type IntoIter = TileHistoryIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        TileHistoryIterator(Some(self))
+    fn entities(&self) -> impl Iterator<Item = PlannedEntity> {
+        self.blocker.iter().map(|(_, blocker)| (*blocker).into())
+            .chain(self.container.iter().map(|(_, container)| (*container).into()))
     }
 }
 
@@ -297,7 +257,6 @@ impl TilePathing {
     }
 }
 
-// Impassable structures are not allowed lifetimes
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct LifeTime {
     pub build_step: ColonyStep,
@@ -335,12 +294,18 @@ impl LifeTime {
     }
 
     pub fn clip_start(self, min_build_step: ColonyStep) -> Option<Self> {
-        if self.destroy_step.is_some_and(|destroy_step| destroy_step <= min_build_step) { return None }
+        let build_step = self.build_step.max(min_build_step);
+        self.destroy_step.map_or(
+            Some(LifeTime::permanent(build_step)), 
+            |destroy_step| LifeTime::temporary(build_step, destroy_step)
+        )
+    }
 
-        Some(LifeTime {
-            build_step: self.build_step.max(min_build_step),
-            destroy_step: self.destroy_step
-        })
+    pub fn clip_stop(self, max_destroy_step: ColonyStep) -> Option<Self> {
+        LifeTime::temporary(
+            self.build_step, 
+            self.destroy_step.map_or(max_destroy_step, |destroy_step| destroy_step.min(max_destroy_step))
+        )
     }
 }
 
@@ -356,7 +321,7 @@ pub struct IntermediateColonyPlan {
 
 impl IntermediateColonyPlan {
     fn compile(self) -> anyhow::Result<ColonyPlan> {
-        use PlannedPermanentCreep::*;
+        use PlannedCreep::*;
 
         let mut plan_steps = HashMap::new();
 
@@ -389,8 +354,8 @@ impl IntermediateColonyPlan {
 
 
     fn compile_center(&self) -> anyhow::Result<CenterPlan> {
-        use PlannedPermanentStructure::*;
-        use PlannedTemporaryStructure::*;
+        use PlannedImpassableStructure::*;
+        use PlannedContainer::*;
 
         let storage_ref = self.get_structure_ref(Storage.into())?;
 
@@ -408,7 +373,8 @@ impl IntermediateColonyPlan {
     }
 
     fn compile_sources(&self) -> anyhow::Result<SourcesPlan> {
-        use PlannedPermanentStructure::*;
+        use PlannedImpassableStructure::*;
+        use PlannedContainer::*;
 
         self.room.find(find::SOURCES, None).into_iter()
             .map(|source| screeps::HasId::id(&source))
@@ -431,7 +397,8 @@ impl IntermediateColonyPlan {
     }
 
     fn compile_mineral(&self) -> anyhow::Result<MineralPlan> {
-        use PlannedPermanentStructure::*;
+        use PlannedContainer::*;
+        use PlannedImpassableStructure::*;
 
         let container = self.get_structure_ref(MineralContainer.into())?;
 
@@ -486,14 +453,11 @@ pub struct WallConnection {
 pub struct ColonyPlanner {
     pub room: Room,
     pub terrain: RoomTerrain,
+    pub base_cost_matrix: CostMatrix,
 
     pub block_checker: BlockChecker,
 
-    pub base_cost_matrix: CostMatrix,
-
-    // We never rebuild a road, instead just extend the lifetime
-    pub roads: HashMap<RoomXY, LifeTime>,
-    pub tiles: HashMap<RoomXY, TileHistory>,
+    pub tiles: HashMap<RoomXY, TileTimeline>,
 
     pub structure_steps: HashMap<StructureType, BTreeMap<ColonyStep, i32>>,
     pub paths: HashMap<PathId, Vec<RoomXY>>
@@ -513,7 +477,6 @@ impl ColonyPlanner {
             base_cost_matrix,
             terrain,
             structure_steps: HashMap::new(),
-            roads: HashMap::new(),
             tiles: HashMap::new(),
             paths: HashMap::new(),
             block_checker: BlockChecker::new(&room),
@@ -525,38 +488,18 @@ impl ColonyPlanner {
         let mut new_structures: HashMap<_, HashSet<_>> = HashMap::new();
         let mut expired_structures: HashMap<_, HashSet<_>> = HashMap::new();
 
-        let mut tile_structures: HashMap<_, _> = self.tiles.iter()
-            .map(|(xy, history)| {
-                (
-                    *xy, 
-                    history.clone().into_iter()
-                        .filter_map(|(entity, lt)| {
-                            entity.structure_type().map(|structure| (structure, lt))
-                        })
-                        .collect_vec()
-                )
-            }).collect();
-
-        for (road, lt) in self.roads {
-            tile_structures.entry(road).or_default().push((StructureType::Road, lt));
-        }
-
-        let controller = self.room.controller().unwrap().pos().xy();
-        tile_structures.entry(controller).or_default().push((StructureType::Controller, LifeTime::permanent(ColonyStep::BuildSpawn)));
-
-        for (pos, structures) in tile_structures {
-            for (structure, lt) in structures {
-                new_structures.entry(lt.build_step).or_default().insert((pos, structure));
+        for (pos, timeline) in &self.tiles {
+            for (lt, structure) in timeline.structures() {
+                new_structures.entry(lt.build_step).or_default().insert((*pos, structure));
                 if let Some(destroy_step) = lt.destroy_step {
-                    expired_structures.entry(destroy_step).or_default().insert((pos, structure));
+                    expired_structures.entry(destroy_step).or_default().insert((*pos, structure));
                 }
             }
         }
 
         let entities2pos = self.tiles.iter()
-            .flat_map(|(xy, history)| {
-                history.clone().into_iter()
-                    .map(|(entity, _)| (entity, *xy))
+            .flat_map(|(xy, timeline)| {
+                timeline.entities().map(|entity| (entity, *xy))
             }).into_group_map();
 
         IntermediateColonyPlan { 
@@ -586,17 +529,9 @@ impl ColonyPlanner {
             .last().ok_or(anyhow!("Unable to build any more {structure:?}"))?.0)
     }
 
-    pub fn can_block_at(&self, pos: RoomXY, step: Option<ColonyStep>) -> bool {
-        let step = step.unwrap_or(ColonyStep::BuildSpawn);
-
-        self.tiles.get(&pos).is_none_or(|history| 
-            history.get_earliest_extension_step().is_some_and(|ext_step| step >= ext_step)
-        ) && self.block_checker.can_block(pos)
-    }
-
     pub fn is_free_at(&self, xy: RoomXY) -> bool {
         self.terrain.get_xy_good(xy) != Terrain::Wall
-        && !self.tiles.contains_key(&xy)
+        && self.tiles.get(&xy).is_none_or(|timeline| timeline.is_free())
     }
 
     fn add_structure_lifetime(&mut self, structure: StructureType, lt: LifeTime) {
@@ -607,23 +542,8 @@ impl ColonyPlanner {
         }
     }
 
-    fn remove_structure_lifetime(&mut self, structure: StructureType, lt: LifeTime) {
-        let steps = self.structure_steps.entry(structure).or_default();
-        *steps.entry(lt.build_step).or_default() -= 1;
-        if let Some(destroy_step) = lt.destroy_step {
-            *steps.entry(destroy_step).or_default() += 1;
-        }
-    }
-
     pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) {
-        let prev_lt = self.roads.remove(&pos);
-        if let Some(prev_lt) = prev_lt { 
-            self.remove_structure_lifetime(StructureType::Road, prev_lt); 
-        }
-
-        let lt = prev_lt.map_or(lt, |prev_lt| lt.union(prev_lt));
-        self.roads.insert(pos, lt);
-        self.add_structure_lifetime(StructureType::Road, lt);
+        self.tiles.entry(pos).or_default().plan_road(lt);
     }
 
     fn calculate_all_avaliable_at(&self, structure: StructureType) -> BTreeMap<ColonyStep, u32> {
@@ -653,15 +573,12 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn plan_temporary(&mut self, xy: RoomXY, lt: LifeTime, structure: PlannedTemporaryStructure) -> anyhow::Result<()> {
-        self.check_entity_plannable_at(xy, lt.build_step, structure.into())?;
+    pub fn plan_container(&mut self, xy: RoomXY, lt: LifeTime, container: PlannedContainer) -> anyhow::Result<()> {
+        self.check_entity_plannable_at(xy, lt.build_step, container.into())?;
 
-        match self.tiles.entry(xy) {
-            hash_map::Entry::Occupied(mut entry) => entry.get_mut().add_temporary(lt, structure)?,
-            hash_map::Entry::Vacant(entry) => { entry.insert(TileHistory::Temporary(lt, structure, None)); },
-        }
+        self.tiles.entry(xy).or_default().plan_container(lt, container)?;
 
-        self.add_structure_lifetime(structure.structure_type(), lt);
+        self.add_structure_lifetime(StructureType::Container, lt);
 
         Ok(())
     }
@@ -673,10 +590,7 @@ impl ColonyPlanner {
             self.block_checker.block(xy)?; 
         }
 
-        match self.tiles.entry(xy) {
-            hash_map::Entry::Occupied(mut entry) => entry.get_mut().block(step, blocker)?,
-            hash_map::Entry::Vacant(entry) => { entry.insert(TileHistory::Blocker(step, blocker)); },
-        }
+        self.tiles.entry(xy).or_default().plan_blocker(step, blocker)?;
 
         if let Some(structure) = blocker.structure_type() {
             self.add_structure_lifetime(structure, LifeTime::permanent(step));
@@ -685,23 +599,15 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn plan_blocker_earliest(&mut self, xy: RoomXY, blocker: PlannedPermanentStructure) -> anyhow::Result<ColonyStep> {
-        let mut earliest = match self.tiles.get(&xy) {
-            Some(history) => history.get_earliest_extension_step().ok_or_else(|| anyhow!("Can't extend history"))?,
-            None => ColonyStep::default(),
-        };
-
-        earliest = earliest.max(self.get_earliest_step_for(blocker.structure_type())?);
-
+    pub fn plan_blocker_earliest(&mut self, xy: RoomXY, blocker: PlannedImpassableStructure) -> anyhow::Result<ColonyStep> {
+        let earliest = self.get_earliest_step_for(blocker.structure_type())?;
         self.plan_blocker(xy, earliest, blocker.into()).map(|()| earliest)
     }
 
     pub fn find_all(&self, entity: PlannedEntity) -> Vec<RoomXY> {
         self.tiles.iter()
             .filter_map(|(xy, history)| {
-                history.clone().into_iter()
-                    .find(|(e, _)| *e == entity)
-                    .map(|_| *xy)
+                history.entities().contains(&entity).then_some(*xy)
             }).collect()
     }
 
@@ -727,16 +633,18 @@ impl ColonyPlanner {
 
         let mut cost_matrix = self.base_cost_matrix.clone();
 
-        for (pos, lt) in &self.roads {
-            if lt.is_built_at(build_step) {
-                cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
-            } else if lt.is_planned_at(build_step) {
-                cost_matrix.set_xy(*pos, TilePathing::PlannedRoad.cost());
+        for (pos, timeline) in &self.tiles {
+            if let Some(lt) = &timeline.road {
+                if lt.is_built_at(build_step) {
+                    cost_matrix.set_xy(*pos, TilePathing::BuiltRoad.cost());
+                } else if lt.is_planned_at(build_step) {
+                    cost_matrix.set_xy(*pos, TilePathing::PlannedRoad.cost());
+                }
             }
         }
 
         for (pos, history) in &self.tiles {
-            if history.get_impassable_step().is_some_and(|block_stop| block_stop < expiration_step) {
+            if history.get_block_step().is_some_and(|block_stop| block_stop < expiration_step) {
                 cost_matrix.set_xy(*pos, TilePathing::Impassable.cost());
             }
         }
