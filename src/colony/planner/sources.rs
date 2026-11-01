@@ -2,7 +2,7 @@ use itertools::Itertools;
 use screeps::{HasId, HasPosition, RoomXY, Source, StructureType, find};
 use anyhow::anyhow;
 
-use crate::colony::{planner::state::{ColonyPlanner, LifeTime, PlannedContainer, PlannedImpassableStructure}, steps::ColonyStep};
+use crate::colony::{planner::state::{ColonyPlanner, LifeTime, PlannedContainer, PlannedCreep, PlannedImpassableStructure}, steps::ColonyStep};
 
 pub struct SourceData {
     pub access_pos: RoomXY,
@@ -21,13 +21,13 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         let link_step = planner.get_earliest_step_for(StructureType::Link)?;
         let connection = planner.find_wall_connection(center, source_pos, Some(BuildArterialRoads), Some(link_step))?;
 
-        planner.plan_container(connection.creep_pos, LifeTime::permanent(BuildBufferAndSourceContainers), PlannedContainer::SourceContainer(source_id))?;
+        planner.plan_container(connection.creep_pos, LifeTime::permanent(BuildBufferAndSourceContainers), PlannedContainer::Source(source_id))?;
+        planner.plan_blocker(connection.creep_pos, BuildSpawn, PlannedCreep::SourceHarvester(source.id()).into())?;
 
         let slots = connection.creep_pos.neighbors().into_iter()
             .filter(|neigh| planner.is_free_at(*neigh))
             .collect_vec()
             .into_iter();
-
 
         planner.plan_blocker_earliest(connection.access_pos, PlannedImpassableStructure::SourceSpawn(source_id))?;
 
@@ -36,6 +36,7 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         planner.plan_blocker(link_slot, link_step, PlannedImpassableStructure::SourceLink(source_id).into())?;
 
         for slot in slots {
+            if !planner.can_block_at(slot) { continue; }
             planner.plan_blocker_earliest(slot, PlannedImpassableStructure::SourceExtension(source_id))?;
         }
 

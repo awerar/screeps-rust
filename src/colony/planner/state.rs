@@ -23,15 +23,14 @@ pub enum PlannedImpassableStructure {
     Tower,
     CentralLink,
     Extractor,
-    Observer,
-    Controller
+    Observer
 }
 
 impl PlannedImpassableStructure {
     fn buildable_on_wall(&self) -> bool {
         use PlannedImpassableStructure::*;
 
-        matches!(self, Extractor | Controller)
+        matches!(self, Extractor)
     }
 
     fn structure_type(&self) -> StructureType {
@@ -48,17 +47,17 @@ impl PlannedImpassableStructure {
             PlannedImpassableStructure::Tower => Tower,
             PlannedImpassableStructure::Terminal => Terminal,
             PlannedImpassableStructure::Extractor => Extractor,
-            PlannedImpassableStructure::Observer => Observer,
-            PlannedImpassableStructure::Controller => Controller
+            PlannedImpassableStructure::Observer => Observer
         }
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedContainer {
-    ContainerBuffer,
-    SourceContainer(screeps::ObjectId<Source>),
-    MineralContainer,
+    Container,
+    Source(screeps::ObjectId<Source>),
+    Mineral,
+    Upgrader
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -184,7 +183,7 @@ impl TileTimeline {
     }
 
     fn plan_blocker(&mut self, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
-        if self.container.is_some_and(|(lt, _)| Self::is_container_blocker_compatible(lt, step, blocker)) { bail!("Blocker collides with container") }
+        if self.container.is_some_and(|(lt, _)| !Self::is_container_blocker_compatible(lt, step, blocker)) { bail!("Blocker collides with container") }
 
         match self.blocker.entry() {
             option_entry::Entry::Occupied(_) => bail!("Already planned a blocker"),
@@ -321,8 +320,6 @@ pub struct IntermediateColonyPlan {
 
 impl IntermediateColonyPlan {
     fn compile(self) -> anyhow::Result<ColonyPlan> {
-        use PlannedCreep::*;
-
         let mut plan_steps = HashMap::new();
 
         let mut accumulated_structures = HashSet::new();
@@ -347,7 +344,7 @@ impl IntermediateColonyPlan {
             sources: self.compile_sources()?,
             mineral: self.compile_mineral()?,
             center,
-            upgrader_pos: self.get_pos(Upgrader.into())?,
+            upgrader_container: self.get_structure_ref(PlannedContainer::Upgrader.into())?,
             controller: PlannedStructureRef::new(self.room.controller().ok_or(anyhow!("No controller"))?.pos())
         })
     }
@@ -363,7 +360,7 @@ impl IntermediateColonyPlan {
             pos: storage_ref.pos,
             spawn: self.get_structure_ref(MainSpawn.into())?,
             storage: storage_ref.into(),
-            container_storage: self.get_structure_ref(ContainerBuffer.into())?.into(),
+            container_storage: self.get_structure_ref(Container.into())?.into(),
             link: self.get_structure_ref(CentralLink.into())?.into(),
             terminal: self.get_structure_ref(Terminal.into())?.into(),
             observer: self.get_structure_ref(Observer.into())?.into(),
@@ -379,14 +376,13 @@ impl IntermediateColonyPlan {
         self.room.find(find::SOURCES, None).into_iter()
             .map(|source| screeps::HasId::id(&source))
             .map(|source| {
-                let container = self.get_structure_ref(SourceContainer(source).into())?;
+                let container = self.get_structure_ref(Source(source).into())?;
                 let spawn = self.get_structure_ref(SourceSpawn(source).into())?;
 
                 let plan = SourcePlan {
                     spawn_direction: spawn.pos.get_direction_to(container.pos).unwrap(),
                     distance: self.get_path_length(&PathId::Source(source))?,
                     spawn: spawn.into(),
-                    road: PlannedStructureRef::new(container.pos),
                     container: container.into(),
                     link: self.get_structure_ref(SourceLink(source).into())?.into(),
                     extensions: self.get_structure_refs(SourceExtension(source).into()),
@@ -400,7 +396,7 @@ impl IntermediateColonyPlan {
         use PlannedContainer::*;
         use PlannedImpassableStructure::*;
 
-        let container = self.get_structure_ref(MineralContainer.into())?;
+        let container = self.get_structure_ref(Mineral.into())?;
 
         Ok(MineralPlan {
             distance: self.get_path_length(&PathId::Mineral)?,
@@ -502,6 +498,9 @@ impl ColonyPlanner {
                 timeline.entities().map(|entity| (entity, *xy))
             }).into_group_map();
 
+        let controller = self.room.controller().unwrap().pos().xy();
+        new_structures.entry(ColonyStep::BuildSpawn).or_default().insert((controller, StructureType::Controller));
+
         IntermediateColonyPlan { 
             room: self.room, 
             new_structures, 
@@ -529,9 +528,13 @@ impl ColonyPlanner {
             .last().ok_or(anyhow!("Unable to build any more {structure:?}"))?.0)
     }
 
+    pub fn can_block_at(&self, xy: RoomXY) -> bool {
+        self.block_checker.can_block(xy)
+    }
+
     pub fn is_free_at(&self, xy: RoomXY) -> bool {
         self.terrain.get_xy_good(xy) != Terrain::Wall
-        && self.tiles.get(&xy).is_none_or(|timeline| timeline.is_free())
+        && self.tiles.get(&xy).is_none_or(TileTimeline::is_free)
     }
 
     fn add_structure_lifetime(&mut self, structure: StructureType, lt: LifeTime) {
@@ -542,8 +545,8 @@ impl ColonyPlanner {
         }
     }
 
-    pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) {
-        self.tiles.entry(pos).or_default().plan_road(lt);
+    pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) -> anyhow::Result<()> {
+        self.tiles.entry(pos).or_default().plan_road(lt)
     }
 
     fn calculate_all_avaliable_at(&self, structure: StructureType) -> BTreeMap<ColonyStep, u32> {
@@ -615,7 +618,7 @@ impl ColonyPlanner {
         let path = self.find_path_from(xy1, xy2, Some(lt.build_step), lt.destroy_step);
 
         for pos in &path {
-            self.plan_road(*pos, lt);
+            self.plan_road(*pos, lt)?;
         }
 
         if let Some(id) = id {

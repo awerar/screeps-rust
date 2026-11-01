@@ -18,7 +18,6 @@ impl SourcePlan {
         if let Some(site) = self.container.resolve_site() { return Some(site); }
         if let Some(site) = self.link.resolve_site() { return Some(site); }
         if let Some(site) = self.spawn.resolve_site() { return Some(site); }
-        if let Some(site) = self.road.resolve_site() { return Some(site); }
         self.extensions.iter().find_map(PlannedStructureRef::resolve_site)
     }
 
@@ -33,15 +32,8 @@ impl SourcePlan {
     }
     
     pub fn get_repair_target(&self) -> Option<RepairableStructure> {
-        let structures = vec![ 
-            self.road.resolve().map(RepairableStructure::new),
-            self.container.resolve().map(RepairableStructure::new)
-        ];
-
-        structures.into_iter()
-            .flatten()
+        self.container.resolve().map(RepairableStructure::new)
             .map(|structure| (structure, structure.hits_max() - structure.hits()))
-            .max_by_key(|(_, missing_hits)| *missing_hits)
             .filter(|(_, missing_hits)| *missing_hits > REPAIR_POWER * 10) // TODO: Improve this
             .map(|(structure, _)| structure)
     }

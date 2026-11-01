@@ -72,7 +72,8 @@ impl CenterPlanner {
     pub fn next_structure_pos(&mut self, planner: &mut ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {
         loop {
             while let Some((dist, pos)) = self.structure_queue.pop_front() {
-                if !planner.is_free_at(pos) { 
+                if !planner.is_free_at(pos) { continue; }
+                if !planner.can_block_at(pos) { 
                     self.road_pq.push(Reverse((dist, pos)));
 
                     continue; 
@@ -118,17 +119,19 @@ impl CenterPlanner {
 
     pub fn plan_container_buffer(&mut self, planner: &mut ColonyPlanner, lt: LifeTime) -> anyhow::Result<()> { 
         self.structure_lifetimes.insert(self.container_buffer_pos, lt);
-        planner.plan_container(self.container_buffer_pos, lt, PlannedContainer::ContainerBuffer)
+        planner.plan_container(self.container_buffer_pos, lt, PlannedContainer::Container)
     }
 
-    pub fn plan_roads(self, planner: &mut ColonyPlanner) {
+    pub fn plan_roads(self, planner: &mut ColonyPlanner) -> anyhow::Result<()> {
         for (pos, lt) in &self.structure_lifetimes {
             let lt = lt.clip_start(ColonyStep::BuildArterialRoads).unwrap();
 
             for ancestor in self.get_all_ancestors(*pos) {
-                planner.plan_road(ancestor, lt);
+                planner.plan_road(ancestor, lt)?;
             }
         }
+
+        Ok(())
     }
 
     fn get_all_ancestors(&self, xy: RoomXY) -> HashSet<RoomXY> {
@@ -240,7 +243,7 @@ pub fn find_center(room: &Room) -> anyhow::Result<RoomXY> {
         let mut points_of_interest = Vec::new();
 
         points_of_interest.extend(room.find(find::SOURCES, None).into_iter().map(|source| source.pos()));
-        points_of_interest.extend(room.find(find::DEPOSITS, None).into_iter().map(|deposit| deposit.pos()));
+        points_of_interest.extend(room.find(find::MINERALS, None).into_iter().map(|deposit| deposit.pos()));
         points_of_interest.push(room.controller().unwrap().pos());
 
         points_of_interest.into_iter()

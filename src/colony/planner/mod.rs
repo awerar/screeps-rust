@@ -29,21 +29,17 @@ impl ColonyPlan {
         let controller = room.controller().unwrap().pos().xy();
         let controller_connection = planner.find_wall_connection(center, controller, Some(BuildArterialRoads), None)?;
         planner.plan_blocker(controller_connection.creep_pos, ColonyStep::BuildSpawn, PlannedCreep::Upgrader.into())?;
+        planner.plan_container(controller_connection.creep_pos, LifeTime::permanent(ColonyStep::BuildBufferAndSourceContainers), PlannedContainer::Upgrader)?;
 
-        let deposits = room.find(find::MINERALS, None);
-        assert!(deposits.len() <= 1);
-        let deposit = deposits.into_iter().next().map(|deposit| deposit.pos().xy());
-        let deposit_connection = if let Some(deposit) = deposit {
-            let connection = planner.find_wall_connection(center, deposit, Some(BuildLvl6), None)?;
+        let deposit = room.find(find::MINERALS, None).first().unwrap().pos().xy();
+        let deposit_connection = planner.find_wall_connection(center, deposit, Some(BuildLvl6), None)?;
 
-            planner.plan_blocker(deposit, BuildLvl6, PlannedImpassableStructure::Extractor.into())?;
-            planner.plan_container(connection.creep_pos, LifeTime::permanent(BuildLvl6), PlannedContainer::MineralContainer)?;
-
-            Some(connection)
-        } else { None };
+        planner.plan_blocker(deposit, BuildLvl6, PlannedImpassableStructure::Extractor.into())?;
+        planner.plan_container(deposit_connection.creep_pos, LifeTime::permanent(BuildLvl6), PlannedContainer::Mineral)?;
+        planner.plan_blocker(deposit_connection.creep_pos, ColonyStep::BuildLvl6, PlannedCreep::MineralHarvester.into())?;
 
         plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
-        center_planner.plan_roads(&mut planner);
+        center_planner.plan_roads(&mut planner)?;
 
         planner.plan_road_from(controller_connection.access_pos, center, LifeTime::permanent(BuildArterialRoads), None)?;
 
@@ -56,9 +52,7 @@ impl ColonyPlan {
             )?;
         }
 
-        if let Some(connection) = deposit_connection {
-            planner.plan_road_from(connection.access_pos, center, LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
-        }
+        planner.plan_road_from(deposit_connection.access_pos, center, LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
 
         planner.compile()
     }
