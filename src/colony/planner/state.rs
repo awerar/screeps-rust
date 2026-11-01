@@ -315,26 +315,32 @@ impl LifeTime {
         Some(LifeTime { build_step: build, destroy_step: Some(destroy) })
     }
 
-    fn is_built_at(self, step: ColonyStep) -> bool {
+    pub fn is_built_at(self, step: ColonyStep) -> bool {
         step >= self.build_step && self.destroy_step.is_none_or(|destroy_step| destroy_step > step)
     }
 
-    fn is_planned_at(self, step: ColonyStep) -> bool {
+    pub fn is_planned_at(self, step: ColonyStep) -> bool {
         step < self.build_step
     }
 
-    fn is_destroyed_at(self, step: ColonyStep) -> bool {
+    pub fn is_destroyed_at(self, step: ColonyStep) -> bool {
         self.destroy_step.is_some_and(|destroy_step| step >= destroy_step)
     }
 
-    fn union(self, other: Self) -> Self {
+    pub fn union(self, other: Self) -> Self {
         Self { 
             build_step: self.build_step.min(other.build_step), 
-            destroy_step: match (self.destroy_step, other.destroy_step) {
-                (Some(step1), Some(step2)) => Some(step1.max(step2)),
-                (step1, step2) => step1.or(step2)
-            }
+            destroy_step: self.destroy_step.zip(other.destroy_step).map(|(s1, s2)| s1.max(s2))
         }
+    }
+
+    pub fn clip_start(self, min_build_step: ColonyStep) -> Option<Self> {
+        if self.destroy_step.is_some_and(|destroy_step| destroy_step <= min_build_step) { return None }
+
+        Some(LifeTime {
+            build_step: self.build_step.max(min_build_step),
+            destroy_step: self.destroy_step
+        })
     }
 }
 
@@ -588,6 +594,11 @@ impl ColonyPlanner {
         ) && self.block_checker.can_block(pos)
     }
 
+    pub fn is_free_at(&self, xy: RoomXY) -> bool {
+        self.terrain.get_xy_good(xy) != Terrain::Wall
+        && !self.tiles.contains_key(&xy)
+    }
+
     fn add_structure_lifetime(&mut self, structure: StructureType, lt: LifeTime) {
         let steps = self.structure_steps.entry(structure).or_default();
         *steps.entry(lt.build_step).or_default() += 1;
@@ -596,10 +607,23 @@ impl ColonyPlanner {
         }
     }
 
-    pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) {
-        self.roads.entry(pos).and_modify(|lt2| *lt2 = lt2.union(lt)).or_insert(lt);
-        self.add_structure_lifetime(StructureType::Road, lt);
+    fn remove_structure_lifetime(&mut self, structure: StructureType, lt: LifeTime) {
+        let steps = self.structure_steps.entry(structure).or_default();
+        *steps.entry(lt.build_step).or_default() -= 1;
+        if let Some(destroy_step) = lt.destroy_step {
+            *steps.entry(destroy_step).or_default() += 1;
+        }
+    }
 
+    pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) {
+        let prev_lt = self.roads.remove(&pos);
+        if let Some(prev_lt) = prev_lt { 
+            self.remove_structure_lifetime(StructureType::Road, prev_lt); 
+        }
+
+        let lt = prev_lt.map_or(lt, |prev_lt| lt.union(prev_lt));
+        self.roads.insert(pos, lt);
+        self.add_structure_lifetime(StructureType::Road, lt);
     }
 
     fn calculate_all_avaliable_at(&self, structure: StructureType) -> BTreeMap<ColonyStep, u32> {
@@ -644,7 +668,10 @@ impl ColonyPlanner {
 
     pub fn plan_blocker(&mut self, xy: RoomXY, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
         self.check_entity_plannable_at(xy, step, blocker.into())?;
-        if self.terrain.get_xy_good(xy) != Terrain::Wall { self.block_checker.block(xy)?; }
+
+        if self.terrain.get_xy_good(xy) != Terrain::Wall && !self.block_checker.has_blocked_at(xy) { 
+            self.block_checker.block(xy)?; 
+        }
 
         match self.tiles.entry(xy) {
             hash_map::Entry::Occupied(mut entry) => entry.get_mut().block(step, blocker)?,

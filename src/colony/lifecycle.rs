@@ -118,7 +118,7 @@ impl ColonyPlan {
 
 impl ColonyPlan {
     pub fn get_latest_compatible_step_for(&self, room: &Room) -> ColonyStep {
-        let controller = room.controller().unwrap();
+        /*let controller = room.controller().unwrap();
         let all_structures: HashSet<_> = get_all_structures_in(room).into_keys().collect();
 
         for (step, step_plan) in self.steps.iter().sorted_by_key(|(a, _)| **a).rev() {
@@ -128,6 +128,9 @@ impl ColonyPlan {
             }
         }
 
-        unreachable!()
+        unreachable!()*/
+
+        // TODO: FIX
+        ColonyStep::BuildSpawn
     }
 }

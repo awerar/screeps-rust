@@ -1,65 +1,113 @@
-use std::{cmp::Reverse, collections::{HashMap, HashSet, VecDeque}};
+use std::{cmp::Reverse, collections::{BinaryHeap, HashMap, HashSet, VecDeque, hash_map}};
 
 use itertools::Itertools;
+use log::info;
 use screeps::{Direction, HasPosition, Position, Room, RoomXY, StructureType, Terrain, find};
-use anyhow::bail;
+use anyhow::{bail, anyhow};
 
-use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, StarWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedPermanentStructure}}, steps::ColonyStep}, pathfinding};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedPermanentStructure, PlannedTemporaryStructure}}, steps::ColonyStep}, pathfinding};
 
-pub struct CenterPlanner {
-    road_iter: FloodFill<StarWalkableNeighs>,
-    roads: HashSet<RoomXY>,
-    structure_queue: VecDeque<RoomXY>,
-    placed_structures: HashMap<RoomXY, ColonyStep>,
-
-    storage_buffer_pos: RoomXY
+struct XYAncestry {
+    dist: u32,
+    parents: Vec<RoomXY>
 }
 
+impl XYAncestry {
+    fn new(dist: u32, parents: Vec<RoomXY>) -> Self {
+        Self { dist, parents }
+    }
+}
+
+pub struct CenterPlanner {
+    ancestries: HashMap<RoomXY, XYAncestry>,
+
+    road_pq: BinaryHeap<Reverse<(u32, RoomXY)>>,
+    structure_queue: VecDeque<(u32, RoomXY)>,
+    structure_lifetimes: HashMap<RoomXY, LifeTime>,
+
+    container_buffer_pos: RoomXY,
+    center: RoomXY
+}
+
+// Algorithm:
+// Expand road network outward via BFS and add structure spots as needed
+// Seed are the points of the middle star
+// If a spot can't be blocked, instead plan a road there
+// For each structure, remember which roads first reach it earliest
+// When planning roads, for each structure, make 
 impl CenterPlanner {
-    pub fn new(planner: &ColonyPlanner, center: RoomXY) -> Self {
-        let mut visited_structure_positions = HashSet::new();
+    pub fn new(center: RoomXY) -> Self {
+        let mut ancestries = HashMap::new();
+        let mut road_pq = BinaryHeap::new();
         let mut structure_queue = VecDeque::new();
 
-        let mut floodfill = FloodFill::new(vec![center], OrthogonalWalkableNeighs::new(planner.room.get_terrain())).peekable();
+        structure_queue.push_back((1, center));
+        ancestries.insert(center, XYAncestry::new(
+            1, 
+            Direction::iter().filter(|dir| dir.is_diagonal()).map(|dir| center + *dir).collect_vec()
+        ));
 
-        while let Some((_, pos)) = floodfill.next_if(|(dist, _)| *dist < 2) {
-            visited_structure_positions.insert(pos);
-            structure_queue.push_back(pos);
+        for dir in Direction::iter() {
+            let pos = center + *dir;
+
+            if dir.is_orthogonal() {
+                structure_queue.push_back((1, pos));
+                ancestries.insert(pos, XYAncestry::new(1, vec![ center + dir.rot_cw(), center + dir.rot_ccw() ]));
+            } else {
+                road_pq.push(Reverse((0, pos)));
+                ancestries.insert(pos, XYAncestry::new(0, Vec::new()));
+            }
         }
 
-        let seed = floodfill
-            .take_while(|(dist, _)| *dist == 2)
-            .map(|(_, pos)| pos)
-            .collect_vec();
-
         Self {
-            storage_buffer_pos: seed[0],
-            road_iter: FloodFill::new(seed, StarWalkableNeighs::new(planner.room.get_terrain(), center)),
-            placed_structures: HashMap::new(),
-            roads: HashSet::new(),
+            ancestries,
+            road_pq,
             structure_queue,
+            structure_lifetimes: HashMap::new(),
+            container_buffer_pos: center + Direction::TopRight,
+            center
         }
     }
 
-    pub fn next_structure_pos(&mut self, planner: &ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {
+    pub fn next_structure_pos(&mut self, planner: &mut ColonyPlanner, step: ColonyStep) -> anyhow::Result<RoomXY> {
         loop {
-            if let Some(pos) = self.structure_queue.pop_front() {
-                self.placed_structures.insert(pos, step);
+            while let Some((dist, pos)) = self.structure_queue.pop_front() {
+                if !planner.can_block_at(pos, Some(step)) { 
+                    self.road_pq.push(Reverse((dist, pos)));
+
+                    continue; 
+                }
+
+                planner.block_checker.block(pos)?;
+                self.structure_lifetimes.insert(pos, LifeTime::permanent(step));
                 return Ok(pos) 
             }
 
-            let Some((_, road)) = self.road_iter.next() else { bail!("Not enough roads"); };
+            let Some(Reverse((dist, road))) = self.road_pq.pop() else { bail!("Not enough roads"); };
 
-            self.roads.insert(road);
-            self.structure_queue.extend(
-                Direction::iter()
-                    .filter_map(|dir| road.checked_add_direction(*dir))
-                    .filter(|neigh| !self.road_iter.neighs().eligible(*neigh))
-                    .filter(|neigh| planner.can_block_at(*neigh, None))
-                    .filter(|neigh| !self.placed_structures.contains_key(neigh))
-                    .filter(|neigh| !self.structure_queue.contains(neigh))
-                    .collect_vec()
-            );
+            for dir in Direction::iter() {
+                let Some(neigh) = road.checked_add_direction(*dir) else { continue; };
+                if !planner.is_free_at(neigh) { continue; }
+
+                let is_road_neigh = self.is_on_road_grid(neigh);
+
+                match self.ancestries.entry(neigh) {
+                    hash_map::Entry::Vacant(entry) => {
+                        if is_road_neigh {
+                            self.road_pq.push(Reverse((dist + 1, neigh)));
+                        } else {
+                            self.structure_queue.push_back((dist + 1, neigh));
+                        }
+
+                        entry.insert(XYAncestry::new(dist + 1, vec![road]));
+                    },
+                    hash_map::Entry::Occupied(mut entry) => {
+                        if entry.get().dist == dist + 1 {
+                            entry.get_mut().parents.push(road);
+                        }
+                    },
+                }
+            }
         }
     }
 
@@ -68,17 +116,46 @@ impl CenterPlanner {
         planner.plan_blocker(pos, step, structure.into())
     }
 
-    pub fn container_buffer_pos(&self) -> RoomXY { self.storage_buffer_pos }
+    pub fn plan_container_buffer(&mut self, planner: &mut ColonyPlanner, lt: LifeTime) -> anyhow::Result<()> { 
+        self.structure_lifetimes.insert(self.container_buffer_pos, lt);
+        planner.plan_temporary(self.container_buffer_pos, lt, PlannedTemporaryStructure::ContainerBuffer)
+    }
 
     pub fn plan_roads(self, planner: &mut ColonyPlanner) {
-        for road in &self.roads {
-            let Some(plan_step) = Direction::iter()
-                .filter_map(|dir| road.checked_add_direction(*dir))
-                .filter_map(|pos| self.placed_structures.get(&pos))
-                .sorted().nth(2) else { continue; };
+        for (pos, lt) in &self.structure_lifetimes {
+            let lt = lt.clip_start(ColonyStep::BuildArterialRoads).unwrap();
 
-            planner.plan_road(*road, LifeTime::permanent(*plan_step));
+            for ancestor in self.get_all_ancestors(*pos) {
+                planner.plan_road(ancestor, lt);
+            }
         }
+    }
+
+    fn get_all_ancestors(&self, xy: RoomXY) -> HashSet<RoomXY> {
+        let immediate_parents= self.ancestries.get(&xy).unwrap().parents.clone();
+
+        let mut ancestors = immediate_parents.iter().copied().collect::<HashSet<_>>();
+        let mut stack = immediate_parents;
+
+        while let Some(xy) = stack.pop() {
+            let ancestry = self.ancestries.get(&xy).unwrap();
+            
+            for parent in &ancestry.parents {
+                if ancestors.insert(*parent) {
+                    stack.push(*parent);
+                }
+            }
+        }
+
+        ancestors
+    }
+
+    fn is_on_road_grid(&self, pos: RoomXY) -> bool {
+        let (dx, dy) = pos - self.center;
+        let (dx, dy) = (dx.abs(), dy.abs());
+        let d = dx + dy;
+
+        d % 4 == 2 || (d % 4 == 0 && dx % 2 == 1)
     }
 }
 
@@ -122,11 +199,8 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
 
 const MIN_ENTRANCE_DIST: usize = 8;
 const MIN_CANDIDATE_DIST: u8 = 4;
-pub fn find_center(room: &Room) -> RoomXY {
-    let center_flag = room.find(find::FLAGS, None).into_iter()
-        .find(|flag| flag.name().to_lowercase().contains("center"));
-    if let Some(center_flag) = center_flag { return center_flag.pos().xy() }
-
+const MIN_WALL_DIST: usize = 3;
+pub fn find_center(room: &Room) -> anyhow::Result<RoomXY> {
     let exits = room.find(find::EXIT, None).into_iter()
         .map(|pos| Position::from(pos).xy());
 
@@ -139,7 +213,21 @@ pub fn find_center(room: &Room) -> RoomXY {
         .filter(|(x, y)| room.get_terrain().get(*x, *y) == Terrain::Wall)
         .map(|(x, y)| RoomXY::try_from((x, y)).unwrap());
 
-    let candidates = FloodFill::new(wall_blocks.chain(entrance_blocks), OrthogonalWalkableNeighs::new(room.get_terrain()))
+    let all_candidates = FloodFill::new(wall_blocks.chain(entrance_blocks), OrthogonalWalkableNeighs::new(room.get_terrain()))
+        .filter(|(dist, _)| *dist >= MIN_WALL_DIST)
+        .collect_vec();
+
+    let center_flag = room.find(find::FLAGS, None).into_iter()
+        .find(|flag| flag.name().to_lowercase().contains("center"));
+    if let Some(center_flag) = center_flag.map(|f| f.pos().xy()) { 
+        if all_candidates.iter().find(|(_, candidate)| *candidate == center_flag).is_some() {
+            return Ok(center_flag) 
+        }
+        
+        info!("Found a center flag, but it is not a valid center");
+    }
+
+    let candidates = all_candidates.into_iter()
         .sorted_by_key(|(dist, pos)| (Reverse(*dist), *pos))
         .dedup_by(|(d1, p1), (d2, p2)| *d1 == *d2 && p1.get_range_to(*p2) <= MIN_CANDIDATE_DIST)
         .take(5)
@@ -159,5 +247,5 @@ pub fn find_center(room: &Room) -> RoomXY {
             .map(|poi| pathfinding::search(candidate_pos, poi, 1).path().len())
             .sum::<usize>()
     })//.inspect(|best| { let (x,y) = (best.x.u8(), best.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.5).fill("#46f263")))); })
-    .unwrap()
+    .ok_or(anyhow!("No valid center candidate found"))
 }

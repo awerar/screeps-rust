@@ -1,6 +1,8 @@
 use std::collections::{HashSet, VecDeque};
 use screeps::{Direction, RoomTerrain, RoomXY, Terrain};
 
+// TODO: Simplify
+
 pub struct WalkableNeighs(RoomTerrain);
 impl WalkableNeighs {
     pub fn new(terrain: RoomTerrain) -> Self { Self(terrain) }

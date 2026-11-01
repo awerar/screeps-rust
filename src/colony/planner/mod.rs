@@ -1,6 +1,6 @@
 use screeps::{HasPosition, Room, find};
 
-use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, sources::plan_sources, state::{ColonyPlanner, LifeTime, PathId, PlannedPermanentCreep, PlannedPermanentStructure, PlannedTemporaryStructure}}, steps::ColonyStep};
+use crate::colony::{plan::ColonyPlan, planner::{center::{CenterPlanner, find_center, plan_extensions_towers_observer}, sources::plan_sources, state::{ColonyPlanner, LifeTime, PathId, PlannedPermanentCreep, PlannedPermanentStructure}}, steps::ColonyStep};
 
 mod center;
 mod floodfill;
@@ -13,16 +13,11 @@ impl ColonyPlan {
         use ColonyStep::*;
 
         let mut planner = ColonyPlanner::new(room.clone());
-        let center = find_center(room);
+        let center = find_center(room)?;
         
-        let mut center_planner = CenterPlanner::new(&planner, center);
+        let mut center_planner = CenterPlanner::new(center);
 
-        planner.plan_temporary(
-        center_planner.container_buffer_pos(), 
-        LifeTime::temporary(BuildBufferAndSourceContainers, 
-            UpgradeToLevel5).unwrap(), PlannedTemporaryStructure::ContainerBuffer
-        )?;
-
+        center_planner.plan_container_buffer(&mut planner, LifeTime::temporary(BuildBufferAndSourceContainers, UpgradeToLevel5).unwrap())?;
         center_planner.plan_structure(&mut planner, BuildLvl4, PlannedPermanentStructure::Storage)?;
         center_planner.plan_structure(&mut planner, BuildSpawn, PlannedPermanentStructure::MainSpawn)?;
         center_planner.plan_structure(&mut planner, BuildLvl5, PlannedPermanentStructure::CentralLink)?;

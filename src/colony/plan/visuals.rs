@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use itertools::Itertools;
 use screeps::{CircleStyle, LineStyle, RoomName, RoomVisual, RoomXY, StructureType, TextAlign, TextStyle};
-use strum::IntoEnumIterator;
 
 use crate::{colony::{plan::{ColonyPlan, ColonyPlanDiff}, steps::ColonyStep}, visuals::{RoomDrawerType, draw_in_room_replaced}};
 
@@ -29,18 +28,14 @@ pub fn draw_roads(visuals: &RoomVisual, roads: &HashSet<RoomXY>) {
 
 impl ColonyPlan {
     pub fn draw_until(&self, visuals: &RoomVisual, stop_step: Option<ColonyStep>) {
+        let structures = &self.steps.get(&stop_step.unwrap_or(ColonyStep::last())).unwrap().accumulated_structures;
+            
         let mut roads = HashSet::new();
-
-        for step in ColonyStep::iter() {
-            if stop_step.as_ref().is_some_and(|stop_step| step > *stop_step) { break; }
-            let Some(step) = self.steps.get(&step) else { continue; };
-
-            for (pos, structure) in &step.new_structures {
-                if matches!(structure, StructureType::Road) {
-                    roads.insert(*pos);
-                } else {
-                    draw_structure(visuals, *pos, *structure);
-                }
+        for (pos, structure) in structures {
+            if matches!(structure, StructureType::Road) {
+                roads.insert(*pos);
+            } else {
+                draw_structure(visuals, *pos, *structure);
             }
         }
 
