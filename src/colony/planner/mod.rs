@@ -45,19 +45,19 @@ impl ColonyPlan {
         plan_extensions_towers_observer(&mut planner, &mut center_planner)?;
         center_planner.plan_roads(&mut planner);
 
-        planner.plan_road_between(center, controller_connection.access_pos, LifeTime::permanent(BuildArterialRoads), None)?;
+        planner.plan_road_from(controller_connection.access_pos, center, LifeTime::permanent(BuildArterialRoads), None)?;
 
         for source_data in source_datas {
-            planner.plan_road_between(
+            planner.plan_road_from(
                 source_data.access_pos, 
-                center, 
+                center,
                 LifeTime::temporary(BuildArterialRoads, source_data.link_step).unwrap(),
                 Some(PathId::Source(source_data.source))
             )?;
         }
 
         if let Some(connection) = deposit_connection {
-            planner.plan_road_between(center, connection.access_pos, LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
+            planner.plan_road_from(connection.access_pos, center, LifeTime::permanent(BuildLvl6), Some(PathId::Mineral))?;
         }
 
         planner.compile()

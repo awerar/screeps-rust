@@ -705,8 +705,8 @@ impl ColonyPlanner {
             }).collect()
     }
 
-    pub fn plan_road_between(&mut self, point1: RoomXY, point2: RoomXY, lt: LifeTime, id: Option<PathId>) -> anyhow::Result<()> {
-        let path = self.find_path_between(point1, point2, Some(lt.build_step), lt.destroy_step);
+    pub fn plan_road_from(&mut self, xy1: RoomXY, xy2: RoomXY, lt: LifeTime, id: Option<PathId>) -> anyhow::Result<()> {
+        let path = self.find_path_from(xy1, xy2, Some(lt.build_step), lt.destroy_step);
 
         for pos in &path {
             self.plan_road(*pos, lt);
@@ -720,7 +720,8 @@ impl ColonyPlanner {
         Ok(())
     }
 
-    pub fn find_path_between(&self, point1: RoomXY, point2: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> Vec<RoomXY> {
+    // Includes start, excludes end
+    pub fn find_path_from(&self, xy1: RoomXY, xy2: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> Vec<RoomXY> {
         let build_step = build_step.unwrap_or(ColonyStep::last());
         let expiration_step = expiration_step.unwrap_or(ColonyStep::last());
 
@@ -741,27 +742,35 @@ impl ColonyPlanner {
         }
 
         let options = FindPathOptions::<fn(_, CostMatrix) -> SingleRoomCostResult, SingleRoomCostResult>::default()
-            .cost_callback(|_, _| SingleRoomCostResult::CostMatrix(cost_matrix.clone()));
+            .cost_callback(|_, _| SingleRoomCostResult::CostMatrix(cost_matrix.clone()))
+            .range(1);
 
-        let point1 = Position::new(point1.x, point1.y, self.room.name());
-        let point2 = Position::new(point2.x, point2.y, self.room.name());
+        let pos1 = Position::new(xy1.x, xy1.y, self.room.name());
+        let pos2 = Position::new(xy2.x, xy2.y, self.room.name());
 
-        let path = point1.find_path_to(&point2, Some(options));
+        let path = pos1.find_path_to(&pos2, Some(options));
 
         let Path::Vectorized(path) = path else { unreachable!() };
 
-        path.into_iter().map(|step| 
+        let mut return_path = vec![xy1];
+        return_path.extend(path.into_iter().map(|step| 
             RoomXY::new(
                 RoomCoordinate::new(step.x as u8).unwrap(),
                 RoomCoordinate::new(step.y as u8).unwrap()
             )
-        ).collect_vec()
+        ));
+
+        if return_path.last().is_some_and(|last| *last == xy2) {
+            return_path.pop();
+        }
+
+        return_path
     }
 
     pub fn find_wall_connection(&self, center_pos: RoomXY, wall_pos: RoomXY, build_step: Option<ColonyStep>, expiration_step: Option<ColonyStep>) -> anyhow::Result<WallConnection> {
-        let path = self.find_path_between(wall_pos, center_pos, build_step, expiration_step);
-        let beginning = path.first_chunk::<2>().ok_or(anyhow!("Path to wall had too few positions"))?;
+        let path = self.find_path_from(center_pos, wall_pos, build_step, expiration_step);
+        let ending = path.last_chunk::<2>().ok_or(anyhow!("Path to wall had too few positions"))?;
 
-        Ok(WallConnection { creep_pos: beginning[0], access_pos: beginning[1] })
+        Ok(WallConnection { creep_pos: ending[1], access_pos: ending[0] })
     }
 }

@@ -5,7 +5,7 @@ use js_sys::JsString;
 use screeps::{HasPosition, OwnedStructureProperties, Room, RoomName, find, game};
 use log::{info, warn};
 
-use crate::{colony::{ColonyView, plan::{ColonyPlan, get_all_structures_in}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, draw_in_room_replaced}};
+use crate::{colony::{ColonyView, plan::{ColonyPlan, get_all_structures_in}, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, clear_room_visual, draw_in_room_replaced}};
 
 pub fn update_colonies(mem: &mut Memory) {
     info!("Updating rooms...");
@@ -102,6 +102,7 @@ impl ColonyPlan {
         if pop_command(Command::MigrateColony { room: name.to_string() }) {
             info!("Migrating {name}");
             diff.migrate(name);
+            clear_room_visual(name, RoomDrawerType::Diff);
 
             true
         } else {
