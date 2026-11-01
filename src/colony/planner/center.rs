@@ -79,7 +79,7 @@ impl CenterPlanner {
                     continue; 
                 }
 
-                planner.block_checker.block(pos)?;
+                planner.reserve_block(pos)?;
                 self.structure_lifetimes.insert(pos, LifeTime::permanent(step));
                 return Ok(pos) 
             }

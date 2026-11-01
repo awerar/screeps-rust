@@ -33,8 +33,4 @@ impl BlockChecker {
 
         self.wall_union.borrow_mut().block(xy)
     }
-
-    pub fn has_blocked_at(&mut self, xy: RoomXY) -> bool {
-        self.blocked.contains(&xy)
-    }
 }
