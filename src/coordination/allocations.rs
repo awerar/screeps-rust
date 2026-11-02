@@ -79,7 +79,7 @@ impl<Owner: Hash + Eq, AllocationData> Allocations<Owner, AllocationData> {
 
     pub fn allocate(&mut self, owner: Owner, amount: u32, data: AllocationData) {
         if let Some(other_state) = self.allocations.insert(owner, Allocation { amount, data }) {
-            self.state.reserved -= other_state.amount;
+            self.state.reserved = self.state.reserved.saturating_sub(other_state.amount);
         }
 
         self.state.reserved += amount;
@@ -128,7 +128,7 @@ where
                     (worker_state.amount, ExpiringEntryCheckError::Expired(owner, worker_state.data)),
             };
 
-            checked.state.reserved -= amount;
+            checked.state.reserved = checked.state.reserved.saturating_sub(amount);
             new_errs.push(new_err);
         }
 
@@ -151,7 +151,7 @@ impl<Owner, AllocationData> AllocationHandle<'_, Owner, AllocationData> {
     }
 
     pub fn release(self) {
-        self.resource_state.reserved -= self.live_handle.get().amount;
+        self.resource_state.reserved = self.resource_state.reserved.saturating_sub(self.live_handle.get().amount);
         self.live_handle.remove();
     }
 
