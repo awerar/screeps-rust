@@ -43,7 +43,7 @@ pub enum PathId {
 #[derive(Debug)]
 pub struct WallConnection {
     pub creep_pos: RoomXY,
-    pub access_pos: RoomXY
+    pub road_pos: RoomXY
 }
 
 impl ColonyPlanner {
@@ -100,6 +100,6 @@ impl ColonyPlanner {
         let path = self.find_path_from(center_pos, wall_pos, build_step, expiration_step);
         let ending = path.last_chunk::<2>().ok_or(anyhow!("Path to wall had too few positions"))?;
 
-        Ok(WallConnection { creep_pos: ending[1], access_pos: ending[0] })
+        Ok(WallConnection { creep_pos: ending[1], road_pos: ending[0] })
     }
 }

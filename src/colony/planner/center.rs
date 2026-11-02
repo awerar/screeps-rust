@@ -131,6 +131,13 @@ impl CenterPlanner {
             }
         }
 
+        for dir in Direction::iter() {
+            let mut pos = self.center + *dir;
+            if dir.is_orthogonal() { pos = pos + *dir; }
+
+            planner.plan_road(pos, LifeTime::permanent(ColonyStep::BuildArterialRoads))?;
+        }
+
         Ok(())
     }
 

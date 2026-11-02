@@ -26,6 +26,7 @@ pub struct ColonyPlanner {
 
     block_checker: BlockChecker,
     reserved_blocks: HashSet<RoomXY>,
+    keep_clear: HashSet<RoomXY>,
 
     tiles: HashMap<RoomXY, TileTimeline>,
 
@@ -51,6 +52,7 @@ impl ColonyPlanner {
             paths: HashMap::new(),
             block_checker: BlockChecker::new(&room),
             reserved_blocks: HashSet::new(),
+            keep_clear: HashSet::new(),
             room,
         }
     }
@@ -64,12 +66,13 @@ impl ColonyPlanner {
     }
 
     pub fn can_block_at(&self, xy: RoomXY) -> bool {
-        self.block_checker.can_block(xy)
+        self.block_checker.can_block(xy) && !self.keep_clear.contains(&xy)
     }
 
     pub fn is_free_at(&self, xy: RoomXY) -> bool {
         self.terrain.get_xy_good(xy) != Terrain::Wall
         && self.tiles.get(&xy).is_none_or(TileTimeline::is_free)
+        && !self.reserved_blocks.contains(&xy)
     }
 
     // Blocks the tile now, plan_blocker has to fill it in before compiling
@@ -78,6 +81,10 @@ impl ColonyPlanner {
         self.reserved_blocks.insert(xy);
 
         Ok(())
+    }
+
+    pub fn keep_clear(&mut self, xy: RoomXY) {
+        self.keep_clear.insert(xy);
     }
 
     pub fn plan_road(&mut self, pos: RoomXY, lt: LifeTime) -> anyhow::Result<()> {
@@ -106,6 +113,8 @@ impl ColonyPlanner {
 
     pub fn plan_blocker(&mut self, xy: RoomXY, step: ColonyStep, blocker: PlannedBlocker) -> anyhow::Result<()> {
         self.check_entity_plannable_at(xy, step, blocker.into())?;
+
+        if self.keep_clear.contains(&xy) { bail!("Can't plan a blocker on {xy} because it is marked as keep clear") }
 
         if self.terrain.get_xy_good(xy) != Terrain::Wall && !self.reserved_blocks.remove(&xy) {
             self.block_checker.block(xy)?;

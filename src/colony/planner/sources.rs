@@ -5,9 +5,27 @@ use anyhow::anyhow;
 use crate::colony::{planner::state::{ColonyPlanner, LifeTime, PlannedContainer, PlannedCreep, PlannedImpassableStructure}, steps::ColonyStep};
 
 pub struct SourceData {
-    pub access_pos: RoomXY,
+    pub road_pos: RoomXY,
     pub link_step: ColonyStep,
     pub source: screeps::ObjectId<Source>
+}
+
+struct SourceSlots(<Vec<RoomXY> as IntoIterator>::IntoIter);
+
+impl SourceSlots {
+    fn new(slots: Vec<RoomXY>) -> Self {
+        Self(slots.into_iter())
+    }
+
+    fn next(&mut self, planner: &ColonyPlanner) -> Option<RoomXY> {
+        for xy in self.0.by_ref() {
+            if planner.is_free_at(xy) && planner.can_block_at(xy) {
+                return Some(xy)
+            }
+        }
+
+        None
+    }
 }
 
 pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Result<Vec<SourceData>> {
@@ -23,26 +41,20 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
 
         planner.plan_container(connection.creep_pos, LifeTime::permanent(BuildBufferAndSourceContainers), PlannedContainer::Source(source_id))?;
         planner.plan_blocker(connection.creep_pos, BuildSpawn, PlannedCreep::SourceHarvester(source.id()).into())?;
+        planner.plan_blocker_earliest(connection.road_pos, PlannedImpassableStructure::SourceSpawn(source_id))?;
 
-        let slots = connection.creep_pos.neighbors().into_iter()
-            .filter(|neigh| planner.is_free_at(*neigh))
-            .collect_vec()
-            .into_iter();
+        let mut slots = SourceSlots::new(connection.creep_pos.neighbors());
 
-        planner.plan_blocker_earliest(connection.access_pos, PlannedImpassableStructure::SourceSpawn(source_id))?;
-
-        let mut slots = slots.filter(|slot| *slot != connection.access_pos);
-        let link_slot = slots.next().ok_or(anyhow!("No slots for link around source"))?;
+        let link_slot = slots.next(planner).ok_or(anyhow!("No slots for link around source"))?;
         planner.plan_blocker(link_slot, link_step, PlannedImpassableStructure::SourceLink(source_id).into())?;
 
-        for slot in slots {
-            if !planner.can_block_at(slot) { continue; }
+        while let Some(slot) = slots.next(planner) {
             planner.plan_blocker_earliest(slot, PlannedImpassableStructure::SourceExtension(source_id))?;
         }
 
         source_datas.push(
             SourceData { 
-                access_pos: connection.access_pos, 
+                road_pos: connection.road_pos, 
                 link_step,
                 source: source.id()
             }
