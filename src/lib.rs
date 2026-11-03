@@ -104,6 +104,7 @@ fn update_coordinators(mem: &mut Memory) {
 
         mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, creep_stops);
         mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room);
+        mem.servicer_coordinators.entry(colony.name).or_default().update(&colony.room);
     }
 }
 

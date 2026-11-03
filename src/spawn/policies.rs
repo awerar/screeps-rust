@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -172,6 +172,7 @@ pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRe
     }
 }
 
+// TODO: Make better
 const MAX_FABRICATOR_POWER: u32 = 15;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
 pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorCoordinator) {
@@ -182,18 +183,45 @@ pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorC
     while roster.has_free() {
         if roster.local_creeps().part_count(RoleSelector::Fabricator, Part::Work) as u32 * BUILD_POWER >= MAX_FABRICATOR_POWER { break; }
 
-        let avaliable_work_ticks = roster.local_creeps().iter()
+        let avaliable_work_ticks = roster.local_creeps()
+            .of_role(RoleSelector::Fabricator)
             .map(|(creep , proto)| {
                 creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(Part::Work) as u32
             })
             .sum::<u32>();
 
-        if avaliable_work_ticks > needed_work_ticks { return }
+        if avaliable_work_ticks >= needed_work_ticks { return }
 
         roster.schedule(|info| {
             Some(RelativePrototype::new(
                 FABRICATOR_TEMPLATE.scaled(info.future_energy, None)?,
                 CreepRole::Fabricator(FabricatorCreep::default())
+            ))
+        }).log_err();
+    }
+}
+
+pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoordinator) {
+    if roster.syndrome().any_problems() { return }
+
+    let needed_work_ticks = coordinator.total_repair_work_ticks();
+    
+    while roster.has_free() {
+        let need_emergency_servicer = roster.local_creeps().part_count(RoleSelector::Servicer, Part::Work) == 0 && coordinator.any_emergency_repair();
+
+        let avaliable_work_ticks = roster.local_creeps()
+            .of_role(RoleSelector::Servicer)
+            .map(|(creep , proto)| {
+                creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(Part::Work) as u32
+            })
+            .sum::<u32>();
+
+        if avaliable_work_ticks >= needed_work_ticks && !need_emergency_servicer { return }
+
+        roster.schedule(|info| {
+            Some(RelativePrototype::new(
+                FABRICATOR_TEMPLATE.scaled(info.future_energy, None)?,
+                CreepRole::Servicer(ServicerCreep::default())
             ))
         }).log_err();
     }

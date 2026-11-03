@@ -10,7 +10,8 @@ pub enum RoleSelector {
     Flagship,
     #[expect(unused)] Tugboat,
     TugboatFor(CreepId),
-    Fabricator
+    Fabricator,
+    Servicer
 }
 
 impl RoleSelector {
@@ -24,27 +25,28 @@ impl RoleSelector {
             RoleSelector::Tugboat => matches!(role, CreepRole::Tugboat(_, _)),
             RoleSelector::TugboatFor(tugged) => matches!(role, CreepRole::Tugboat(tugged2, _) if *tugged2 == *tugged),
             RoleSelector::Fabricator => matches!(role, CreepRole::Fabricator(_)),
+            RoleSelector::Servicer => matches!(role, CreepRole::Servicer(_))
         }
     }
 }
 
 impl ColonyCreeps {
-    pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = &RelativePrototype> {
-        self.values().filter(move |proto| role.matches(proto.role()))
+    pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = (&CreepId, &RelativePrototype)> {
+        self.iter().filter(move |(_, proto)| role.matches(proto.role()))
     }
 
     pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {
-        self.of_role(role).map(|proto| proto.body().part_count(part)).sum()
+        self.of_role(role).map(|(_, proto)| proto.body().part_count(part)).sum()
     }
 }
 
 impl GlobalCreeps {
-    pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = &AbsolutePrototype> {
-        self.values().filter(move |proto| role.matches(proto.role()))
+    pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = (&CreepId, &AbsolutePrototype)> {
+        self.iter().filter(move |(_, proto)| role.matches(proto.role()))
     }
 
     #[expect(unused)]
     pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {
-        self.of_role(role).map(|proto| proto.body().part_count(part)).sum()
+        self.of_role(role).map(|(_, proto)| proto.body().part_count(part)).sum()
     }
 }

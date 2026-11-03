@@ -29,6 +29,7 @@ pub fn update_colonies(mem: &mut Memory) {
         mem.colonies.0.remove(room);
         mem.truck_coordinators.remove(room);
         mem.fabricator_coordinators.remove(room);
+        mem.servicer_coordinators.remove(room);
         warn!("Lost colony {room}");
     }
 

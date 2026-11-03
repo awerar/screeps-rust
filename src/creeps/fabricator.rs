@@ -1,7 +1,7 @@
 use anyhow::Result;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
-use screeps::{BUILD_POWER, ConstructionSite, HasPosition, ResourceType, Room, find};
+use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, ResourceType, Room, find};
 use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, defer, defer_err, domain_traits::{EnergyStoreAccessors, ObjectId, ResolvableId}, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::Transition};
@@ -83,10 +83,12 @@ impl FabricatorCoordinator {
     }
 
     pub fn assign_build(&mut self, creep: &VirtualCreep) -> Option<ObjectId<ConstructionSite>> {
+        let build_amount = creep.ticks_to_live().min(MAX_TASK_TICKS) * creep.body().part_count(Part::Work) as u32 * BUILD_POWER;
+
         self.0.iter_mut()
             .filter(|(_, collab)| collab.unreserved_amount() > 0)
             .min_by_key(|(task, _)| creep.pos().get_range_to(task.resolve().pos()))
-            .added_to_collab(creep.handle(), creep.ticks_to_live() * BUILD_POWER, Expiration::new())
+            .added_to_collab(creep.handle(), build_amount, Expiration::new())
     }
 
     pub fn total_build_work_ticks(&self) -> u32 {
