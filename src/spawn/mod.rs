@@ -13,13 +13,14 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
     let mut rosters = Rosters::new(mem);
 
     for (colony, roster) in rosters.iter_mut() {
+        let fabricator_coordinator = mem.fabricator_coordinators.entry(*colony).or_default();
         let view = mem.colonies.view(*colony).unwrap();
 
         schedule_excavators(roster, &view);
         schedule_tugboats(roster, &tugboat_requests);
         schedule_trucks(roster, &view);
         schedule_terraformer(roster, &view);
-        schedule_fabricators(roster, &view);
+        schedule_fabricators(roster, fabricator_coordinator);
     }
 
     schedule_remote_fabricators(&mut rosters, mem);

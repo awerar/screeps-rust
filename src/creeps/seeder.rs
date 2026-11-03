@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part, ResourceType};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::VirtualCreep, defer, domain_traits::{EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition, structure::ProviderStructure};
+use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::VirtualCreep, defer, domain_traits::{EnergyStoreAccessors, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition, structure::ProviderStructure};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ProviderStructure<S>, S)]

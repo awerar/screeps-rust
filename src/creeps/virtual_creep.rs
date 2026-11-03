@@ -168,8 +168,8 @@ impl VirtualCreep {
         Body::of_creep(&self.creep)
     }
 
-    pub fn ticks_to_live(&self) -> Option<u32> {
-        self.creep.ticks_to_live()
+    pub fn ticks_to_live(&self) -> u32 {
+        self.creep.ticks_to_live().unwrap()
     }
 
     pub fn has_intent(&self, intent: IntentType) -> bool {

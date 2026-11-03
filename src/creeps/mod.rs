@@ -9,11 +9,12 @@ use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{excavator::E
 
 pub mod flagship;
 pub mod excavator;
-pub mod fabricator;
 pub mod truck;
 pub mod terraformer;
 pub mod seeder;
 pub mod virtual_creep;
+pub mod servicer;
+pub mod fabricator;
 
 #[derive(Debug)]
 #[derive_where(Deserialize, Serialize, Clone; CreepRole<S>)]
@@ -187,8 +188,9 @@ impl Memory {
             if creep.resolve().pos().room_name() != room { continue; }
             let CreepRole::Fabricator(state) = &data.role else { continue; };
 
-            if state.is_consumer() { result.consumers.push(creep.resolve()); }
-            if state.is_provider() { result.providers.push(creep.resolve()); }
+            // TODO: Fix
+            // if state.is_consumer() { result.consumers.push(creep.resolve()); }
+            // if state.is_provider() { result.providers.push(creep.resolve()); }
         }
 
         result

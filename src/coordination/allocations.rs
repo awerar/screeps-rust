@@ -64,6 +64,10 @@ impl<O, AD> Allocations<O, AD> {
         self.state.amount.saturating_sub(self.state.reserved)
     }
 
+    pub fn ammount(&self) -> u32 {
+        self.state.amount
+    }
+
     pub fn set_amount(&mut self, amount: u32) {
         self.state.amount = amount;
     }

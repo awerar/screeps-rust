@@ -2,9 +2,9 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use log::warn;
-use screeps::{CONTROLLER_MAX_UPGRADE_PER_TICK, Creep, HasPosition, Part};
+use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -172,18 +172,23 @@ pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRe
     }
 }
 
-const TARGET_IDLE_FABRICATOR_WORK_COUNT: usize = 20;
-const TARGET_SURPLUS_FABRICATOR_WORK_COUNT: usize = 40;
-const BUFFER_ENERGY_SURPLUS_THRESHOLD: u32 = 50_000;
+const MAX_FABRICATOR_POWER: u32 = 15;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
-pub fn schedule_fabricators(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorCoordinator) {
     if roster.syndrome().any_problems() { return }
 
-    let buffer_energy = colony.buffer.map_or(0, |buffer| buffer.used_energy_capacity());
-    let work_target = if buffer_energy >= BUFFER_ENERGY_SURPLUS_THRESHOLD { TARGET_SURPLUS_FABRICATOR_WORK_COUNT } else { TARGET_IDLE_FABRICATOR_WORK_COUNT };
-
+    let needed_work_ticks = coordinator.total_build_work_ticks();
+    
     while roster.has_free() {
-        if roster.local_creeps().part_count(RoleSelector::Fabricator, Part::Work) >= work_target { break; }
+        if roster.local_creeps().part_count(RoleSelector::Fabricator, Part::Work) as u32 * BUILD_POWER >= MAX_FABRICATOR_POWER { break; }
+
+        let avaliable_work_ticks = roster.local_creeps().iter()
+            .map(|(creep , proto)| {
+                creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(Part::Work) as u32
+            })
+            .sum::<u32>();
+
+        if avaliable_work_ticks > needed_work_ticks { return }
 
         roster.schedule(|info| {
             Some(RelativePrototype::new(
@@ -213,11 +218,8 @@ pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
 
 const BASELINE_UPGRADE_POWER: u32 = 5;
 const TARGET_BUFFER_FULLNESS_RATIO: f32 = 0.8;
-pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
-    if roster.syndrome().any_problems() { return; }
-    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer(_))) { return; }
-
-    let mut target_work = match colony.buffer {
+fn get_target_upgrade_power(colony: &ColonyView<'_>) -> u32 {
+    let mut target_upgrade_power = match colony.buffer {
         Some(ColonyBuffer::Storage(storage)) => {
             let storage = storage.resolve();
             let buffer_fullness = storage.used_energy_capacity() as f32 / storage.energy_capacity() as f32;
@@ -227,13 +229,20 @@ pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) 
         None | Some(ColonyBuffer::Container(_)) => 5,
     };
 
-    if colony.controller.level() == 8 { target_work = target_work.min(CONTROLLER_MAX_UPGRADE_PER_TICK) }
+    if colony.controller.level() == 8 { target_upgrade_power = target_upgrade_power.min(CONTROLLER_MAX_UPGRADE_PER_TICK) }
+
+    target_upgrade_power
+}
+
+pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+    if roster.syndrome().any_problems() { return; }
+    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer(_))) { return; }
 
     roster.schedule(|info| {
         let mut energy = info.future_energy;
         energy = energy.checked_sub(Part::Carry.cost())?;
 
-        let work = energy.div_floor(Part::Work.cost()).min(target_work);
+        let work = energy.div_floor(Part::Work.cost()).min(get_target_upgrade_power(colony));
         if work == 0 { return None }
 
         Some(RelativePrototype::new(
