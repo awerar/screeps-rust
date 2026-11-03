@@ -17,12 +17,11 @@ impl ColonyPlan {
         
         let mut center_planner = CenterPlanner::new(center, room);
 
-        center_planner.plan_container_buffer(&mut planner, LifeTime::temporary(BuildBufferAndSourceContainers, UpgradeToLevel5).unwrap())?;
+        planner.plan_container(center, LifeTime::temporary(BuildBufferAndSourceContainers, UpgradeToLevel5).unwrap(), PlannedContainer::Buffer)?;
         center_planner.plan_structure(&mut planner, BuildLvl4, PlannedImpassableStructure::Storage)?;
         center_planner.plan_structure(&mut planner, BuildSpawn, PlannedImpassableStructure::MainSpawn)?;
         center_planner.plan_structure(&mut planner, BuildLvl5, PlannedImpassableStructure::CentralLink)?;
         center_planner.plan_structure(&mut planner, BuildLvl6, PlannedImpassableStructure::Terminal)?;
-        center_planner.plan_structure(&mut planner, BuildLvl3, PlannedImpassableStructure::Tower)?;
 
         let source_datas = plan_sources(&mut planner, center)?;
 

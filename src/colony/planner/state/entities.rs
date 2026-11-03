@@ -44,7 +44,7 @@ impl PlannedImpassableStructure {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum PlannedContainer {
-    Container,
+    Buffer,
     Source(screeps::ObjectId<Source>),
     Mineral,
     Upgrader

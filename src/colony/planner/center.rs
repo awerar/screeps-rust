@@ -5,7 +5,7 @@ use log::info;
 use screeps::{Direction, HasPosition, Position, Room, RoomTerrain, RoomXY, StructureType, Terrain, find};
 use anyhow::{bail, anyhow};
 
-use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedContainer, PlannedImpassableStructure}}, steps::ColonyStep}, pathfinding, utils::GetXYGood};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedImpassableStructure}}, steps::ColonyStep}, pathfinding, utils::GetXYGood};
 
 struct XYAncestry {
     dist: u32,
@@ -38,50 +38,18 @@ pub struct CenterPlanner {
     structure_queue: VecDeque<(u32, RoomXY)>,
     structure_lifetimes: HashMap<RoomXY, LifeTime>,
 
-    container_buffer_pos: RoomXY,
     center: RoomXY
 }
 
-// Algorithm:
-// Expand road network outward via BFS and add structure spots as needed
-// Seed are the points of the middle star
-// If a spot can't be blocked, instead plan a road there
-// For each structure, remember which roads first reach it earliest
-// When planning roads, for each structure, make 
 impl CenterPlanner {
     pub fn new(center: RoomXY, room: &Room) -> Self {
-        let terrain = room.get_terrain();
-
-        let mut ancestries = HashMap::new();
-        let mut road_pq = BinaryHeap::new();
-        let mut structure_queue = VecDeque::new();
-
-        structure_queue.push_back((1, center));
-        ancestries.insert(center, XYAncestry::new(
-            1, 
-            Direction::iter().filter(|dir| dir.is_diagonal()).map(|dir| center + *dir).collect_vec()
-        ));
-
-        for dir in Direction::iter() {
-            let pos = center + *dir;
-
-            if dir.is_orthogonal() {
-                structure_queue.push_back((1, pos));
-                ancestries.insert(pos, XYAncestry::new(1, vec![ center + dir.rot_cw(), center + dir.rot_ccw() ]));
-            } else {
-                road_pq.push(Reverse((terrain.get_tile_cost_at_xy(pos), pos)));
-                ancestries.insert(pos, XYAncestry::new(terrain.get_tile_cost_at_xy(pos), Vec::new()));
-            }
-        }
-
         Self {
-            ancestries,
-            road_pq,
-            structure_queue,
+            road_pq: BinaryHeap::from([Reverse((0, center))]),
+            ancestries: HashMap::from([(center, XYAncestry::new(0, Vec::new()))]),
+            structure_queue: VecDeque::new(),
             structure_lifetimes: HashMap::new(),
-            container_buffer_pos: center + Direction::TopRight,
             center,
-            terrain
+            terrain: room.get_terrain()
         }
     }
 
@@ -134,11 +102,6 @@ impl CenterPlanner {
         planner.plan_blocker(pos, step, structure.into())
     }
 
-    pub fn plan_container_buffer(&mut self, planner: &mut ColonyPlanner, lt: LifeTime) -> anyhow::Result<()> { 
-        self.structure_lifetimes.insert(self.container_buffer_pos, lt);
-        planner.plan_container(self.container_buffer_pos, lt, PlannedContainer::Container)
-    }
-
     pub fn plan_roads(self, planner: &mut ColonyPlanner) -> anyhow::Result<()> {
         for (pos, lt) in &self.structure_lifetimes {
             let lt = lt.clip_start(ColonyStep::BuildArterialRoads).unwrap();
@@ -146,13 +109,6 @@ impl CenterPlanner {
             for ancestor in self.get_all_ancestors(*pos) {
                 planner.plan_road(ancestor, lt)?;
             }
-        }
-
-        for dir in Direction::iter() {
-            let mut pos = self.center + *dir;
-            if dir.is_orthogonal() { pos = pos + *dir; }
-
-            planner.plan_road(pos, LifeTime::permanent(ColonyStep::BuildArterialRoads))?;
         }
 
         Ok(())
@@ -182,7 +138,7 @@ impl CenterPlanner {
         let (dx, dy) = (dx.abs(), dy.abs());
         let d = dx + dy;
 
-        d % 4 == 2 || (d % 4 == 0 && dx % 2 == 1)
+        d % 4 == 0 || (d % 4 == 2 && dx % 2 == 1)
     }
 }
 

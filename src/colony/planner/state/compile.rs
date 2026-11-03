@@ -59,7 +59,7 @@ impl IntermediateColonyPlan {
             pos: storage_ref.pos,
             spawn: self.get_structure_ref(MainSpawn.into())?,
             storage: storage_ref.into(),
-            container_storage: self.get_structure_ref(Container.into())?.into(),
+            container_storage: self.get_structure_ref(Buffer.into())?.into(),
             link: self.get_structure_ref(CentralLink.into())?.into(),
             terminal: self.get_structure_ref(Terminal.into())?.into(),
             observer: self.get_structure_ref(Observer.into())?.into(),

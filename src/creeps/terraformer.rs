@@ -2,7 +2,7 @@ use enum_display::EnumDisplay;
 use screeps::{Part, ResourceType, UPGRADE_CONTROLLER_POWER};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView}, creeps::virtual_creep::VirtualCreep, defer, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{colony::ColonyView, creeps::virtual_creep::VirtualCreep, defer, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum TerraformerCreep {
@@ -26,9 +26,12 @@ impl TerraformerCreep {
                 Ok(Next(Mining))
             },
             Mining => {
-                creep.upgrade_controller(controller)?;
+                if creep.curr_used_energy_capacity() > 0 {
+                    creep.upgrade_controller(controller)?;
+                }
 
                 if let Some(container) = container.resolve() 
+                    && container.used_energy_capacity() > 0
                     && creep.next_used_energy_capacity() < creep.body().part_count(Part::Work) as u32 * UPGRADE_CONTROLLER_POWER {
                         creep.withdraw(container, ResourceType::Energy, None)?;
                 }
