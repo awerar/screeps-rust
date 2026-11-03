@@ -18,7 +18,7 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
+use crate::{colony::update_colonies, creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -26,7 +26,6 @@ mod memory;
 mod tower;
 mod spawn;
 mod creeps;
-mod callbacks;
 mod utils;
 mod colony;
 mod pathfinding;
@@ -71,6 +70,8 @@ pub fn game_loop() {
         return;
     }
 
+    update_colonies(&mut mem);
+
     update_coordinators(&mut mem);
     let tugboat_requests = do_creeps(&mut mem);
 
@@ -82,7 +83,6 @@ pub fn game_loop() {
     mem.tick_times.push_front(game::cpu::get_used());
     if mem.tick_times.len() > 500 { mem.tick_times.pop_back(); }
 
-    mem.handle_callbacks();
     mem.screeps_serialize();
 
     visuals::draw();
@@ -94,6 +94,7 @@ fn custom_getrandom(buf: &mut [u8]) -> Result<(), getrandom::Error> {
     rng.fill_bytes(buf);
     Ok(())
 }
+
 register_custom_getrandom!(custom_getrandom);
 
 fn update_coordinators(mem: &mut Memory) {
