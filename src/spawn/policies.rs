@@ -2,9 +2,9 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use log::warn;
-use screeps::{Creep, HasPosition, Part};
+use screeps::{CONTROLLER_MAX_UPGRADE_PER_TICK, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{ImportTruckState, TruckCreep, STOP_IMPORT_STEP}}, domain_traits::{EnergyStoreAccessors, HasId, HasName}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -209,4 +209,36 @@ pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
             ))
         }).log_err();
     }
+}
+
+const BASELINE_UPGRADE_POWER: u32 = 5;
+const TARGET_BUFFER_FULLNESS_RATIO: f32 = 0.8;
+pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+    if roster.syndrome().any_problems() { return; }
+    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer(_))) { return; }
+
+    let mut target_work = match colony.buffer {
+        Some(ColonyBuffer::Storage(storage)) => {
+            let storage = storage.resolve();
+            let buffer_fullness = storage.used_energy_capacity() as f32 / storage.energy_capacity() as f32;
+
+            BASELINE_UPGRADE_POWER + ((buffer_fullness / TARGET_BUFFER_FULLNESS_RATIO) * (20 - BASELINE_UPGRADE_POWER) as f32) as u32
+        },
+        None | Some(ColonyBuffer::Container(_)) => 5,
+    };
+
+    if colony.controller.level() == 8 { target_work = target_work.min(CONTROLLER_MAX_UPGRADE_PER_TICK) }
+
+    roster.schedule(|info| {
+        let mut energy = info.future_energy;
+        energy = energy.checked_sub(Part::Carry.cost())?;
+
+        let work = energy.div_floor(Part::Work.cost()).min(target_work);
+        if work == 0 { return None }
+
+        Some(RelativePrototype::new(
+            Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize), 
+            CreepRole::Terraformer(TerraformerCreep::default())
+        ))
+    }).log_err();
 }

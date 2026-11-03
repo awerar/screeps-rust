@@ -5,12 +5,13 @@ use log::{error, warn};
 use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::step, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::step, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
 pub mod fabricator;
 pub mod truck;
+pub mod terraformer;
 pub mod virtual_creep;
 
 #[derive(Debug)]
@@ -76,6 +77,7 @@ pub enum CreepRole<S: CheckState = Checked> {
     ImportTruck(ImportTruckState),
     Fabricator(FabricatorCreep),
     Tugboat(CreepId<S>, ObjectId<StructureSpawn, S>),
+    Terraformer(TerraformerCreep),
     Scrap(ObjectId<StructureSpawn, S>),
 }
 
@@ -92,6 +94,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
             Self::Unchecked::Tugboat(tugged, spawn) => Self::Tugboat(tugged.check()?, spawn.check()?),
             Self::Unchecked::Scrap(state) => Self::Scrap(state.check()?),
+            Self::Unchecked::Terraformer(state) => Self::Terraformer(state)
         })
     }
 }
@@ -106,6 +109,7 @@ impl CreepRole {
             CreepRole::Truck(_) => "Truck",
             CreepRole::ImportTruck(_) => "ImportTruck",
             CreepRole::Fabricator(_) => "Fabricator",
+            CreepRole::Terraformer(_) => "Terraformer"
         }
     }
 }
@@ -158,6 +162,9 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
                 step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
+            },
+            Terraformer(state) => {
+                step(state, |state| state.update(&mut vcreep, &home, &mut movement));
             },
             Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged.clone(), &spawn.resolve()),
             Scrap(spawn) => do_recycle(creep, &mut movement, &spawn.resolve()),

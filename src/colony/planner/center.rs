@@ -2,10 +2,10 @@ use std::{cmp::Reverse, collections::{BinaryHeap, HashMap, HashSet, VecDeque, ha
 
 use itertools::Itertools;
 use log::info;
-use screeps::{Direction, HasPosition, Position, Room, RoomXY, StructureType, Terrain, find};
+use screeps::{Direction, HasPosition, Position, Room, RoomTerrain, RoomXY, StructureType, Terrain, find};
 use anyhow::{bail, anyhow};
 
-use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedImpassableStructure, PlannedContainer}}, steps::ColonyStep}, pathfinding};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedContainer, PlannedImpassableStructure}}, steps::ColonyStep}, pathfinding, utils::GetXYGood};
 
 struct XYAncestry {
     dist: u32,
@@ -18,7 +18,20 @@ impl XYAncestry {
     }
 }
 
+trait GetTileCostAtXy { fn get_tile_cost_at_xy(&self, xy: RoomXY) -> u32; }
+impl GetTileCostAtXy for RoomTerrain {
+    fn get_tile_cost_at_xy(&self, xy: RoomXY) -> u32 {
+        match self.get_xy_good(xy) {
+            Terrain::Plain => 1,
+            Terrain::Swamp => 5,
+            Terrain::Wall => 255,
+        }
+    }
+}
+
 pub struct CenterPlanner {
+    terrain: RoomTerrain,
+
     ancestries: HashMap<RoomXY, XYAncestry>,
 
     road_pq: BinaryHeap<Reverse<(u32, RoomXY)>>,
@@ -36,7 +49,9 @@ pub struct CenterPlanner {
 // For each structure, remember which roads first reach it earliest
 // When planning roads, for each structure, make 
 impl CenterPlanner {
-    pub fn new(center: RoomXY) -> Self {
+    pub fn new(center: RoomXY, room: &Room) -> Self {
+        let terrain = room.get_terrain();
+
         let mut ancestries = HashMap::new();
         let mut road_pq = BinaryHeap::new();
         let mut structure_queue = VecDeque::new();
@@ -54,8 +69,8 @@ impl CenterPlanner {
                 structure_queue.push_back((1, pos));
                 ancestries.insert(pos, XYAncestry::new(1, vec![ center + dir.rot_cw(), center + dir.rot_ccw() ]));
             } else {
-                road_pq.push(Reverse((0, pos)));
-                ancestries.insert(pos, XYAncestry::new(0, Vec::new()));
+                road_pq.push(Reverse((terrain.get_tile_cost_at_xy(pos), pos)));
+                ancestries.insert(pos, XYAncestry::new(terrain.get_tile_cost_at_xy(pos), Vec::new()));
             }
         }
 
@@ -65,7 +80,8 @@ impl CenterPlanner {
             structure_queue,
             structure_lifetimes: HashMap::new(),
             container_buffer_pos: center + Direction::TopRight,
-            center
+            center,
+            terrain
         }
     }
 
@@ -91,19 +107,20 @@ impl CenterPlanner {
                 if !planner.is_free_at(neigh) { continue; }
 
                 let is_road_neigh = self.is_on_road_grid(neigh);
+                let neigh_dist = dist + self.terrain.get_tile_cost_at_xy(neigh);
 
                 match self.ancestries.entry(neigh) {
                     hash_map::Entry::Vacant(entry) => {
                         if is_road_neigh {
-                            self.road_pq.push(Reverse((dist + 1, neigh)));
+                            self.road_pq.push(Reverse((neigh_dist, neigh)));
                         } else {
-                            self.structure_queue.push_back((dist + 1, neigh));
+                            self.structure_queue.push_back((neigh_dist, neigh));
                         }
 
-                        entry.insert(XYAncestry::new(dist + 1, vec![road]));
+                        entry.insert(XYAncestry::new(neigh_dist, vec![road]));
                     },
                     hash_map::Entry::Occupied(mut entry) => {
-                        if entry.get().dist == dist + 1 {
+                        if entry.get().dist == neigh_dist {
                             entry.get_mut().parents.push(road);
                         }
                     },

@@ -15,7 +15,7 @@ impl ColonyPlan {
         let mut planner = ColonyPlanner::new(room.clone());
         let center = find_center(room)?;
         
-        let mut center_planner = CenterPlanner::new(center);
+        let mut center_planner = CenterPlanner::new(center, room);
 
         center_planner.plan_container_buffer(&mut planner, LifeTime::temporary(BuildBufferAndSourceContainers, UpgradeToLevel5).unwrap())?;
         center_planner.plan_structure(&mut planner, BuildLvl4, PlannedImpassableStructure::Storage)?;

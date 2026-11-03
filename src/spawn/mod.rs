@@ -4,7 +4,7 @@ mod roles;
 mod roster;
 mod policies;
 
-use crate::{memory::Memory, movement::requests::TugboatRequests};
+use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::policies::schedule_terraformer};
 use policies::{schedule_excavators, schedule_fabricators, schedule_flagships, schedule_import_trucks, schedule_remote_fabricators, schedule_tugboats, schedule_trucks};
 use roster::Rosters;
 
@@ -18,6 +18,7 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
         schedule_excavators(roster, &view);
         schedule_tugboats(roster, &tugboat_requests);
         schedule_trucks(roster, &view);
+        schedule_terraformer(roster, &view);
         schedule_fabricators(roster, &view);
     }
 
