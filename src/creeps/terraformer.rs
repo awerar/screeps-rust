@@ -8,7 +8,7 @@ use crate::{colony::ColonyView, creeps::virtual_creep::VirtualCreep, defer, doma
 pub enum TerraformerCreep {
     #[default]
     Going,
-    Mining
+    Upgrading
 }
 
 impl TerraformerCreep {
@@ -23,9 +23,9 @@ impl TerraformerCreep {
             Going => {
                 defer!(movement.move_vtugged_to(creep, container.pos, 0), self)?;
 
-                Ok(Next(Mining))
+                Ok(Next(Upgrading))
             },
-            Mining => {
+            Upgrading => {
                 if creep.curr_used_energy_capacity() > 0 {
                     creep.upgrade_controller(controller)?;
                 }

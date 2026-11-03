@@ -12,6 +12,7 @@ pub mod excavator;
 pub mod fabricator;
 pub mod truck;
 pub mod terraformer;
+pub mod seeder;
 pub mod virtual_creep;
 
 #[derive(Debug)]
