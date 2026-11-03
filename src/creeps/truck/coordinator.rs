@@ -73,11 +73,13 @@ impl TruckCoordinator {
         let center_extensions = plan.center.extensions.iter().filter_map(PlannedStructureRef::resolve).map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
         let towers = plan.center.towers.iter().filter_map(PlannedStructureRef::resolve).map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
         let terminal = plan.center.terminal.resolve().map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
+        let upgrader_container = plan.upgrader_container.resolve().map(ConsumerStructure::new).map(ConsumerTruckStop::Structure);
 
         let mut consumers = ConsumerTasksBuilder::new();
         consumers.add_next_priority_group(center_spawn);
         consumers.add_next_priority_group(center_extensions);
         consumers.add_next_priority_group(towers).threshold(0.8);
+        consumers.add_next_priority_group(upgrader_container).threshold(0.5);
         consumers.add_next_priority_group(creep_consumers).threshold(0.35);
         consumers.add_next_priority_group(terminal).max_fill(2_000).threshold(0.5);
         self.consumers.set_tasks(consumers.build());

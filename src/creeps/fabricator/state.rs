@@ -4,14 +4,14 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::FabricatorTask}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
+use crate::{check::Check, colony::ColonyView, creeps::{fabricator::{coordinator::FabricatorCoordinator, task::StructureTask}, virtual_creep::VirtualCreep}, defer, defer_err, domain_traits::EnergyStoreAccessors, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition};
 
 #[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; FabricatorTask<S>, S)]
+#[derive_where(Serialize, Deserialize, Clone; StructureTask<S>, S)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
     #[default] Idle,
-    CollectingFor(FabricatorTask<S>),
-    Performing(FabricatorTask<S>),
+    CollectingFor(StructureTask<S>),
+    Performing(StructureTask<S>),
 }
 
 impl<'de> Deserialize<'de> for FabricatorCreep {
@@ -36,7 +36,7 @@ impl FabricatorCreep {
 
         match self {
             Self::Idle => {
-                if let Some(task) = coordinator.assign_task(creep, home) {
+                if let Some(task) = coordinator.assign_task(creep) {
                     next!(Self::Performing(task))
                 }
 
@@ -60,31 +60,17 @@ impl FabricatorCreep {
             Self::Performing(ref task) => {
                 next_if!(creep.next_used_energy_capacity() == 0, Self::CollectingFor(task.clone()));
 
-                match task {
-                    FabricatorTask::Structure(task) => {
-                        let Some(mut handle) = coordinator.refresh_structure(creep, task) else { next!(Self::Idle) };
+                let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
 
-                        defer!(movement.move_vcreep_to(creep, task.pos(), 1), self)?;
+                defer!(movement.move_vcreep_to(creep, task.pos(), 1), self)?;
 
-                        done_if!(creep.curr_used_energy_capacity() == 0, self);
-                        handle.consume(defer_err!(task.creep_work(creep), self)?);
+                done_if!(creep.curr_used_energy_capacity() == 0, self);
+                handle.consume(defer_err!(task.creep_work(creep), self)?);
 
-                        done_if!(handle.reserved() > 0, self);
+                done_if!(handle.reserved() > 0, self);
 
-                        handle.release();
-                        Ok(Next(Self::Idle))
-                    },
-                    FabricatorTask::Upgrading => {
-                        next_if!(coordinator.upgrade.refresh(creep.handle()).is_none(), Self::Idle);
-
-                        defer!(movement.move_vcreep_to(creep, home.controller.pos(), 3), self)?;
-
-                        done_if!(creep.curr_used_energy_capacity() == 0, self);
-                        defer_err!(creep.upgrade_controller(home.controller.clone()), self)?;
-
-                        Ok(Done(self))
-                    }
-                }
+                handle.release();
+                Ok(Next(Self::Idle))
             }
         }
     }

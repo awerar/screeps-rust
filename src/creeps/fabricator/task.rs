@@ -5,25 +5,6 @@ use screeps::{ConstructionSite, HasPosition, Position};
 use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, structure::RepairableStructure};
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; StructureTask<S>)]
-pub enum FabricatorTask<S: CheckState = Checked> {
-    Structure(StructureTask<S>),
-    Upgrading
-}
-
-impl CheckFrom for FabricatorTask {
-    type Unchecked = FabricatorTask<Unchecked>;
-    type Err = anyhow::Error;
-
-    fn check_from(uc: Self::Unchecked) -> Result<Self> {
-        Ok(match uc {
-            FabricatorTask::Structure(task) => Self::Structure(task.check()?),
-            FabricatorTask::Upgrading => Self::Upgrading,
-        })
-    }
-}
-
-#[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; BuildTask<S>, RepairTask<S>)]
 pub enum StructureTask<S: CheckState = Checked> {
     Building(BuildTask<S>),
