@@ -4,7 +4,7 @@ use log::warn;
 use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, defer, domain_traits::{EnergyStoreAccessors, HasHits}, movement::requests::MovementRequests, statemachine::Transition, structure::RepairableStructure};
+use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits}, movement::requests::MovementRequests, statemachine::Step, structure::RepairableStructure};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum ExcavatorCreep {
@@ -79,18 +79,17 @@ impl EnergyDestination {
 }
 
 impl ExcavatorCreep {
-    pub fn update(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
         use ExcavatorCreep::*;
-        use Transition::*;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 
         match self {
             Going => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                defer!(movement.move_vtugged_to(creep, harvest_pos, 0), self)?;
+                movement.approach_tugged(creep, harvest_pos, 0)?;
 
-                Ok(Next(Mining))
+                Step::Next(Mining)
             },
             Mining => {
                 creep.harvest_source(source.clone())?;
@@ -104,7 +103,7 @@ impl ExcavatorCreep {
                         creep.cancel_intent(IntentType::Harvest);
 
                         warn!("{} has nowhere to put its energy", creep.name());
-                        return Ok(Done(self));
+                        return Step::Stay;
                     };
 
                     if !energy_dest.can_also_harvest() {
@@ -115,17 +114,17 @@ impl ExcavatorCreep {
                     energy_dest.recieve(creep)?;
                 }
 
-                if transferring_to_container { return Ok(Done(self)) }
+                if transferring_to_container { return Step::Stay }
 
                 let container: Option<StructureContainer> = plan.container.resolve();
-                let Some(container) = container else { return Ok(Done(self)) };
+                let Some(container) = container else { return Step::Stay };
 
                 let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
                 let defecit = defecit.min(container.used_energy_capacity()).min(creep.curr_free_capacity());
-                if defecit == 0 { return Ok(Done(self)) }
+                if defecit == 0 { return Step::Stay }
 
                 creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
-                Ok(Done(self))
+                Step::Stay
             }
         }
     }

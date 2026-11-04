@@ -4,6 +4,8 @@
 #![feature(never_type)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(result_option_map_or_default)]
+#![feature(try_trait_v2)]
+#![feature(try_trait_v2_residual)]
 
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]

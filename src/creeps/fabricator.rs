@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, ResourceType, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, defer, defer_err, domain_traits::{EnergyStoreAccessors, ObjectId, ResolvableId}, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::Transition};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, domain_traits::{EnergyStoreAccessors, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if}};
 
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -29,8 +29,7 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 }
 
 impl FabricatorCreep {
-    pub fn update(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<Transition<Self>> {
-        use Transition::*;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> Step<Self> {
 
         match self {
             Self::Idle => {
@@ -38,28 +37,28 @@ impl FabricatorCreep {
                     next!(Self::Building(task))
                 }
 
-                defer!(movement.move_vcreep_to(creep, home.center, 5), self)?;
-                Ok(Done(self))
+                movement.approach(creep, home.center, 5)?;
+                Step::Stay
             },
-            Self::Building(ref task) => {
+            Self::Building(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
 
                 if creep.next_used_energy_capacity() == 0 {
-                    let Some(buffer) = &home.buffer else { done!(self) };
-                    defer!(movement.move_vcreep_to(creep, buffer.pos(), 1), self)?;
+                    let Some(buffer) = &home.buffer else { return Step::Stay };
+                    movement.approach(creep, buffer.pos(), 1)?;
 
-                    done_if!(buffer.used_energy_capacity() == 0, self);
-                    done_if!(creep.outgoing() > 0, self);
-                    defer_err!(creep.withdraw(*buffer, ResourceType::Energy, None), self)?;
+                    wait_if(buffer.used_energy_capacity() == 0)?;
+                    wait_if(creep.outgoing() > 0)?;
+                    creep.withdraw(*buffer, ResourceType::Energy, None)?;
                 }
 
-                defer!(movement.move_vcreep_to(creep, task.resolve().pos(), 1), self)?;
-                handle.consume(defer_err!(creep.build(task.resolve()), self)?);
+                movement.approach(creep, task.resolve().pos(), 1)?;
+                handle.consume(creep.build(task.resolve())?);
 
-                done_if!(handle.reserved() > 0, self);
+                wait_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Ok(Next(Self::Idle))
+                Step::Next(Self::Idle)
             }
         }
     }

@@ -6,7 +6,7 @@ use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
 use screeps::{Creep, HasPosition, Position, RectStyle, RoomVisual, StructureSpawn, game};
 
-use crate::{domain_traits::{CreepId, HasId, ResolvableId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}, statemachine::ShouldYield};
+use crate::{domain_traits::{CreepId, HasId, ResolvableId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deref)]
 struct Tugboat(CreepId);
@@ -38,12 +38,6 @@ pub enum MoveToResult {
 impl MoveToResult {
     pub fn in_range(self) -> bool {
         matches!(self, Self::InRange)
-    }
-}
-
-impl ShouldYield for MoveToResult {
-    fn should_yield(&self) -> bool {
-        !self.in_range()
     }
 }
 

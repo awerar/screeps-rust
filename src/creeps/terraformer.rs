@@ -2,7 +2,7 @@ use enum_display::EnumDisplay;
 use screeps::{Part, ResourceType, UPGRADE_CONTROLLER_POWER};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::ColonyView, creeps::virtual_creep::VirtualCreep, defer, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Transition};
+use crate::{colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::EnergyStoreAccessors, movement::requests::MovementRequests, statemachine::Step};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
 pub enum TerraformerCreep {
@@ -12,18 +12,16 @@ pub enum TerraformerCreep {
 }
 
 impl TerraformerCreep {
-    pub fn update(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
         use TerraformerCreep::*;
-        use Transition::*;
 
         let controller = home.controller.clone();
         let container = &home.plan.upgrader_container;
 
         match self {
             Going => {
-                defer!(movement.move_vtugged_to(creep, container.pos, 0), self)?;
-
-                Ok(Next(Upgrading))
+                movement.approach_tugged(creep, container.pos, 0)?;
+                Step::Next(Upgrading)
             },
             Upgrading => {
                 if creep.curr_used_energy_capacity() > 0 {
@@ -36,7 +34,7 @@ impl TerraformerCreep {
                         creep.withdraw(container, ResourceType::Energy, None)?;
                 }
 
-                Ok(Done(self))
+                Step::Stay
             }
         }
     }

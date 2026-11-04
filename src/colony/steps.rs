@@ -1,31 +1,30 @@
 use std::{fmt::Debug, mem};
 
-use anyhow::{Ok, bail};
+use anyhow::{Ok, anyhow};
 use enum_display::EnumDisplay;
 use screeps::Room;
 use serde::{Deserialize, Serialize};
 use strum::{EnumIter, FromRepr, IntoEnumIterator};
 
-use crate::{colony::ColonyView, statemachine::Transition};
+use crate::{colony::ColonyView, statemachine::Step};
 
 impl ColonyStep {
-    pub fn update(self, room: &Room, colony_data: &ColonyView<'_>) -> anyhow::Result<Transition<Self>> {
-        use Transition::*;
+    pub fn update(&mut self, room: &Room, colony_data: &ColonyView<'_>) -> Step<Self> {
 
         let controller_level = colony_data.controller.level();
         if self.controller_level() > controller_level { 
-            bail!("Controller level is higher than expected");
+            Err(anyhow!("Controller level is higher than expected"))?;
         }
 
         let controller_is_upgraded = controller_level > self.controller_level();
-        let built_step = colony_data.plan.steps.get(&self).map_or(Ok(true), |step| step.build(room))?;
+        let built_step = colony_data.plan.steps.get(&*self).map_or(Ok(true), |step| step.build(room))?;
 
-        let Some(promotion) = self.promotion() else { return Ok(Done(self)) };
+        let Some(promotion) = self.promotion() else { return Step::Stay };
         let promotion_is_upgrade = promotion.controller_level() > self.controller_level();
         if built_step && (!promotion_is_upgrade || controller_is_upgraded) {
-            Ok(Next(promotion))
+            Step::Next(promotion)
         } else {
-            Ok(Done(self))
+            Step::Stay
         }
     }
 }

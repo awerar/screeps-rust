@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part, ResourceType};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::VirtualCreep, defer, domain_traits::{EnergyStoreAccessors, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Transition, structure::ProviderStructure};
+use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::VirtualCreep, domain_traits::{EnergyStoreAccessors, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Step, structure::ProviderStructure};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ProviderStructure<S>, S)]
@@ -26,9 +26,8 @@ impl<'de> Deserialize<'de> for SeederCreep {
 }
 
 impl SeederCreep {
-    pub fn update(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) -> anyhow::Result<Transition<Self>> {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
         use SeederCreep::*;
-        use Transition::*;
 
         match self {
             Idle => {
@@ -51,24 +50,24 @@ impl SeederCreep {
                         }
                 }
 
-                Ok(Done(Idle))
+                Step::Stay
             },
             Refilling(target) => {
                 next_if!(creep.curr_used_energy_capacity() > 0, Upgrading);
                 next_if!(target.used_energy_capacity() == 0, Idle);
 
-                defer!(movement.move_vcreep_to(creep, target.pos(), 1), self)?;
-                creep.withdraw(target, ResourceType::Energy, None)?;
+                movement.approach(creep, target.pos(), 1)?;
+                creep.withdraw(*target, ResourceType::Energy, None)?;
 
                 next!(Upgrading)
             },
             Self::Upgrading => {
                 next_if!(creep.curr_used_energy_capacity() == 0, Idle);
 
-                defer!(movement.move_vcreep_to(creep, home.controller.pos(), 3), self)?;
+                movement.approach(creep, home.controller.pos(), 3)?;
                 creep.upgrade_controller(home.controller.clone())?;
 
-                Ok(Done(self))
+                Step::Stay
             }
         }
     }

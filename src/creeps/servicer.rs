@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasPosition, Part, REPAIR_POWER, ResourceType, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, defer, defer_err, domain_traits::{EnergyStoreAccessors, HasHits}, done, done_if, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::Transition, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, domain_traits::{EnergyStoreAccessors, HasHits}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if}, structure::RepairableStructure};
 
 const REPAIR_PERCENTAGE: f32 = 0.75;
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
@@ -31,8 +31,7 @@ impl<'de> Deserialize<'de> for ServicerCreep {
 }
 
 impl ServicerCreep {
-    pub fn update(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut ServicerCoordinator) -> anyhow::Result<Transition<Self>> {
-        use Transition::*;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut ServicerCoordinator) -> Step<Self> {
 
         match self {
             Self::Idle => {
@@ -40,28 +39,28 @@ impl ServicerCreep {
                     next!(Self::Repairing(task))
                 }
 
-                defer!(movement.move_vcreep_to(creep, home.center, 5), self)?;
-                Ok(Done(self))
+                movement.approach(creep, home.center, 5)?;
+                Step::Stay
             },
-            Self::Repairing(ref task) => {
+            Self::Repairing(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
 
                 if creep.next_used_energy_capacity() == 0 {
-                    let Some(buffer) = &home.buffer else { done!(self) };
-                    defer!(movement.move_vcreep_to(creep, buffer.pos(), 1), self)?;
+                    let Some(buffer) = &home.buffer else { return Step::Stay };
+                    movement.approach(creep, buffer.pos(), 1)?;
 
-                    done_if!(buffer.used_energy_capacity() == 0, self);
-                    done_if!(creep.outgoing() > 0, self);
-                    defer_err!(creep.withdraw(*buffer, ResourceType::Energy, None), self)?;
+                    wait_if(buffer.used_energy_capacity() == 0)?;
+                    wait_if(creep.outgoing() > 0)?;
+                    creep.withdraw(*buffer, ResourceType::Energy, None)?;
                 }
 
-                defer!(movement.move_vcreep_to(creep, task.pos(), 1), self)?;
-                handle.consume(defer_err!(creep.repair(*task), self)? * REPAIR_POWER);
+                movement.approach(creep, task.pos(), 1)?;
+                handle.consume(creep.repair(*task)? * REPAIR_POWER);
 
-                done_if!(handle.reserved() > 0, self);
+                wait_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Ok(Next(Self::Idle))
+                Step::Next(Self::Idle)
             }
         }
     }

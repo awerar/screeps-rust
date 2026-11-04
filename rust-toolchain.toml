@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned because the crate relies on unstable features (notably try_trait_v2) whose shape changes between nightlies
+channel = "nightly-2026-05-25"
+targets = ["wasm32-unknown-unknown"]
+components = ["clippy", "rustfmt"]

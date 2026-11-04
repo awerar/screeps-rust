@@ -1,10 +1,10 @@
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, convert::Infallible, error::Error, ops::FromResidual};
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::prototype::Body, statemachine::ShouldYield};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::prototype::Body, statemachine::{Step, Wait}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -63,9 +63,15 @@ pub enum IntentError {
     Other(#[from] anyhow::Error)
 }
 
-impl ShouldYield for IntentError {
-    fn should_yield(&self) -> bool {
+impl IntentError {
+    pub fn is_conflict(&self) -> bool {
         matches!(self, IntentError::AlreadyScheduled(_) | IntentError::PipelineCollision { .. })
+    }
+}
+
+impl<S> FromResidual<Result<Infallible, IntentError>> for Step<S> {
+    fn from_residual(Err(e): Result<Infallible, IntentError>) -> Self {
+        if e.is_conflict() { Self::Stay } else { Self::Fail(e.into()) }
     }
 }
 
@@ -471,5 +477,24 @@ impl MovementRequests {
         }
         
         Ok(result)
+    }
+
+    pub fn approach(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Wait {
+        self.move_vcreep_to(creep, target, range).into()
+    }
+
+    pub fn approach_tugged(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Wait {
+        self.move_vtugged_to(creep, target, range).into()
+    }
+}
+
+impl From<Result<MoveToResult, IntentError>> for Wait {
+    fn from(result: Result<MoveToResult, IntentError>) -> Self {
+        match result {
+            Ok(MoveToResult::InRange) => Wait::Ready,
+            Ok(MoveToResult::OutOfRange) => Wait::NotYet,
+            Err(e) if e.is_conflict() => Wait::NotYet,
+            Err(e) => Wait::Fail(e.into())
+        }
     }
 }
