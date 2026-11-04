@@ -1,6 +1,6 @@
 use std::{iter, ops::{Add, Mul}};
 
-use screeps::{Creep, MAX_CREEP_SIZE, Part, RoomName};
+use screeps::{CREEP_CLAIM_LIFE_TIME, CREEP_LIFE_TIME, Creep, MAX_CREEP_SIZE, Part, RoomName};
 
 use crate::{creeps::{CreepData, CreepRole}, domain_traits::{CreepId, ResolvableId}};
 
@@ -50,12 +50,20 @@ impl Body {
         self.0.iter().filter(|p| **p == part).count()
     }
 
+    pub fn part_cost_ratio(&self, part: Part) -> f32 {
+        self.part_count(part) as f32 / self.parts().iter().map(|p| p.cost()).sum::<u32>() as f32
+    }
+
     pub fn parts(&self) -> &[Part] {
         &self.0
     }
 
     pub fn total_parts(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn life_time(&self) -> u32 {
+        if self.part_count(Part::Claim) > 0 { CREEP_CLAIM_LIFE_TIME } else { CREEP_LIFE_TIME }
     }
 }
 

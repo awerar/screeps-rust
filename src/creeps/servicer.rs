@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if, wait_for}, structure::RepairableStructure};
 
-const REPAIR_PERCENTAGE: f32 = 0.75;
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -84,25 +83,29 @@ impl ServicerCoordinator {
     }
 
     pub fn assign_repair(&mut self, creep: &VirtualCreep) -> Option<RepairableStructure> {
-        let repair_amount = creep.ticks_to_live().min(MAX_TASK_TICKS) * creep.body().part_count(Part::Work) as u32 * REPAIR_POWER;
+        let creep_repair_power = creep.body().part_count(Part::Work) as u32 * REPAIR_POWER;
+        let max_repair_amount = creep.ticks_to_live().min(MAX_TASK_TICKS) * creep_repair_power;
 
         self.0.iter_mut()
             .filter(|(_, collab)| collab.unreserved_amount() > 0)
             .filter(|(task, _)| health_percentage(task) <= EMERGENCY_REPAIR_PERCENTAGE)
             .min_by_key(|(task, _)| OrderedFloat(health_percentage(task)))
-            .added_to_collab(creep.handle(), repair_amount, Expiration::new())
+            .added_to_collab(creep.handle(), max_repair_amount, Expiration::new())
             .or_else(|| 
                 self.0.iter_mut()
                     .filter(|(_, collab)| collab.unreserved_amount() > 0)
-                    .filter(|(task, _)| health_percentage(task) <= REPAIR_PERCENTAGE)
-                    .min_by_key(|(task, _)| creep.pos().get_range_to(task.pos()))
-                    .added_to_collab(creep.handle(), repair_amount, Expiration::new())
+                    .max_by_key(|(task, collab)| {
+                        let repair_amount = max_repair_amount.min(collab.unreserved_amount());
+                        let move_ticks = creep.pos().get_range_to(task.pos()) - 3;
+                        let repair_ticks = collab.unreserved_amount().min(max_repair_amount) / creep_repair_power;
+
+                        repair_amount / (move_ticks + repair_ticks)
+                    }).added_to_collab(creep.handle(), max_repair_amount, Expiration::new())
             )
     }
 
-    pub fn total_repair_work_ticks(&self) -> u32 {
+    pub fn total_work_ticks(&self) -> u32 {
         self.0.iter()
-            .filter(|(task, _)| health_percentage(task) <= REPAIR_PERCENTAGE)
             .map(|(_, collab)| collab.0.ammount())
             .sum::<u32>() / REPAIR_POWER
     }

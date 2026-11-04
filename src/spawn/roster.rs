@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Prototype, RelativePrototype}}};
+use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Prototype, RelativePrototype}}};
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
 
@@ -152,6 +152,8 @@ pub struct ColonyRoster {
     energy: ColonyEnergy,
     local_creeps: ColonyCreeps,
 
+    buffer_energy: u32,
+
     syndrome: ColonySyndrome,
 
     names: SharedUsedNames
@@ -262,6 +264,7 @@ impl ColonyRoster {
             energy: ColonyEnergy::new(groups),
             names,
             name: colony.name,
+            buffer_energy: colony.buffer.map_or_default(|buffer| buffer.used_energy_capacity()),
             local_creeps,
             syndrome
         }
@@ -281,6 +284,10 @@ impl ColonyRoster {
 
     pub fn syndrome(&self) -> &ColonySyndrome {
         &self.syndrome
+    }
+
+    pub fn buffer_energy(&self) -> u32 {
+        self.buffer_energy
     }
 
     // Not meant to be used by user
