@@ -74,7 +74,7 @@ impl CreepData {
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>, CreepId<S>, ObjectId<StructureSpawn, S>)]
+#[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>, CreepId<S>)]
 pub enum CreepRole<S: CheckState = Checked> {
     Excavator(ExcavatorCreep, ObjectId<Source, S>),
     Flagship(FlagshipCreep),
@@ -82,7 +82,7 @@ pub enum CreepRole<S: CheckState = Checked> {
     ImportTruck(ImportTruckState),
     Fabricator(FabricatorCreep),
     Servicer(ServicerCreep),
-    Tugboat(CreepId<S>, ObjectId<StructureSpawn, S>),
+    Tugboat(CreepId<S>),
     Terraformer(TerraformerCreep),
     Seeder(SeederCreep),
     Scrap(ObjectId<StructureSpawn, S>),
@@ -100,7 +100,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::ImportTruck(state) => Self::ImportTruck(state),
             Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
             Self::Unchecked::Servicer(state) => Self::Servicer(state),
-            Self::Unchecked::Tugboat(tugged, spawn) => Self::Tugboat(tugged.check()?, spawn.check()?),
+            Self::Unchecked::Tugboat(tugged) => Self::Tugboat(tugged.check()?),
             Self::Unchecked::Scrap(state) => Self::Scrap(state.check()?),
             Self::Unchecked::Terraformer(state) => Self::Terraformer(state),
             Self::Unchecked::Seeder(state) => Self::Seeder(state)
@@ -113,7 +113,7 @@ impl CreepRole {
         match self {
             CreepRole::Flagship(_) => "Flagship",
             CreepRole::Excavator(_, _) => "Excavator",
-            CreepRole::Tugboat(_, _) => "Tugboat",
+            CreepRole::Tugboat(_) => "Tugboat",
             CreepRole::Scrap(_) => "Scrap",
             CreepRole::Truck(_) => "Truck",
             CreepRole::ImportTruck(_) => "ImportTruck",
@@ -184,7 +184,10 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             Seeder(state) => {
                 step(state, |state| state.update(&mut vcreep, &home, &mut movement));
             },
-            Tugboat(tugged, spawn) => movement.do_tugboat(creep, tugged.clone(), &spawn.resolve()),
+            Tugboat(tugged) => {
+                let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
+                movement.do_tugboat(creep, tugged.clone(), &recycle_spawn)
+            },
             Scrap(spawn) => do_recycle(creep, &mut movement, &spawn.resolve()),
         }
 

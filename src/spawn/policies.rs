@@ -34,12 +34,10 @@ pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
                     ColonyRoster::default_select(iter)
                 }
             },
-            |info| {
-                Some(RelativePrototype::new(
-                    get_excavator_body(info.future_energy, source_plan),
-                    CreepRole::Excavator(ExcavatorCreep::default(), source.id())
-                ))
-            }
+            RelativePrototype::new(
+                get_excavator_body(roster.future_energy(), source_plan),
+                CreepRole::Excavator(ExcavatorCreep::default(), source.id())
+            )
         ).log_err();
     }
 }
@@ -83,12 +81,14 @@ pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     while roster.has_free() {
         if roster.local_creeps().part_count(RoleSelector::Truck, Part::Carry) >= target_carry { break; }
 
-        roster.schedule(|info| {
-            Some(RelativePrototype::new(
-                get_truck_body(info.future_energy)?,
-                CreepRole::Truck(TruckCreep::default())
-            ))
-        }).log_err();
+        let Some(body) = get_truck_body(roster.future_energy()) else { break };
+
+        roster.schedule(
+        RelativePrototype::new(
+            body,
+            CreepRole::Truck(TruckCreep::default())
+        )
+        ).log_err();
     }
 }
 
@@ -104,9 +104,9 @@ pub fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
             continue;
         }
 
-        rosters.schedule(|info| {
+        rosters.schedule(|roster| {
             Some(Prototype::absolute(
-                IMPORT_TRUCK_TEMPLATE.scaled(info.future_energy, None)?,
+                IMPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None)?,
                 CreepRole::ImportTruck(ImportTruckState::default()),
                 colony.name
             ))
@@ -161,12 +161,11 @@ pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRe
                 iter.min_by_key(|(_, spawn)| spawn.spawn.pos().get_range_to(tugged.pos()))
                     .map(|(ix, _)| ix)
             },
-            |info| {
-                Some(RelativePrototype::new(
-                    get_tugboat_body(info.future_energy, &tugged),
-                    CreepRole::Tugboat(tugged.id(), info.spawn.id())
-                ))
-            }
+            RelativePrototype::new(
+                get_tugboat_body(roster.future_energy(), &tugged),
+                CreepRole::Tugboat(tugged.id())
+            )
+            
         ).log_err();
     }
 }
@@ -187,12 +186,14 @@ pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorC
 
         if avaliable_work_ticks >= total_work_ticks || roster.calculate_energy_budget() <= 0.0 { return }
 
-        roster.schedule(|info| {
-            Some(RelativePrototype::new(
-                FABRICATOR_TEMPLATE.scaled(info.future_energy, None)?,
+        let Some(body) = FABRICATOR_TEMPLATE.scaled(roster.future_energy(), None) else { break };
+
+        roster.schedule(
+            RelativePrototype::new(
+                body,
                 CreepRole::Fabricator(FabricatorCreep::default())
-            ))
-        }).log_err();
+            )
+        ).log_err();
     }
 }
 
@@ -212,12 +213,14 @@ pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoord
 
         if (reserved_work_ticks >= total_work_ticks || roster.calculate_energy_budget() <= 0.0) && !need_emergency_servicer { return }
 
-        roster.schedule(|info| {
-            Some(RelativePrototype::new(
-                FABRICATOR_TEMPLATE.scaled(info.future_energy, Some(4))?,
+        let Some(body) = FABRICATOR_TEMPLATE.scaled(roster.future_energy(), Some(4)) else { break };
+
+        roster.schedule(
+            RelativePrototype::new(
+                body,
                 CreepRole::Servicer(ServicerCreep::default())
-            ))
-        }).log_err();
+            )
+        ).log_err();
     }
 }
 
@@ -228,9 +231,9 @@ pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
         let roster = rosters.get(colony.name).unwrap();
         if roster.local_creeps().of_role(RoleSelector::Fabricator).next().is_some() { continue; }
 
-        rosters.schedule(|info| {
+        rosters.schedule(|roster| {
             Some(Prototype::absolute(
-                FABRICATOR_TEMPLATE.scaled(info.future_energy, None)?,
+                FABRICATOR_TEMPLATE.scaled(roster.future_energy(), None)?,
                 CreepRole::Fabricator(FabricatorCreep::default()),
                 colony.name
             ))
@@ -264,18 +267,17 @@ pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) 
 
     let max_work = roster.local_creeps().part_count(RoleSelector::Upgrader, Part::Work) as u32 + get_missing_upgrade_work(colony, roster);
 
-    roster.schedule(|info| {
-        let mut energy = info.future_energy;
-        energy = energy.checked_sub(Part::Carry.cost())?;
+    let mut energy = roster.future_energy();
+    energy = energy.saturating_sub(Part::Carry.cost());
 
-        let work = energy.div_floor(Part::Work.cost()).min(max_work);
-        if work == 0 { return None }
+    let work = energy.div_floor(Part::Work.cost()).min(max_work);
+    if work == 0 { return }
 
-        Some(RelativePrototype::new(
-            Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize), 
+    roster.schedule(RelativePrototype::new(
+        Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize), 
             CreepRole::Terraformer(TerraformerCreep::default())
-        ))
-    }).log_err();
+        )
+    ).log_err();
 }
 
 impl ColonyRoster {
@@ -294,7 +296,7 @@ impl ColonyRoster {
 
                 CreepRole::Excavator(ExcavatorCreep::Going, _) 
                 | CreepRole::Flagship(_) | CreepRole::Truck(_) 
-                | CreepRole::ImportTruck(_) | CreepRole::Tugboat(_, _) 
+                | CreepRole::ImportTruck(_) | CreepRole::Tugboat(_) 
                 | CreepRole::Scrap(_) => 0,
             };
 
