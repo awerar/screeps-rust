@@ -75,6 +75,13 @@ impl<S> FromResidual<Result<Infallible, IntentError>> for Step<S> {
     }
 }
 
+impl<T> FromResidual<Result<Infallible, IntentError>> for Wait<T> {
+    fn from_residual(Err(e): Result<Infallible, IntentError>) -> Self {
+        if e.is_conflict() { Self::NotYet } else { Self::Fail(e.into()) }
+    }
+}
+
+
 /*
 vvv Summary by ChatGPT vvv
 
@@ -491,7 +498,7 @@ impl MovementRequests {
 impl From<Result<MoveToResult, IntentError>> for Wait {
     fn from(result: Result<MoveToResult, IntentError>) -> Self {
         match result {
-            Ok(MoveToResult::InRange) => Wait::Ready,
+            Ok(MoveToResult::InRange) => Wait::Ready(()),
             Ok(MoveToResult::OutOfRange) => Wait::NotYet,
             Err(e) if e.is_conflict() => Wait::NotYet,
             Err(e) => Wait::Fail(e.into())

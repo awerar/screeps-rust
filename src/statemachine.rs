@@ -57,28 +57,28 @@ impl<S> FromResidual<Result<Infallible, anyhow::Error>> for Step<S> {
 }
 
 #[must_use]
-pub enum Wait {
-    Ready,
+pub enum Wait<T = ()> {
+    Ready(T),
     NotYet,
     Fail(anyhow::Error)
 }
 
-impl Try for Wait {
-    type Output = ();
+impl<T> Try for Wait<T> {
+    type Output = T;
     type Residual = Step<Infallible>;
 
-    fn from_output((): ()) -> Self { Self::Ready }
+    fn from_output(val: T) -> Self { Self::Ready(val) }
 
-    fn branch(self) -> ControlFlow<Step<Infallible>, ()> {
+    fn branch(self) -> ControlFlow<Step<Infallible>, T> {
         match self {
-            Self::Ready => ControlFlow::Continue(()),
+            Self::Ready(val) => ControlFlow::Continue(val),
             Self::NotYet => ControlFlow::Break(Step::Stay),
             Self::Fail(e) => ControlFlow::Break(Step::Fail(e))
         }
     }
 }
 
-impl FromResidual<Step<Infallible>> for Wait {
+impl<T> FromResidual<Step<Infallible>> for Wait<T> {
     fn from_residual(residual: Step<Infallible>) -> Self {
         match residual {
             Step::Stay => Self::NotYet,
@@ -88,10 +88,20 @@ impl FromResidual<Step<Infallible>> for Wait {
     }
 }
 
-impl Residual<()> for Step<Infallible> { type TryType = Wait; }
+impl<T> FromResidual<Result<Infallible, anyhow::Error>> for Wait<T> {
+    fn from_residual(Err(e): Result<Infallible, anyhow::Error>) -> Self {
+        Self::Fail(e)
+    }
+}
+
+impl<T> Residual<T> for Step<Infallible> { type TryType = Wait<T>; }
+
+pub fn wait_for<T>(opt: Option<T>) -> Wait<T> {
+    opt.map_or(Wait::NotYet, Wait::Ready)
+}
 
 pub fn wait_if(cond: bool) -> Wait {
-    if cond { Wait::NotYet } else { Wait::Ready }
+    if cond { Wait::NotYet } else { Wait::Ready(()) }
 }
 
 #[macro_export]

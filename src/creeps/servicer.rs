@@ -1,10 +1,10 @@
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use ordered_float::OrderedFloat;
-use screeps::{HasPosition, Part, REPAIR_POWER, ResourceType, Room, find};
+use screeps::{Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, domain_traits::{EnergyStoreAccessors, HasHits}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if}, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if, wait_for}, structure::RepairableStructure};
 
 const REPAIR_PERCENTAGE: f32 = 0.75;
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
@@ -45,14 +45,7 @@ impl ServicerCreep {
             Self::Repairing(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
 
-                if creep.next_used_energy_capacity() == 0 {
-                    let Some(buffer) = &home.buffer else { return Step::Stay };
-                    movement.approach(creep, buffer.pos(), 1)?;
-
-                    wait_if(buffer.used_energy_capacity() == 0)?;
-                    wait_if(creep.outgoing() > 0)?;
-                    creep.withdraw(*buffer, ResourceType::Energy, None)?;
-                }
+                gather_energy(creep, movement, || wait_for(home.buffer))?;
 
                 movement.approach(creep, task.pos(), 1)?;
                 handle.consume(creep.repair(*task)? * REPAIR_POWER);

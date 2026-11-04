@@ -82,13 +82,6 @@ impl ColonyBuffer {
             Self::Storage(id) => f(&id.resolve())
         }
     }
-
-    pub fn resolve_storage(&self) -> Option<StructureStorage> {
-        match self {
-            ColonyBuffer::Container(_) => None,
-            ColonyBuffer::Storage(id) => Some(id.resolve()),
-        }
-    }
 }
 
 impl CheckFrom for ColonyBuffer {

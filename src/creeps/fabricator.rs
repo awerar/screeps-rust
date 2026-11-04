@@ -1,10 +1,10 @@
 use anyhow::Result;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
-use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, ResourceType, Room, find};
+use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::virtual_creep::VirtualCreep, domain_traits::{EnergyStoreAccessors, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if}};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if, wait_for}};
 
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -43,14 +43,7 @@ impl FabricatorCreep {
             Self::Building(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
 
-                if creep.next_used_energy_capacity() == 0 {
-                    let Some(buffer) = &home.buffer else { return Step::Stay };
-                    movement.approach(creep, buffer.pos(), 1)?;
-
-                    wait_if(buffer.used_energy_capacity() == 0)?;
-                    wait_if(creep.outgoing() > 0)?;
-                    creep.withdraw(*buffer, ResourceType::Energy, None)?;
-                }
+                gather_energy(creep, movement, || wait_for(home.buffer))?;
 
                 movement.approach(creep, task.resolve().pos(), 1)?;
                 handle.consume(creep.build(task.resolve())?);

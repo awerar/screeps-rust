@@ -2,10 +2,10 @@ use std::fmt::Debug;
 
 use derive_where::derive_where;
 use log::{error, warn};
-use screeps::{Creep, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
+use screeps::{Creep, ResourceType, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::step, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, step, wait_if}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -218,4 +218,23 @@ fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {
     game::spawns().values()
         .min_by_key(|spawn| creep.pos().get_range_to(spawn.pos()))
         .unwrap()
+}
+
+pub fn gather_energy<P, F>(creep: &mut VirtualCreep, movement: &mut MovementRequests, find_structure: F) -> Wait 
+    where
+        P : Withdrawable + HasPosition + 'static,
+        F : FnOnce() -> Wait<P>
+{
+    if creep.next_used_energy_capacity() > 0 { return Wait::Ready(()); }
+
+    let structure = find_structure()?;
+
+    movement.approach(creep, structure.pos(), 1)?;
+
+    wait_if(structure.used_energy_capacity() == 0)?;
+    wait_if(creep.outgoing() > 0)?;
+    
+    creep.withdraw(structure, ResourceType::Energy, None)?;
+
+    Wait::Ready(())
 }
