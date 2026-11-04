@@ -195,11 +195,10 @@ impl Memory {
 
         for (creep, data) in &self.creeps {
             if creep.resolve().pos().room_name() != room { continue; }
-            let CreepRole::Fabricator(state) = &data.role else { continue; };
 
-            // TODO: Fix
-            // if state.is_consumer() { result.consumers.push(creep.resolve()); }
-            // if state.is_provider() { result.providers.push(creep.resolve()); }
+            if matches!(data.role, CreepRole::Fabricator(_) | CreepRole::Servicer(_)) {
+                result.consumers.push(creep.resolve());
+            }
         }
 
         result
