@@ -1,9 +1,9 @@
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
-use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part, ResourceType};
+use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::virtual_creep::VirtualCreep, domain_traits::{EnergyStoreAccessors, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Step, structure::ProviderStructure};
+use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::{EnergyStoreAccessors, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::{Step, Wait::Ready}, structure::ProviderStructure};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ProviderStructure<S>, S)]
@@ -40,25 +40,15 @@ impl SeederCreep {
                         next!(Refilling(ProviderStructure::new(container)));
                 }
 
-                if let Some(buffer) = home.buffer
+                if let Some(buffer) = home.buffer 
                     && buffer.used_energy_capacity() > min_refill {
-                        match buffer {
-                            ColonyBuffer::Container(container) => 
-                                next!(Refilling(ProviderStructure::new(container.resolve()))),
-                            ColonyBuffer::Storage(storage) => 
-                                next!(Refilling(ProviderStructure::new(storage.resolve()))),
-                        }
+                        next!(Refilling(ProviderStructure::new(buffer)))
                 }
 
                 Step::Stay
             },
             Refilling(target) => {
-                next_if!(creep.curr_used_energy_capacity() > 0, Upgrading);
-                next_if!(target.used_energy_capacity() == 0, Idle);
-
-                movement.approach(creep, target.pos(), 1)?;
-                creep.withdraw(*target, ResourceType::Energy, None)?;
-
+                gather_energy(creep, movement, || Ready(*target))?;
                 next!(Upgrading)
             },
             Self::Upgrading => {

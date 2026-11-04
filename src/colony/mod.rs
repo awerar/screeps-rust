@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use derive_where::derive_where;
-use screeps::{HasPosition, Position, Room, RoomName, Store, StructureContainer, StructureController, StructureStorage, game};
+use screeps::{HasPosition, Position, Room, RoomName, Store, Structure, StructureContainer, StructureController, StructureStorage, game};
 use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, CheckFrom}, colony::{plan::ColonyPlan, steps::ColonyStep}, domain_traits::{HasId, HasStore, ObjectId, ResolvableId, Transferable, Withdrawable}, ids::{CheckState, Checked, Unchecked}};
@@ -119,5 +119,14 @@ impl Transferable for ColonyBuffer {
 impl HasPosition for ColonyBuffer {
     fn pos(&self) -> Position {
         self.with(|s| s.pos())
+    }
+}
+
+impl From<ColonyBuffer> for Structure {
+    fn from(buffer: ColonyBuffer) -> Self {
+        match buffer {
+            ColonyBuffer::Container(id) => id.resolve().into(),
+            ColonyBuffer::Storage(id) => id.resolve().into(),
+        }
     }
 }

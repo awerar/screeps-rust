@@ -19,10 +19,14 @@ impl<T: StructureKind> CheckFrom for KindedStructure<T> {
 }
 
 impl<T: StructureKind> KindedStructure<T> {
-    pub fn pos(&self) -> Position { self.0.resolve().pos() }
-
     fn structure_object(&self) -> StructureObject {
         StructureObject::from(self.0.resolve())
+    }
+}
+
+impl<T: StructureKind> HasPosition for KindedStructure<T> {
+    fn pos(&self) -> Position {
+        self.0.resolve().pos()
     }
 }
 

@@ -1,7 +1,7 @@
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use ordered_float::OrderedFloat;
-use screeps::{Part, REPAIR_POWER, Room, find};
+use screeps::{HasPosition, Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if, wait_for}, structure::RepairableStructure};
