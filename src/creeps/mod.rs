@@ -186,7 +186,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
             },
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
-                movement.do_tugboat(creep, tugged.clone(), &recycle_spawn)
+                movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);
             },
             Scrap(spawn) => do_recycle(creep, &mut movement, &spawn.resolve()),
         }
@@ -215,7 +215,7 @@ impl Memory {
     }
 }
 
-fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {
+pub fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {
     if creep.pos().room_name() == home.name
         && let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
             return spawn

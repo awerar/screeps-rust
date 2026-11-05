@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HARVEST_POWER, HasPosition, Part, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -295,6 +295,48 @@ pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) 
             CreepRole::Terraformer(TerraformerCreep::default())
         )
     ).log_err();
+}
+
+static SEEDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Work, Move, Work, Work]) });
+pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+    if roster.syndrome().any_problems() { return; }
+    if !roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer(_))) { return; }
+
+    while roster.has_free() {
+        let target_work = calculate_target_upgrade_work(colony, roster);
+        let target_seeder_work = target_work.saturating_sub(roster.local_creeps().part_count(RoleSelector::Terraformer, Part::Work) as u32);
+        let missing_seeder_work = target_seeder_work.saturating_sub(roster.local_creeps().part_count(RoleSelector::Seeder, Part::Work) as u32);
+
+        let Some(max_body) = SEEDER_TEMPLATE.scaled(roster.future_energy(), Some(3)) else { break; };
+        let max_body_work = max_body.part_count(Part::Work);
+
+        let small_seeder_work = roster.local_creeps()
+            .of_role(RoleSelector::Seeder)
+            .map(|(_, proto)| proto.body().part_count(Part::Work))
+            .filter(|work_count| *work_count < max_body_work)
+            .sum::<usize>() as u32;
+
+        let any_small_seeders = small_seeder_work > 0;
+
+        if any_small_seeders {
+            let allowed_seeder_work = missing_seeder_work + small_seeder_work;
+            if allowed_seeder_work == 0 { break; }
+
+            if max_body_work as u32 <= allowed_seeder_work {
+                roster.schedule(
+                    RelativePrototype::new(
+                        max_body,
+                        CreepRole::Seeder(SeederCreep::default()) 
+                    )
+                ).log_err();
+            }
+        } else {
+            if missing_seeder_work == 0 { break; }
+            let Some(body) = SEEDER_TEMPLATE.scaled_with_stop(roster.future_energy(), Some(3), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)) else { break };
+
+            roster.schedule(RelativePrototype::new(body, CreepRole::Seeder(SeederCreep::default()))).log_err();
+        }
+    }
 }
 
 impl ColonyRoster {

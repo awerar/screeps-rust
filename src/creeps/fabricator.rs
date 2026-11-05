@@ -14,7 +14,7 @@ type TaskExpiration = Expiration<MAX_TASK_TICKS>;
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<ConstructionSite, S>, S)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
     #[default] Idle,
-    Building(ObjectId<ConstructionSite, S>),
+    Building(ObjectId<ConstructionSite, S>)
 }
 
 impl<'de> Deserialize<'de> for FabricatorCreep {
@@ -30,7 +30,6 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 
 impl FabricatorCreep {
     pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> Step<Self> {
-
         match self {
             Self::Idle => {
                 if let Some(task) = coordinator.assign_build(creep) {

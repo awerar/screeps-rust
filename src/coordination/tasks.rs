@@ -47,7 +47,6 @@ impl<Task: Hash + Eq, TaskData> Tasks<Task, TaskData> {
         self.tasks.get_mut(task)
     }
 
-    #[expect(unused)]
     pub fn iter(&self) -> impl Iterator<Item = (&Task, &TaskData)> {
         self.tasks.iter()
     }
