@@ -1,4 +1,4 @@
-use std::{iter, ops::{Add, Mul}};
+use std::{collections::HashMap, iter, ops::{Add, Mul}};
 
 use screeps::{CREEP_CLAIM_LIFE_TIME, CREEP_LIFE_TIME, Creep, MAX_CREEP_SIZE, Part, RoomName};
 
@@ -7,10 +7,21 @@ use crate::{creeps::{CreepData, CreepRole}, domain_traits::{CreepId, ResolvableI
 #[derive(Clone)]
 pub struct Body(Vec<Part>);
 
+#[derive(Clone, Copy)]
+pub enum ScaleStopCondition {
+    PartCount(Part, u32),
+    None
+}
+
 impl Body {
     pub fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Option<Body> {
-        let min_parts = min_parts.unwrap_or(self.0.len());
+        self.scaled_with_stop(energy, min_parts, ScaleStopCondition::None)
+    }
 
+    pub fn scaled_with_stop(&self, energy: u32, min_parts: Option<usize>, stop_condition: ScaleStopCondition) -> Option<Body> {
+        let min_parts = min_parts.unwrap_or(self.0.len());
+   
+        let mut part_type_counts: HashMap<_, u32> = HashMap::new();
         let mut counts: Vec<usize> = vec![0; self.0.len()];
         let mut cost = 0;
         let mut part_count = 0;
@@ -19,7 +30,12 @@ impl Body {
             for (i, part )in self.0.iter().enumerate() {
                 cost += part.cost();
 
-                if part_count >= MAX_CREEP_SIZE || energy < cost  {
+                let stop_condition_trigged = match stop_condition {
+                    ScaleStopCondition::PartCount(part, max_part_count) => (i == 0) && part_type_counts.get(&part).is_some_and(|part_type_count| *part_type_count >= max_part_count),
+                    ScaleStopCondition::None => false,
+                };
+
+                if part_count >= MAX_CREEP_SIZE || energy < cost || stop_condition_trigged  {
                     return (part_count as usize >= min_parts).then(|| {
                         Body(self.0.iter()
                         .zip(counts)
@@ -30,6 +46,7 @@ impl Body {
 
                 counts[i] += 1;
                 part_count += 1;
+                *part_type_counts.entry(*part).or_default() += 1;
             }
         }
     }
@@ -48,10 +65,6 @@ impl Body {
 
     pub fn part_count(&self, part: Part) -> usize {
         self.0.iter().filter(|p| **p == part).count()
-    }
-
-    pub fn part_cost_ratio(&self, part: Part) -> f32 {
-        self.part_count(part) as f32 / self.parts().iter().map(|p| p.cost()).sum::<u32>() as f32
     }
 
     pub fn parts(&self) -> &[Part] {

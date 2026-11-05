@@ -18,9 +18,9 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
         schedule_excavators(roster, &view);
         schedule_tugboats(roster, &tugboat_requests);
         schedule_trucks(roster, &view);
-        schedule_terraformer(roster, &view);
         schedule_servicers(roster, mem.servicer_coordinators.entry(*colony).or_default());
         schedule_fabricators(roster, mem.fabricator_coordinators.entry(*colony).or_default());
+        schedule_terraformer(roster, &view);
     }
 
     schedule_remote_fabricators(&mut rosters, mem);

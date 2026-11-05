@@ -96,8 +96,8 @@ impl ServicerCoordinator {
                     .filter(|(_, collab)| collab.unreserved_amount() > 0)
                     .max_by_key(|(task, collab)| {
                         let repair_amount = max_repair_amount.min(collab.unreserved_amount());
-                        let move_ticks = creep.pos().get_range_to(task.pos()) - 3;
-                        let repair_ticks = collab.unreserved_amount().min(max_repair_amount) / creep_repair_power;
+                        let move_ticks = creep.pos().get_range_to(task.pos()).saturating_sub(3);
+                        let repair_ticks = collab.unreserved_amount().min(max_repair_amount).div_ceil(creep_repair_power);
 
                         repair_amount / (move_ticks + repair_ticks)
                     }).added_to_collab(creep.handle(), max_repair_amount, Expiration::new())
