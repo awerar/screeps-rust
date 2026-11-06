@@ -46,7 +46,7 @@ impl ServicerCreep {
 
                 gather_energy(creep, movement, || wait_for(home.buffer))?;
 
-                movement.approach(creep, task.pos(), 1)?;
+                movement.approach(creep, task.pos(), 3)?;
                 handle.consume(creep.repair(*task)? * REPAIR_POWER);
 
                 wait_if(handle.reserved() > 0)?;

@@ -62,6 +62,11 @@ pub struct FabricatorCoordinator(
     Tasks<ObjectId<ConstructionSite>, Filtered<CreepAllocations<TaskExpiration>>>
 );
 
+fn hits_left(task: ObjectId<ConstructionSite>) -> u32 {
+    let site = task.resolve();
+    site.progress_total() - site.progress()
+}
+
 impl FabricatorCoordinator {
     pub fn update(&mut self, room: &Room) {
         self.0.set_tasks(
@@ -78,7 +83,7 @@ impl FabricatorCoordinator {
 
         self.0.iter_mut()
             .filter(|(_, collab)| collab.unreserved_amount() > 0)
-            .min_by_key(|(task, _)| creep.pos().get_range_to(task.resolve().pos()))
+            .min_by_key(|(task, _)| (hits_left(**task), creep.pos().get_range_to(task.resolve().pos())))
             .added_to_collab(creep.handle(), build_amount, Expiration::new())
     }
 

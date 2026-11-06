@@ -329,7 +329,7 @@ pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
                         CreepRole::Seeder(SeederCreep::default()) 
                     )
                 ).log_err();
-            }
+            } else { break; }
         } else {
             if missing_seeder_work == 0 { break; }
             let Some(body) = SEEDER_TEMPLATE.scaled_with_stop(roster.future_energy(), Some(3), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)) else { break };
