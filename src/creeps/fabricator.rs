@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if, wait_for}};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_for, wait_if}};
 
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -14,7 +14,8 @@ type TaskExpiration = Expiration<MAX_TASK_TICKS>;
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<ConstructionSite, S>, S)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
     #[default] Idle,
-    Building(ObjectId<ConstructionSite, S>)
+    Building(ObjectId<ConstructionSite, S>),
+    Scrap(ScrapCreep)
 }
 
 impl<'de> Deserialize<'de> for FabricatorCreep {
@@ -24,6 +25,7 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
             FabricatorCreep::Idle => Self::Idle,
             FabricatorCreep::Building(task) => 
                 task.check().map_or(FabricatorCreep::Idle, FabricatorCreep::Building),
+            FabricatorCreep::Scrap(state) => FabricatorCreep::Scrap(state)
         })
     }
 }
@@ -36,8 +38,7 @@ impl FabricatorCreep {
                     next!(Self::Building(task))
                 }
 
-                movement.approach(creep, home.center, 5)?;
-                Step::Stay
+                Step::Next(Self::Scrap(ScrapCreep::default()))
             },
             Self::Building(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
@@ -51,7 +52,8 @@ impl FabricatorCreep {
 
                 handle.release();
                 Step::Next(Self::Idle)
-            }
+            },
+            FabricatorCreep::Scrap(state) => state.update(creep, home, movement).map(FabricatorCreep::Scrap)
         }
     }
 }

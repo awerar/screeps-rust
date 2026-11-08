@@ -2,10 +2,10 @@ use std::fmt::Debug;
 
 use derive_where::derive_where;
 use log::{error, warn};
-use screeps::{Creep, ResourceType, RoomName, Source, StructureSpawn, find, game, look, prelude::*};
+use screeps::{Creep, ResourceType, RoomName, Source, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, step, wait_if}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, step, wait_if}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -15,6 +15,7 @@ pub mod seeder;
 pub mod virtual_creep;
 pub mod servicer;
 pub mod fabricator;
+pub mod scrap;
 
 #[derive(Debug)]
 #[derive_where(Deserialize, Serialize, Clone; CreepRole<S>)]
@@ -66,7 +67,7 @@ impl CreepData {
 
                 CreepRole::Excavator(ExcavatorCreep::default(), source.id()) 
             },
-            _ => CreepRole::Scrap(get_recycle_spawn(creep, &home).id())
+            _ => CreepRole::Scrap(ScrapCreep::default())
         };
         
         Some(CreepData::new(home.name, role))
@@ -85,7 +86,7 @@ pub enum CreepRole<S: CheckState = Checked> {
     Tugboat(CreepId<S>),
     Terraformer(TerraformerCreep),
     Seeder(SeederCreep),
-    Scrap(ObjectId<StructureSpawn, S>),
+    Scrap(ScrapCreep),
 }
 
 impl CheckFrom for CreepRole {
@@ -101,7 +102,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
             Self::Unchecked::Servicer(state) => Self::Servicer(state),
             Self::Unchecked::Tugboat(tugged) => Self::Tugboat(tugged.check()?),
-            Self::Unchecked::Scrap(state) => Self::Scrap(state.check()?),
+            Self::Unchecked::Scrap(state) => Self::Scrap(state),
             Self::Unchecked::Terraformer(state) => Self::Terraformer(state),
             Self::Unchecked::Seeder(state) => Self::Seeder(state)
         })
@@ -122,12 +123,6 @@ impl CreepRole {
             CreepRole::Terraformer(_) => "Terraformer",
             CreepRole::Seeder(_) => "Seeder"
         }
-    }
-}
-
-fn do_recycle(creep: &Creep, movement: &mut MovementRequests, spawn: &StructureSpawn) {
-    if movement.move_creep_to(creep, spawn.pos(), 1).in_range() {
-        spawn.recycle_creep(creep).ok();
     }
 }
 
@@ -188,7 +183,9 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
                 movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);
             },
-            Scrap(spawn) => do_recycle(creep, &mut movement, &spawn.resolve()),
+            Scrap(state) => {
+                step(state, |state| state.update(&mut vcreep, &home, &mut movement));
+            },
         }
 
         if let Err(e) = vcreep.commit() {
@@ -214,21 +211,6 @@ impl Memory {
 
         result
     }
-}
-
-pub fn get_recycle_spawn(creep: &Creep, home: &ColonyView<'_>) -> StructureSpawn {
-    if creep.pos().room_name() == home.name
-        && let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
-            return spawn
-        }
-
-    if let Some(spawn) = home.plan.center.spawn.resolve() {
-        return spawn
-    }
-
-    game::spawns().values()
-        .min_by_key(|spawn| creep.pos().get_range_to(spawn.pos()))
-        .unwrap()
 }
 
 pub fn gather_energy<P, F>(creep: &mut VirtualCreep, movement: &mut MovementRequests, find_structure: F) -> Wait 

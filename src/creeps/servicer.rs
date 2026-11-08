@@ -4,9 +4,10 @@ use ordered_float::OrderedFloat;
 use screeps::{HasPosition, Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_if, wait_for}, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_for, wait_if}, structure::RepairableStructure};
 
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
+const REPAIR_PERCENTAGE: f32 = 0.95;
 const MAX_TASK_TICKS: u32 = 100;
 
 type TaskExpiration = Expiration<MAX_TASK_TICKS>;
@@ -16,6 +17,7 @@ type TaskExpiration = Expiration<MAX_TASK_TICKS>;
 pub enum ServicerCreep<S: CheckState = Checked> {
     #[default] Idle,
     Repairing(RepairableStructure::<S>),
+    Scrap(ScrapCreep),
 }
 
 impl<'de> Deserialize<'de> for ServicerCreep {
@@ -25,6 +27,7 @@ impl<'de> Deserialize<'de> for ServicerCreep {
             ServicerCreep::Idle => Self::Idle,
             ServicerCreep::Repairing(task) => 
                 task.check().map_or_default(ServicerCreep::Repairing),
+            ServicerCreep::Scrap(state) => Self::Scrap(state)
         })
     }
 }
@@ -38,8 +41,7 @@ impl ServicerCreep {
                     next!(Self::Repairing(task))
                 }
 
-                movement.approach(creep, home.center, 5)?;
-                Step::Stay
+                Step::Next(Self::Scrap(ScrapCreep::default()))
             },
             Self::Repairing(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
@@ -53,7 +55,8 @@ impl ServicerCreep {
 
                 handle.release();
                 Step::Next(Self::Idle)
-            }
+            },
+            Self::Scrap(state) => state.update(creep, home, movement).map(Self::Scrap)
         }
     }
 }
@@ -94,6 +97,7 @@ impl ServicerCoordinator {
             .or_else(|| 
                 self.0.iter_mut()
                     .filter(|(_, collab)| collab.unreserved_amount() > 0)
+                    .filter(|(task, _)| health_percentage(task) <= REPAIR_PERCENTAGE)
                     .max_by_key(|(task, collab)| {
                         let repair_amount = max_repair_amount.min(collab.unreserved_amount());
                         let move_ticks = creep.pos().get_range_to(task.pos()).saturating_sub(3);
@@ -106,6 +110,7 @@ impl ServicerCoordinator {
 
     pub fn total_work_ticks(&self) -> u32 {
         self.0.iter()
+            .filter(|(task, _)| health_percentage(task) <= REPAIR_PERCENTAGE)
             .map(|(_, collab)| collab.0.ammount())
             .sum::<u32>() / REPAIR_POWER
     }

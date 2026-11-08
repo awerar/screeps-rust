@@ -9,6 +9,16 @@ pub enum Step<S> {
     Fail(anyhow::Error)
 }
 
+impl<S> Step<S> {
+    pub fn map<T>(self, f: impl FnOnce(S) -> T) -> Step<T> {
+        match self {
+            Step::Next(s) => Step::Next(f(s)),
+            Step::Stay => Step::Stay,
+            Step::Fail(error) => Step::Fail(error),
+        }
+    }
+}
+
 const MAX_TRANSITIONS: u32 = 20;
 
 #[expect(clippy::to_string_in_format_args)]

@@ -2,7 +2,7 @@ use std::{collections::HashMap, convert::Infallible, error::Error, ops::FromResi
 
 use anyhow::Result;
 use enum_display::EnumDisplay;
-use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController};
+use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController, StructureSpawn};
 
 use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::prototype::Body, statemachine::{Step, Wait}};
 
@@ -460,6 +460,10 @@ impl VirtualCreep {
                 Some(IntentEffect::Incoming(ty, amount))
             )
         )
+    }
+
+    pub fn recycle(&self, spawn: &StructureSpawn) -> Result<(), anyhow::Error> {
+        spawn.recycle_creep(&self.creep).map_err(Into::into)
     }
 }
 
