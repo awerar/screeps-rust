@@ -21,7 +21,8 @@ pub mod scrap;
 #[derive_where(Deserialize, Serialize, Clone; CreepRole<S>)]
 pub struct CreepData<S: CheckState = Checked> {
     pub role: CreepRole<S>,
-    pub home: RoomName
+    pub home: RoomName,
+    pub spawn_room: RoomName
 }
 
 impl CheckFrom for CreepData {
@@ -31,14 +32,15 @@ impl CheckFrom for CreepData {
     fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(Self {
             role: us.role.check()?,
-            home: us.home
+            home: us.home,
+            spawn_room: us.spawn_room
         })
     }
 }
 
 impl CreepData {
-    pub fn new(home: RoomName, role: CreepRole) -> Self {
-        CreepData { role, home }
+    pub fn new(home: RoomName, spawn_room: RoomName, role: CreepRole) -> Self {
+        CreepData { role, home, spawn_room }
     }
 
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
@@ -70,7 +72,7 @@ impl CreepData {
             _ => CreepRole::Scrap(ScrapCreep::default())
         };
         
-        Some(CreepData::new(home.name, role))
+        Some(CreepData::new(home.name, home.name, role))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use screeps::{Direction, HasPosition, ObjectId, OwnedStructureProperties, Position, Room, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find};
+use screeps::{Direction, HasPosition, ObjectId, Position, Room, RoomXY, Source, StructureContainer, StructureController, StructureExtension, StructureExtractor, StructureLink, StructureObserver, StructureSpawn, StructureStorage, StructureTerminal, StructureTower, StructureType, find};
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 
@@ -72,11 +72,11 @@ pub struct ColonyPlanStep {
 
 pub fn get_all_structures_in(room: &Room) -> HashMap<(RoomXY, StructureType), bool> {
     let all_built_structures = room.find(find::STRUCTURES, None).into_iter()
-        .filter(|structure| structure.as_owned().is_some_and(OwnedStructureProperties::my) || matches!(structure.structure_type(), StructureType::Container | StructureType::Wall | StructureType::Road))
+        //.filter(|structure| structure.as_owned().is_some_and(OwnedStructureProperties::my) || matches!(structure.structure_type(), StructureType::Container | StructureType::Wall | StructureType::Road))
         .map(|structure| ((structure.pos().xy(), structure.structure_type()), true));
 
     let all_constructing_structures = room.find(find::CONSTRUCTION_SITES, None).into_iter()
-        .filter(|site| site.my() || matches!(site.structure_type(), StructureType::Container | StructureType::Wall | StructureType::Road))
+        //.filter(|site| site.my() || matches!(site.structure_type(), StructureType::Container | StructureType::Wall | StructureType::Road))
         .map(|site| ((site.pos().xy(), site.structure_type()), false));
 
     all_built_structures

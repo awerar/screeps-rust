@@ -327,7 +327,7 @@ impl ColonyRoster {
         )?;
 
         let id = game::creeps().get(name).unwrap().id();
-        spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home() }, dirs);
+        spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home(), spawn_room: self.name }, dirs);
 
         Ok(ScheduleDecision::Scheduled(id, proto))
     }

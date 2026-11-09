@@ -75,6 +75,12 @@ impl ColonyPlanner {
         && !self.reserved_blocks.contains(&xy)
     }
 
+    pub fn is_not_blocked(&self, xy: RoomXY) -> bool {
+        self.terrain.get_xy_good(xy) != Terrain::Wall
+        && self.tiles.get(&xy).is_none_or(|timeline| timeline.get_block_step().is_none())
+        && !self.reserved_blocks.contains(&xy)
+    }
+
     // Blocks the tile now, plan_blocker has to fill it in before compiling
     pub fn reserve_block(&mut self, xy: RoomXY) -> anyhow::Result<()> {
         self.block_checker.block(xy)?;

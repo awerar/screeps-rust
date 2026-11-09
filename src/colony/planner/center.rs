@@ -1,11 +1,11 @@
-use std::{cmp::Reverse, collections::{BinaryHeap, HashMap, HashSet, VecDeque, hash_map}};
+use std::{cmp::Reverse, collections::{BinaryHeap, HashMap, HashSet, VecDeque}};
 
 use itertools::Itertools;
 use log::info;
-use screeps::{Direction, HasPosition, Position, Room, RoomTerrain, RoomXY, StructureType, Terrain, find};
+use screeps::{HasPosition, MOVE_COST_PLAIN, MOVE_COST_SWAMP, Position, Room, RoomTerrain, RoomXY, StructureType, Terrain, find};
 use anyhow::{bail, anyhow};
 
-use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedImpassableStructure}}, steps::ColonyStep}, pathfinding, utils::GetXYGood};
+use crate::{colony::{planner::{floodfill::{FloodFill, OrthogonalWalkableNeighs, WalkableNeighs}, state::{ColonyPlanner, LifeTime, PlannedImpassableStructure}}, steps::ColonyStep}, utils::GetXYGood};
 
 struct XYAncestry {
     dist: u32,
@@ -33,10 +33,12 @@ pub struct CenterPlanner {
     terrain: RoomTerrain,
 
     ancestries: HashMap<RoomXY, XYAncestry>,
+    structure_lifetimes: HashMap<RoomXY, LifeTime>,
 
     road_pq: BinaryHeap<Reverse<(u32, RoomXY)>>,
+    explored_roads: HashSet<RoomXY>,
     structure_queue: VecDeque<(u32, RoomXY)>,
-    structure_lifetimes: HashMap<RoomXY, LifeTime>,
+    
 
     center: RoomXY
 }
@@ -48,6 +50,7 @@ impl CenterPlanner {
             ancestries: HashMap::from([(center, XYAncestry::new(0, Vec::new()))]),
             structure_queue: VecDeque::new(),
             structure_lifetimes: HashMap::new(),
+            explored_roads: HashSet::new(),
             center,
             terrain: room.get_terrain()
         }
@@ -69,30 +72,25 @@ impl CenterPlanner {
             }
 
             let Some(Reverse((dist, road))) = self.road_pq.pop() else { bail!("Not enough roads"); };
+            if !self.explored_roads.insert(road) { continue; }
+            if !planner.is_not_blocked(road) { continue; }
 
-            for dir in Direction::iter() {
-                let Some(neigh) = road.checked_add_direction(*dir) else { continue; };
-                if !planner.is_free_at(neigh) { continue; }
-
-                let is_road_neigh = self.is_on_road_grid(neigh);
+            for neigh in road.neighbors() {
                 let neigh_dist = dist + self.terrain.get_tile_cost_at_xy(neigh);
 
-                match self.ancestries.entry(neigh) {
-                    hash_map::Entry::Vacant(entry) => {
-                        if is_road_neigh {
-                            self.road_pq.push(Reverse((neigh_dist, neigh)));
-                        } else {
-                            self.structure_queue.push_back((neigh_dist, neigh));
-                        }
-
-                        entry.insert(XYAncestry::new(neigh_dist, vec![road]));
-                    },
-                    hash_map::Entry::Occupied(mut entry) => {
-                        if entry.get().dist == neigh_dist {
-                            entry.get_mut().parents.push(road);
-                        }
-                    },
+                if self.is_on_road_grid(neigh) {
+                    self.road_pq.push(Reverse((neigh_dist, neigh)));
+                } else {
+                    self.structure_queue.push_back((neigh_dist, neigh));
                 }
+
+                self.ancestries.entry(neigh).and_modify(|ancestry| {
+                    if neigh_dist < ancestry.dist {
+                        *ancestry = XYAncestry { dist: neigh_dist, parents: vec![road] }
+                    } else if neigh_dist == ancestry.dist {
+                        ancestry.parents.push(road);
+                    }
+                }).or_insert_with(|| XYAncestry { dist: neigh_dist, parents: vec![road] });
             }
         }
     }
@@ -181,9 +179,10 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
 }
 
 const MIN_ENTRANCE_DIST: usize = 8;
-const MIN_CANDIDATE_DIST: u8 = 4;
-const MIN_WALL_DIST: usize = 3;
+const MIN_WALL_DIST: usize = 2;
 pub fn find_center(room: &Room) -> anyhow::Result<RoomXY> {
+    let terrain = room.get_terrain();
+
     let exits = room.find(find::EXIT, None).into_iter()
         .map(|pos| Position::from(pos).xy());
 
@@ -193,42 +192,62 @@ pub fn find_center(room: &Room) -> anyhow::Result<RoomXY> {
         //.inspect(|candidate| { let (x,y) = (candidate.x.u8(), candidate.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.2).fill("#f53636")))); });
 
     let wall_blocks = (0..50).cartesian_product(0..50)
-        .filter(|(x, y)| room.get_terrain().get(*x, *y) == Terrain::Wall)
+        .filter(|(x, y)| terrain.get(*x, *y) == Terrain::Wall)
         .map(|(x, y)| RoomXY::try_from((x, y)).unwrap());
 
-    let all_candidates = FloodFill::new(wall_blocks.chain(entrance_blocks), OrthogonalWalkableNeighs::new(room.get_terrain()))
+    let candidates: HashSet<_> = FloodFill::new(wall_blocks.chain(entrance_blocks), OrthogonalWalkableNeighs::new(room.get_terrain()))
         .filter(|(dist, _)| *dist >= MIN_WALL_DIST)
-        .collect_vec();
+        .map(|(_, pos)| pos)
+        .filter(|pos| terrain.get_xy_good(*pos) != Terrain::Swamp)
+        .collect();
 
     let center_flag = room.find(find::FLAGS, None).into_iter()
         .find(|flag| flag.name().to_lowercase().contains("center"));
+
     if let Some(center_flag) = center_flag.map(|f| f.pos().xy()) { 
-        if all_candidates.iter().find(|(_, candidate)| *candidate == center_flag).is_some() {
+        if candidates.iter().find(|candidate| **candidate == center_flag).is_some() {
             return Ok(center_flag) 
         }
         
         info!("Found a center flag, but it is not a valid center");
     }
 
-    let candidates = all_candidates.into_iter()
-        .sorted_by_key(|(dist, pos)| (Reverse(*dist), *pos))
-        .dedup_by(|(d1, p1), (d2, p2)| *d1 == *d2 && p1.get_range_to(*p2) <= MIN_CANDIDATE_DIST)
-        .take(5)
-        .map(|(_, pos)| pos);
-        //.inspect(|candidate| { let (x,y) = (candidate.x.u8(), candidate.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.35).fill("#469ff2")))); });
+    let mut points_of_interest = Vec::new();
 
-    candidates.min_by_key(|candidate| {
-        let candidate_pos = Position::new(candidate.x, candidate.y, room.name());
+    points_of_interest.extend(room.find(find::SOURCES, None).into_iter().map(|source| (1, source.pos())));
+    points_of_interest.extend(room.find(find::MINERALS, None).into_iter().map(|mineral| (2, mineral.pos())));
+    points_of_interest.push((3, room.controller().unwrap().pos()));
 
-        let mut points_of_interest = Vec::new();
+    let mut candidate_penalties: HashMap<_, u32> = HashMap::new();
 
-        points_of_interest.extend(room.find(find::SOURCES, None).into_iter().map(|source| source.pos()));
-        points_of_interest.extend(room.find(find::MINERALS, None).into_iter().map(|deposit| deposit.pos()));
-        points_of_interest.push(room.controller().unwrap().pos());
+    for (weight, poi) in points_of_interest {
+        let mut pq = BinaryHeap::new();
+        let mut visited = HashSet::new();
 
-        points_of_interest.into_iter()
-            .map(|poi| pathfinding::search(candidate_pos, poi, 1).path().len())
-            .sum::<usize>()
-    })//.inspect(|best| { let (x,y) = (best.x.u8(), best.y.u8()); draw_in_room(room.name(), move |visual| visual.circle(x as f32, y as f32, Some(CircleStyle::default().radius(0.5).fill("#46f263")))); })
-    .ok_or(anyhow!("No valid center candidate found"))
+        pq.push((Reverse(0), poi.xy()));
+
+        while let Some((Reverse(dist), pos)) = pq.pop() {
+            if !visited.insert(pos) { continue; }
+
+            if candidates.contains(&pos) {
+                *candidate_penalties.entry(pos).or_default() += dist * weight;
+            }
+
+            for neigh in pos.neighbors() {
+                let delta = match terrain.get_xy_good(neigh) {
+                    Terrain::Wall => continue,
+                    Terrain::Plain => MOVE_COST_PLAIN,
+                    Terrain::Swamp => MOVE_COST_SWAMP,
+                };
+
+                pq.push((Reverse(dist + delta), neigh));
+            }
+        }
+    }
+
+    candidate_penalties.into_iter()
+        .sorted_by_key(|(pos, _)| *pos)
+        .min_by_key(|(_, dist)| *dist)
+        .map(|(pos, _)| pos)
+        .ok_or(anyhow!("Unable to find a center"))
 }

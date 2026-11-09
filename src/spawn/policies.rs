@@ -271,7 +271,7 @@ fn calculate_target_upgrade_work(colony: &ColonyView<'_>, roster: &ColonyRoster)
             BASELINE_UPGRADE_POWER + ((buffer_fullness / TARGET_BUFFER_FULLNESS) * (budget.saturating_sub(BASELINE_UPGRADE_POWER)) as f32) as u32
         },
         None | Some(ColonyBuffer::Container(_)) => {
-            (current_upgrade_power as f32 + roster.calculate_energy_budget()) as u32
+            ((current_upgrade_power as f32 + roster.calculate_energy_budget()) as u32).max(BASELINE_UPGRADE_POWER)
         },
     };
 
@@ -362,8 +362,13 @@ impl ColonyRoster {
         }).sum()
     }
 
-    fn calculate_energy_budget(&self) -> f32 {
-        let storage_budget = self.buffer_energy() as f32 / 1500.0;
+    pub(super) fn calculate_energy_budget(&self) -> f32 {
+        let truck_energy = self.local_creeps()
+            .of_role(RoleSelector::ImportTruck)
+            .map(|(creep, _)| creep.resolve().used_energy_capacity())
+            .sum::<u32>();
+
+        let storage_budget = (self.buffer_energy() + truck_energy) as f32 / 1500.0;
         
         self.calculcate_creep_energy_budget() + storage_budget
     }

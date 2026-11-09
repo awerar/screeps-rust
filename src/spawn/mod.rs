@@ -5,6 +5,7 @@ mod roster;
 mod policies;
 
 use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::policies::{schedule_seeders, schedule_servicers, schedule_terraformer}};
+use log::info;
 use policies::{schedule_excavators, schedule_fabricators, schedule_flagships, schedule_import_trucks, schedule_remote_fabricators, schedule_tugboats, schedule_trucks};
 use roster::Rosters;
 
@@ -14,6 +15,8 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
 
     for (colony, roster) in rosters.iter_mut() {
         let view = mem.colonies.view(*colony).unwrap();
+
+        info!("Budget for {}: {}", colony, roster.calculate_energy_budget());
 
         schedule_excavators(roster, &view);
         schedule_tugboats(roster, &tugboat_requests);

@@ -16,33 +16,6 @@ impl Neigh for WalkableNeighs {
     }
 }
 
-pub struct StarWalkableNeighs {
-    terrain: RoomTerrain,
-    center: RoomXY
-}
-
-impl StarWalkableNeighs {
-    pub fn new(terrain: RoomTerrain, center: RoomXY) -> Self { Self { terrain, center } }
-
-    pub fn eligible(&self, pos: RoomXY) -> bool {
-        if self.terrain.get(pos.x.u8(), pos.y.u8()) == Terrain::Wall { return false }
-
-        let (dx, dy) = pos - self.center;
-        let (dx, dy) = (dx.abs(), dy.abs());
-        let d = dx + dy;
-
-        d % 4 == 2 || (d % 4 == 0 && dx % 2 == 1)
-    }
-}
-
-impl Neigh for StarWalkableNeighs {
-    fn neighbors_of(&self, pos: RoomXY) -> impl Iterator<Item = RoomXY> {
-        Direction::iter()
-            .filter_map(move |dir| pos.checked_add_direction(*dir))
-            .filter(|neigh| self.eligible(*neigh))
-    }
-}
-
 pub struct OrthogonalWalkableNeighs(RoomTerrain);
 impl OrthogonalWalkableNeighs {
     pub fn new(terrain: RoomTerrain) -> Self { Self(terrain) }
