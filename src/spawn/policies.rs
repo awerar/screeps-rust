@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{BUILD_POWER, CARRY_CAPACITY, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HARVEST_POWER, HasPosition, Part, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{self, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckCreep, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -102,7 +102,7 @@ pub fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
 
         rosters.schedule(
             |roster| IMPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None),
-            CreepRole::ImportTruck(truck::ImportState::default()),
+            CreepRole::ImportTruck(ImportTruckCreep::default()),
             Some(colony.name)
         ).log_err();
     }
@@ -353,7 +353,7 @@ impl ColonyRoster {
                 let CreepRole::ImportTruck(state) = proto.role() else { return None; };
 
                 let carry = proto.body().part_count(Part::Carry) as u32 * CARRY_CAPACITY;
-                Some(carry as f32 / state.roundtrip_ticks()?.max(1) as f32)
+                Some(carry as f32 / state.roundtrip_ticks()?)
             }).sum::<f32>();
 
         let storage_budget = self.buffer_energy() as f32 / 1500.0;

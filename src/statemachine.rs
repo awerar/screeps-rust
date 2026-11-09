@@ -19,6 +19,23 @@ impl<S> Step<S> {
     }
 }
 
+impl<S> Try for Step<S> {
+    type Output = S;
+    type Residual = Step<Infallible>;
+
+    fn from_output(output: Self::Output) -> Self {
+        Self::Next(output)
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Step::Next(state) => ControlFlow::Continue(state),
+            Step::Stay => ControlFlow::Break(Step::Stay),
+            Step::Fail(error) => ControlFlow::Break(Step::Fail(error)),
+        }
+    }
+}
+
 const MAX_TRANSITIONS: u32 = 20;
 
 #[expect(clippy::to_string_in_format_args)]

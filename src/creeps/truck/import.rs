@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Deref};
+use std::{collections::HashMap, fmt::Display, ops::Deref};
 
 use derive_deref::Deref;
 use derive_where::derive_where;
@@ -12,12 +12,26 @@ use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::Co
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
 
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct ImportTruckCreep {
+    state: State,
+
+    total_trip_ticks: u32,
+    trips: u32
+}
+
+impl Display for ImportTruckCreep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} [{:?} rtt]", self.state, self.roundtrip_ticks())
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default, EnumDisplay)]
 pub enum State {
     #[default] Idle,
     CollectingFrom(RoomName),
     GoingHome(u32),
-    Arrived(ArrivedState, u32)
+    Arrived(ArrivedState)
 }
 
 #[derive(Debug, Default, EnumDisplay)]
@@ -77,11 +91,26 @@ impl Colonies {
     }
 }
 
-impl State {
-    pub fn roundtrip_ticks(&self) -> Option<u32> {
-        if let Self::Arrived(_, ticks) = self { Some(2 * *ticks) } else { None }
+impl ImportTruckCreep {
+    pub fn roundtrip_ticks(&self) -> Option<f32> {
+        if self.trips == 0 { return None }
+
+        Some((2 * self.total_trip_ticks) as f32 / self.trips as f32)
     }
 
+    pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+        let new_state = self.state.update(creep, home, colonies, movement, coordinator)?;
+        
+        if let State::GoingHome(ticks) = self.state && matches!(new_state, State::Arrived(_)) {
+            self.trips += 1;
+            self.total_trip_ticks += ticks;
+        }
+
+        Step::Next(Self { state: new_state, ..*self })
+    }
+}
+
+impl State {
     pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
@@ -102,9 +131,9 @@ impl State {
                 *ticks += 1;
                 movement.approach(creep, home.center, 10)?;
 
-                Step::Next(Self::Arrived(ArrivedState::Idle, *ticks))
+                Step::Next(Self::Arrived(ArrivedState::Idle))
             },
-            Self::Arrived(arrived_state, ticks) => {
+            Self::Arrived(arrived_state) => {
                 if creep.next_used_energy_capacity() == 0 { 
                     if let ArrivedState::ProvidingTo(consumer) = arrived_state
                         && let Some(handle) = coordinator.consumers.heartbeat(consumer, creep.handle()) {
@@ -114,7 +143,7 @@ impl State {
                     next!(Self::Idle) 
                 }
 
-                arrived_state.update(creep, home, movement, coordinator).map(|s| Self::Arrived(s, *ticks))
+                arrived_state.update(creep, home, movement, coordinator).map(Self::Arrived)
             }
         }
     }
