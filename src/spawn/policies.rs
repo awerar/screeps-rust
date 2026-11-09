@@ -181,8 +181,7 @@ pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorC
         if reserved_work_ticks >= total_work_ticks { break; }
 
         if work_power as f32 > roster.calculate_energy_budget() {
-            let target_work = (roster.calculate_energy_budget() as u32).div_floor(BUILD_POWER);
-            let target_work = target_work.max(u32::from(reserved_work_ticks == 0));
+            let target_work = (roster.calculate_energy_budget() as u32).div_floor(BUILD_POWER).max(1);
 
             let Some(new_body) = FABRICATOR_TEMPLATE.scaled_with_stop(roster.future_energy(), Some(4), ScaleStopCondition::PartCount(Part::Work, target_work)) else { break; };
             body = new_body;

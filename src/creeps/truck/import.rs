@@ -7,7 +7,7 @@ use screeps::{HasPosition, ResourceType, RoomName};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::Step};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Step};
 
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
@@ -129,7 +129,7 @@ impl State {
             },
             Self::GoingHome(ticks) => {
                 *ticks += 1;
-                movement.approach(creep, home.center, 10)?;
+                movement.approach(creep, home.center, 3)?;
 
                 Step::Next(Self::Arrived(ArrivedState::Idle))
             },
@@ -153,12 +153,12 @@ impl ArrivedState {
     pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
-                if let Some(consumer) = coordinator.assign_consumer(creep) {
-                    next!(Self::ProvidingTo(consumer))
+                if let Some(buffer) = home.buffer.as_ref() && buffer.free_energy_capacity() > 0 {
+                    next!(Self::StoringAway(*buffer))
                 }
 
-                if let Some(buffer) = home.buffer.as_ref() {
-                    next!(Self::StoringAway(*buffer))
+                if let Some(consumer) = coordinator.assign_consumer(creep) {
+                    next!(Self::ProvidingTo(consumer))
                 }
 
                 movement.approach(creep, home.center, 3)?;
@@ -175,6 +175,8 @@ impl ArrivedState {
                 Step::Next(Self::Idle)
             },
             Self::StoringAway(buffer) => {
+                next_if!(buffer.free_energy_capacity() == 0, Self::Idle);
+
                 movement.approach(creep, buffer.pos(), 1)?;
                 creep.transfer(*buffer, ResourceType::Energy, None)?;
 
