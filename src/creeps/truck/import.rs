@@ -4,37 +4,39 @@ use derive_deref::Deref;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{HasPosition, ResourceType, RoomName};
-use serde::Deserialize;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Step};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::Step};
 
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
 
-#[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; ConsumerTruckStop<S>, ColonyBuffer<S>, S)]
-pub enum ImportTruckState<S: CheckState = Checked> {
+#[derive(Deserialize, Serialize, Clone, Debug, Default, EnumDisplay)]
+pub enum State {
     #[default] Idle,
     CollectingFrom(RoomName),
-    GoingHome,
-    ProvidingIdle,
+    GoingHome(u32),
+    Arrived(ArrivedState, u32)
+}
+
+#[derive(Debug, Default, EnumDisplay)]
+#[derive_where(Serialize, Deserialize, Clone; ConsumerTruckStop<S>, ColonyBuffer<S>, S)]
+pub enum ArrivedState<S: CheckState = Checked> {
+    #[default] Idle,
     ProvidingTo(ConsumerTruckStop<S>),
     StoringAway(ColonyBuffer<S>)
 }
 
-impl<'de> Deserialize<'de> for ImportTruckState {
+impl<'de> Deserialize<'de> for ArrivedState {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let us = ImportTruckState::<Unchecked>::deserialize(deserializer)?;
+        let us = ArrivedState::<Unchecked>::deserialize(deserializer)?;
         Ok(match us {
-            ImportTruckState::Idle => Self::Idle,
-            ImportTruckState::CollectingFrom(room) => Self::CollectingFrom(room),
-            ImportTruckState::GoingHome => Self::GoingHome,
-            ImportTruckState::ProvidingIdle => Self::ProvidingIdle,
-            ImportTruckState::ProvidingTo(consumer) => 
-                consumer.check().map_or(Self::ProvidingIdle, Self::ProvidingTo),
-            ImportTruckState::StoringAway(buffer) => 
-                buffer.check().map_or(Self::ProvidingIdle, Self::StoringAway)
+            ArrivedState::Idle => Self::Idle,
+            ArrivedState::ProvidingTo(consumer) => 
+                consumer.check().map_or_default(Self::ProvidingTo),
+            ArrivedState::StoringAway(buffer) => 
+                buffer.check().map_or_default(Self::StoringAway)
         })
     }
 }
@@ -75,14 +77,12 @@ impl Colonies {
     }
 }
 
-impl ImportTruckState {
-    fn finish_task(task_handle: CreepAllocationHandle<'_>) -> Self {
-        task_handle.release();
-        Self::ProvidingIdle
+impl State {
+    pub fn roundtrip_ticks(&self) -> Option<u32> {
+        if let Self::Arrived(_, ticks) = self { Some(2 * *ticks) } else { None }
     }
 
     pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
-
         match self {
             Self::Idle => {
                 let export_colony = colonies.values().max_by_key(|colony| colony.buffer.used_energy_capacity());
@@ -96,16 +96,34 @@ impl ImportTruckState {
                 movement.approach(creep, colony.buffer.pos(), 1)?;
                 creep.withdraw(colony.buffer, ResourceType::Energy, None)?;
                 
-                Step::Next(Self::GoingHome)
+                Step::Next(Self::GoingHome(0))
             },
-            Self::GoingHome => {
+            Self::GoingHome(ticks) => {
+                *ticks += 1;
                 movement.approach(creep, home.center, 10)?;
 
-                Step::Next(Self::ProvidingIdle)
+                Step::Next(Self::Arrived(ArrivedState::Idle, *ticks))
             },
-            Self::ProvidingIdle => {
-                next_if!(creep.next_used_energy_capacity() == 0, Self::Idle);
+            Self::Arrived(arrived_state, ticks) => {
+                if creep.next_used_energy_capacity() == 0 { 
+                    if let ArrivedState::ProvidingTo(consumer) = arrived_state
+                        && let Some(handle) = coordinator.consumers.heartbeat(consumer, creep.handle()) {
+                            handle.release();
+                    }
 
+                    next!(Self::Idle) 
+                }
+
+                arrived_state.update(creep, home, movement, coordinator).map(|s| Self::Arrived(s, *ticks))
+            }
+        }
+    }
+}
+
+impl ArrivedState {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+        match self {
+            Self::Idle => {
                 if let Some(consumer) = coordinator.assign_consumer(creep) {
                     next!(Self::ProvidingTo(consumer))
                 }
@@ -119,18 +137,15 @@ impl ImportTruckState {
                 Step::Stay
             },
             Self::ProvidingTo(consumer) => {
-                let Some(mut task_handle) = coordinator.consumers.heartbeat(consumer, creep.handle()) else { next!(Self::ProvidingIdle) };
-                next_if!(creep.next_used_energy_capacity() == 0, Self::finish_task(task_handle));
+                let Some(mut task_handle) = coordinator.consumers.heartbeat(consumer, creep.handle()) else { next!(Self::Idle) };
 
                 movement.approach(creep, consumer.pos(), 1)?;
                 task_handle.consume(creep.transfer(consumer.clone(), ResourceType::Energy, None)?);
 
-                Self::finish_task(task_handle);
-                Step::Next(Self::ProvidingIdle)
+                task_handle.release();
+                Step::Next(Self::Idle)
             },
             Self::StoringAway(buffer) => {
-                next_if!(creep.next_used_energy_capacity() == 0, Self::Idle);
-
                 movement.approach(creep, buffer.pos(), 1)?;
                 creep.transfer(*buffer, ResourceType::Energy, None)?;
 

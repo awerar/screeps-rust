@@ -5,7 +5,7 @@ use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, Source, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckState, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, step, wait_if}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, step, wait_if}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -55,7 +55,7 @@ impl CreepData {
         let role = match creep.name().split_ascii_whitespace().next()? {
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
-            "ImportTruck" => CreepRole::ImportTruck(if creep.used_energy_capacity() == 0 { ImportTruckState::default() } else { ImportTruckState::GoingHome }),
+            "ImportTruck" => CreepRole::ImportTruck(if creep.used_energy_capacity() == 0 { truck::ImportState::default() } else { truck::ImportState::GoingHome(0) }),
             "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Servicer" => CreepRole::Servicer(ServicerCreep::default()),
             "Terraformer" => CreepRole::Terraformer(TerraformerCreep::default()),
@@ -82,7 +82,7 @@ pub enum CreepRole<S: CheckState = Checked> {
     Excavator(ExcavatorCreep, ObjectId<Source, S>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
-    ImportTruck(ImportTruckState),
+    ImportTruck(truck::ImportState),
     Fabricator(FabricatorCreep),
     Servicer(ServicerCreep),
     Tugboat(CreepId<S>),

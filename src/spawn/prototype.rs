@@ -106,17 +106,19 @@ impl From<Vec<Part>> for Body {
 pub struct RelativePrototype {
     body: Body,
     role: CreepRole,
+    spawn_room: RoomName
 }
 
 impl RelativePrototype {
-    pub fn new(body: Body, role: CreepRole) -> Self {
-        Self { body, role }
+    pub fn new(body: Body, role: CreepRole, spawn_room: RoomName) -> Self {
+        Self { body, role, spawn_room }
     }
 
     pub fn from_creep(id: &CreepId, data: &CreepData) -> Self {
         Self {
             body: Body(id.resolve().body().into_iter().map(|part| part.part()).collect()),
             role: data.role.clone(),
+            spawn_room: data.spawn_room
         }
     }
 
@@ -127,6 +129,10 @@ impl RelativePrototype {
     pub fn role(&self) -> &CreepRole {
         &self.role
     }
+
+    pub fn spawn_room(&self) -> RoomName {
+        self.spawn_room
+    }
 }
 
 #[derive(Clone)]
@@ -136,8 +142,8 @@ pub struct AbsolutePrototype {
 }
 
 impl AbsolutePrototype {
-    pub fn new(body: Body, role: CreepRole, home: RoomName) -> Self {
-        Self { proto: RelativePrototype::new(body, role), home }
+    pub fn new(body: Body, role: CreepRole, home: RoomName, spawn_room: RoomName) -> Self {
+        Self { proto: RelativePrototype::new(body, role, spawn_room), home }
     }
 
     pub fn from_creep(id: &CreepId, data: &CreepData) -> Self {

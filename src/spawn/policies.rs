@@ -2,9 +2,9 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use log::warn;
-use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HARVEST_POWER, HasPosition, Part, UPGRADE_CONTROLLER_POWER};
+use screeps::{BUILD_POWER, CARRY_CAPACITY, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HARVEST_POWER, HasPosition, Part, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{self, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -102,7 +102,7 @@ pub fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
 
         rosters.schedule(
             |roster| IMPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None),
-            CreepRole::ImportTruck(ImportTruckState::default()),
+            CreepRole::ImportTruck(truck::ImportState::default()),
             Some(colony.name)
         ).log_err();
     }
@@ -182,7 +182,7 @@ pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorC
 
         if work_power as f32 > roster.calculate_energy_budget() {
             let target_work = (roster.calculate_energy_budget() as u32).div_floor(BUILD_POWER);
-            if target_work == 0 { break; }
+            let target_work = target_work.max(u32::from(reserved_work_ticks == 0));
 
             let Some(new_body) = FABRICATOR_TEMPLATE.scaled_with_stop(roster.future_energy(), Some(4), ScaleStopCondition::PartCount(Part::Work, target_work)) else { break; };
             body = new_body;
@@ -323,7 +323,11 @@ pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
 impl ColonyRoster {
     fn calculcate_creep_energy_budget(&self) -> f32 {
         self.local_creeps().values().map(|proto| {
-            let body_drain = proto.body().energy_required() as f32 / proto.body().life_time() as f32;
+            let locally_spawned = proto.spawn_room() == self.room() ;
+
+            let body_drain = if locally_spawned {
+                proto.body().energy_required() as f32 / proto.body().life_time() as f32
+            } else { 0.0 };
             
             // TODO: Make more accurate
             let work_count = proto.body().part_count(Part::Work) as i32;
@@ -344,13 +348,16 @@ impl ColonyRoster {
     }
 
     pub(super) fn calculate_energy_budget(&self) -> f32 {
-        let truck_energy = self.local_creeps()
-            .of_role(RoleSelector::ImportTruck)
-            .map(|(creep, _)| creep.resolve().used_energy_capacity())
-            .sum::<u32>();
+        let import_power = self.local_creeps().values()
+            .filter_map(|proto| {
+                let CreepRole::ImportTruck(state) = proto.role() else { return None; };
 
-        let storage_budget = (self.buffer_energy() + truck_energy) as f32 / 1500.0;
+                let carry = proto.body().part_count(Part::Carry) as u32 * CARRY_CAPACITY;
+                Some(carry as f32 / state.roundtrip_ticks()?.max(1) as f32)
+            }).sum::<f32>();
+
+        let storage_budget = self.buffer_energy() as f32 / 1500.0;
         
-        self.calculcate_creep_energy_budget() + storage_budget
+        self.calculcate_creep_energy_budget() + storage_budget + import_power
     }
 }

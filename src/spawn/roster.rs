@@ -286,15 +286,20 @@ impl ColonyRoster {
         self.energy.future_energy()
     }
 
+    pub fn room(&self) -> RoomName {
+        self.name
+    }
+
     // Not meant to be used by user
     fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: RoomName) -> ColonyScheduleResult
     where
         S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Option<usize>
     {
-        let proto = AbsolutePrototype::new(body, role, home);
-
+        
         let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Ok(ScheduleDecision::WaitingForSpawn) };
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
+        
+        let proto = AbsolutePrototype::new(body, role, home, spawn.spawn.room().unwrap().name());
 
         assert!(spawn.is_free());
 

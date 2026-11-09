@@ -3,5 +3,5 @@ mod stop;
 mod state;
 mod import;
 
-pub use self::{state::TruckCreep, import::{ImportTruckState, STOP_IMPORT_STEP}};
+pub use self::{state::TruckCreep, import::{State as ImportState, STOP_IMPORT_STEP}};
 pub use self::coordinator::{CreepStops, TruckCoordinator};

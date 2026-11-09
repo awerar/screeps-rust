@@ -30,7 +30,6 @@ mod spawn;
 mod creeps;
 mod utils;
 mod colony;
-mod pathfinding;
 mod visuals;
 mod statemachine;
 mod commands;
