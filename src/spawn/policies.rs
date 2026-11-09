@@ -4,7 +4,7 @@ use itertools::Itertools;
 use log::warn;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HARVEST_POWER, HasPosition, Part, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, Prototype, RelativePrototype, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ImportTruckState, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -34,10 +34,8 @@ pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
                     ColonyRoster::default_select(iter)
                 }
             },
-            RelativePrototype::new(
-                get_excavator_body(roster.future_energy(), source_plan),
-                CreepRole::Excavator(ExcavatorCreep::default(), source.id())
-            )
+            get_excavator_body(roster.future_energy(), source_plan),
+            CreepRole::Excavator(ExcavatorCreep::default(), source.id())
         ).log_err();
     }
 }
@@ -84,10 +82,8 @@ pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
         let Some(body) = get_truck_body(roster.future_energy()) else { break };
 
         roster.schedule(
-        RelativePrototype::new(
             body,
             CreepRole::Truck(TruckCreep::default())
-        )
         ).log_err();
     }
 }
@@ -104,13 +100,11 @@ pub fn schedule_import_trucks(rosters: &mut Rosters, mem: &mut Memory) {
             continue;
         }
 
-        rosters.schedule(|roster| {
-            Some(Prototype::absolute(
-                IMPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None)?,
-                CreepRole::ImportTruck(ImportTruckState::default()),
-                colony.name
-            ))
-        }).log_err();
+        rosters.schedule(
+            |roster| IMPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None),
+            CreepRole::ImportTruck(ImportTruckState::default()),
+            Some(colony.name)
+        ).log_err();
     }
 }
 
@@ -121,12 +115,11 @@ pub fn schedule_flagships(rosters: &mut Rosters, mem: &mut Memory) {
 
     if rosters.global_creeps().of_role(RoleSelector::Flagship).count() > 0 { return; }
 
-    rosters.schedule(|_| {
-        Some(Prototype::relative(
-            FLAGSHIP_TEMPLATE.clone(),
-            CreepRole::Flagship(FlagshipCreep::default())
-        ))
-    }).log_err();
+    rosters.schedule(
+        |_| Some(FLAGSHIP_TEMPLATE.clone()),
+        CreepRole::Flagship(FlagshipCreep::default()),
+        None
+    ).log_err();
 }
 
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
@@ -161,11 +154,8 @@ pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRe
                 iter.min_by_key(|(_, spawn)| spawn.spawn.pos().get_range_to(tugged.pos()))
                     .map(|(ix, _)| ix)
             },
-            RelativePrototype::new(
-                get_tugboat_body(roster.future_energy(), &tugged),
-                CreepRole::Tugboat(tugged.id())
-            )
-            
+            get_tugboat_body(roster.future_energy(), &tugged),
+            CreepRole::Tugboat(tugged.id())
         ).log_err();
     }
 }
@@ -199,10 +189,8 @@ pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorC
         }
 
         roster.schedule(
-            RelativePrototype::new(
-                body,
-                CreepRole::Fabricator(FabricatorCreep::default())
-            )
+            body,
+            CreepRole::Fabricator(FabricatorCreep::default())
         ).log_err();
     }
 }
@@ -232,10 +220,8 @@ pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoord
         }
 
         roster.schedule(
-            RelativePrototype::new(
-                body,
-                CreepRole::Servicer(ServicerCreep::default())
-            )
+            body,
+            CreepRole::Servicer(ServicerCreep::default())
         ).log_err();
     }
 }
@@ -247,13 +233,11 @@ pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
         let roster = rosters.get(colony.name).unwrap();
         if roster.local_creeps().of_role(RoleSelector::Fabricator).next().is_some() { continue; }
 
-        rosters.schedule(|roster| {
-            Some(Prototype::absolute(
-                FABRICATOR_TEMPLATE.scaled(roster.future_energy(), None)?,
-                CreepRole::Fabricator(FabricatorCreep::default()),
-                colony.name
-            ))
-        }).log_err();
+        rosters.schedule(
+            |roster| FABRICATOR_TEMPLATE.scaled(roster.future_energy(), None),
+            CreepRole::Fabricator(FabricatorCreep::default()),
+            Some(colony.name)
+        ).log_err();
     }
 }
 
@@ -290,10 +274,9 @@ pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) 
     let work = energy.div_floor(Part::Work.cost()).min(calculate_target_upgrade_work(colony, roster));
     if work == 0 { return }
 
-    roster.schedule(RelativePrototype::new(
-        Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize), 
-            CreepRole::Terraformer(TerraformerCreep::default())
-        )
+    roster.schedule(
+        Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize),
+        CreepRole::Terraformer(TerraformerCreep::default())
     ).log_err();
 }
 
@@ -324,17 +307,15 @@ pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
 
             if max_body_work as u32 <= allowed_seeder_work {
                 roster.schedule(
-                    RelativePrototype::new(
-                        max_body,
-                        CreepRole::Seeder(SeederCreep::default()) 
-                    )
+                    max_body,
+                    CreepRole::Seeder(SeederCreep::default())
                 ).log_err();
             } else { break; }
         } else {
             if missing_seeder_work == 0 { break; }
             let Some(body) = SEEDER_TEMPLATE.scaled_with_stop(roster.future_energy(), Some(3), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)) else { break };
 
-            roster.schedule(RelativePrototype::new(body, CreepRole::Seeder(SeederCreep::default()))).log_err();
+            roster.schedule(body, CreepRole::Seeder(SeederCreep::default())).log_err();
         }
     }
 }

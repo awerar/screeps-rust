@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Prototype, RelativePrototype}}};
+use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
 
@@ -287,10 +287,12 @@ impl ColonyRoster {
     }
 
     // Not meant to be used by user
-    fn schedule_selected_absolute<S>(&mut self, select: S, proto: AbsolutePrototype) -> ColonyScheduleResult
+    fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: RoomName) -> ColonyScheduleResult
     where
         S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Option<usize>
     {
+        let proto = AbsolutePrototype::new(body, role, home);
+
         let Some(choice) = select(ColonySpawnIterator { index: 0, spawns: &self.spawns }) else { return Ok(ScheduleDecision::WaitingForSpawn) };
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
 
@@ -332,12 +334,12 @@ impl ColonyRoster {
         Ok(ScheduleDecision::Scheduled(id, proto))
     }
 
-    pub fn schedule_selected<S>(&mut self, select: S, proto: RelativePrototype) -> ColonyScheduleResult
+    pub fn schedule_selected<S>(&mut self, select: S, body: Body, role: CreepRole) -> ColonyScheduleResult
     where
         S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Option<usize>
     {
         let home = self.name;
-        let result = self.schedule_selected_absolute(select, proto.with_home(home));
+        let result = self.schedule_selected_absolute(select, body, role, home);
 
         if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
             self.local_creeps.0.insert(id.clone(), proto.relative().clone());
@@ -350,8 +352,8 @@ impl ColonyRoster {
         iter.max_by_key(|(_, spawn)| spawn.is_central()).map(|(ix, _)| ix)
     }
 
-    pub fn schedule(&mut self, proto: RelativePrototype) -> ColonyScheduleResult {
-        self.schedule_selected(Self::default_select, proto)
+    pub fn schedule(&mut self, body: Body, role: CreepRole) -> ColonyScheduleResult {
+        self.schedule_selected(Self::default_select, body, role)
     }
 
     fn gather_new_creeps(self, mem: &mut Memory) {
@@ -364,7 +366,7 @@ impl ColonyRoster {
 #[derive(Debug, Error)]
 pub enum GlobalScheduleError {
     #[error("No valid room")] NoRoom,
-    #[error("Unable to create prototype")] NoProto,
+    #[error("Unable to create prototype")] NoBody,
     #[error("{0} is not a valid home colony")] InvalidHome(RoomName),
     #[error(transparent)] Roster(#[from] ColonyScheduleError),
 }
@@ -411,16 +413,16 @@ impl Rosters {
         &self.global_creeps
     }
 
-    pub fn schedule_selected<S, P>(&mut self, select: S, make_proto: P) -> GlobalScheduleResult
+    pub fn schedule_selected<S, B>(&mut self, select: S, make_body: B, role: CreepRole, home: Option<RoomName>) -> GlobalScheduleResult
     where
         S: for<'a> FnOnce(hash_map::Iter<'a, RoomName, ColonyRoster>) -> Option<RoomName>,
-        P: FnOnce(&ColonyRoster) -> Option<Prototype>
+        B: FnOnce(&ColonyRoster) -> Option<Body>
     {
         let Some(choice) = select(self.rosters.iter()) else { return Err(GlobalScheduleError::NoRoom) };
         let roster = self.rosters.get_mut(&choice).expect("Room selection should return a valid room");
 
-        let proto = make_proto(roster).map(|proto| proto.with_default_home(choice)).ok_or(GlobalScheduleError::NoProto)?;
-        let result = roster.schedule_selected_absolute(ColonyRoster::default_select, proto);
+        let body = make_body(roster).ok_or(GlobalScheduleError::NoBody)?;
+        let result = roster.schedule_selected_absolute(ColonyRoster::default_select, body, role, home.unwrap_or(choice));
 
         if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
             self.rosters.get_mut(&proto.home())
@@ -435,11 +437,11 @@ impl Rosters {
         iter.max_by_key(|(_, roster)| roster.energy.future_energy()).map(|(room, _)| *room)
     }
 
-    pub fn schedule<P>(&mut self, make_proto: P) -> GlobalScheduleResult
+    pub fn schedule<B>(&mut self, make_body: B, role: CreepRole, home: Option<RoomName>) -> GlobalScheduleResult
     where
-        P: FnOnce(&ColonyRoster) -> Option<Prototype>
+        B: FnOnce(&ColonyRoster) -> Option<Body>
     {
-        self.schedule_selected(Self::default_select, make_proto)
+        self.schedule_selected(Self::default_select, make_body, role, home)
     }
 
     pub fn gather_new_creeps(self, mem: &mut Memory) {

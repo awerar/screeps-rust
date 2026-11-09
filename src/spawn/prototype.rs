@@ -120,10 +120,6 @@ impl RelativePrototype {
         }
     }
 
-    pub fn with_home(self, home: RoomName) -> AbsolutePrototype {
-        AbsolutePrototype { proto: self, home }
-    }
-
     pub fn body(&self) -> &Body {
         &self.body
     }
@@ -141,7 +137,7 @@ pub struct AbsolutePrototype {
 
 impl AbsolutePrototype {
     pub fn new(body: Body, role: CreepRole, home: RoomName) -> Self {
-        Self { proto: RelativePrototype { body, role }, home }
+        Self { proto: RelativePrototype::new(body, role), home }
     }
 
     pub fn from_creep(id: &CreepId, data: &CreepData) -> Self {
@@ -165,27 +161,5 @@ impl AbsolutePrototype {
 
     pub fn relative(&self) -> &RelativePrototype {
         &self.proto
-    }
-}
-
-pub enum Prototype {
-    Absolute(AbsolutePrototype),
-    Relative(RelativePrototype)
-}
-
-impl Prototype {
-    pub fn relative(body: Body, role: CreepRole) -> Self {
-        Prototype::Relative(RelativePrototype::new(body, role))
-    }
-
-    pub fn absolute(body: Body, role: CreepRole, home: RoomName) -> Self {
-        Prototype::Absolute(AbsolutePrototype::new(body, role, home))
-    }
-
-    pub fn with_default_home(self, home: RoomName) -> AbsolutePrototype {
-        match self {
-            Prototype::Absolute(proto) => proto,
-            Prototype::Relative(proto) => AbsolutePrototype { proto, home },
-        }
     }
 }
