@@ -1,16 +1,47 @@
-use anyhow::{anyhow};
+use anyhow::{Result, anyhow};
+use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use log::warn;
 use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits}, movement::requests::MovementRequests, statemachine::Step, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::{Step, step}, structure::RepairableStructure};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, EnumDisplay, Default)]
-pub enum ExcavatorCreep {
+#[derive(Debug)]
+#[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>)]
+pub struct ExcavatorCreep<S: CheckState = Checked> {
+    state: State,
+    source: ObjectId<Source, S>
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, EnumDisplay, Default)]
+enum State {
     #[default]
     Going,
     Mining
+}
+
+impl CheckFrom for ExcavatorCreep {
+    type Unchecked = ExcavatorCreep<Unchecked>;
+    type Err = anyhow::Error;
+
+    fn check_from(us: Self::Unchecked) -> Result<Self> {
+        Ok(Self { state: us.state, source: us.source.check()? })
+    }
+}
+
+impl ExcavatorCreep {
+    pub fn source(&self) -> &ObjectId<Source> {
+        &self.source
+    }
+
+    pub fn is_going(&self) -> bool {
+        self.state == State::Going
+    }
+
+    pub fn is_mining(&self) -> bool {
+        self.state == State::Mining
+    }
 }
 
 impl SourcePlan {
@@ -79,8 +110,19 @@ impl EnergyDestination {
 }
 
 impl ExcavatorCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
-        use ExcavatorCreep::*;
+    pub fn new(source: ObjectId<Source>) -> Self {
+        Self { state: State::default(), source }
+    }
+
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) {
+        let source = self.source.resolve();
+        step(&mut self.state, |state| state.transition(creep, &source, home, movement));
+    }
+}
+
+impl State {
+    fn transition(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
+        use State::*;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
 

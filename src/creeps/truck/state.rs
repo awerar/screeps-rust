@@ -4,7 +4,7 @@ use screeps::{HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::{Step, wait_if}};
+use crate::{check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::{Step, step, wait_if}};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>, S)]
@@ -54,8 +54,11 @@ impl TruckCreep {
         Self::Idle
     }
 
-    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) {
+        step(self, |state| state.transition(truck, home, movement, coordinator));
+    }
 
+    fn transition(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
                 if truck.next_used_energy_capacity() > 0 {

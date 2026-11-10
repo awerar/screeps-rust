@@ -7,7 +7,7 @@ use log::warn;
 use screeps::{HasPosition, OwnedStructureProperties, Position, RoomName, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, movement::requests::MovementRequests, next, next_if, statemachine::{Step, wait_if}};
+use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, movement::requests::MovementRequests, next, next_if, statemachine::{Step, step, wait_if}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep {
@@ -44,7 +44,11 @@ impl FlagshipCoordinator {
 }
 
 impl FlagshipCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, movement: &mut MovementRequests, coordinator: &mut FlagshipCoordinator) -> Step<Self> {
+    pub fn update(&mut self, creep: &mut VirtualCreep, movement: &mut MovementRequests, coordinator: &mut FlagshipCoordinator) {
+        step(self, |state| state.transition(creep, movement, coordinator));
+    }
+
+    fn transition(&mut self, creep: &mut VirtualCreep, movement: &mut MovementRequests, coordinator: &mut FlagshipCoordinator) -> Step<Self> {
         use FlagshipCreep::*;
 
         match self {

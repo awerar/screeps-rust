@@ -2,10 +2,10 @@ use std::fmt::Debug;
 
 use derive_where::derive_where;
 use log::{error, warn};
-use screeps::{Creep, ResourceType, RoomName, Source, find, game, look, prelude::*};
+use screeps::{Creep, ResourceType, RoomName, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, step, wait_if}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, wait_if}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -67,7 +67,7 @@ impl CreepData {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(ExcavatorCreep::default(), source.id()) 
+                CreepRole::Excavator(ExcavatorCreep::new(source.id()))
             },
             _ => CreepRole::Scrap(ScrapCreep::default())
         };
@@ -77,9 +77,9 @@ impl CreepData {
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>, CreepId<S>)]
+#[derive_where(Serialize, Deserialize, Clone; ExcavatorCreep<S>, CreepId<S>)]
 pub enum CreepRole<S: CheckState = Checked> {
-    Excavator(ExcavatorCreep, ObjectId<Source, S>),
+    Excavator(ExcavatorCreep<S>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
     ImportTruck(ImportTruckCreep),
@@ -97,7 +97,7 @@ impl CheckFrom for CreepRole {
 
     fn check_from(us: Self::Unchecked) -> Result<Self> {
         Ok(match us {
-            Self::Unchecked::Excavator(state, source) => Self::Excavator(state, source.check()?),
+            Self::Unchecked::Excavator(state) => Self::Excavator(state.check()?),
             Self::Unchecked::Flagship(state) => Self::Flagship(state),
             Self::Unchecked::Truck(state) => Self::Truck(state),
             Self::Unchecked::ImportTruck(state) => Self::ImportTruck(state),
@@ -115,7 +115,7 @@ impl CreepRole {
     pub fn prefix(&self) -> &str {
         match self {
             CreepRole::Flagship(_) => "Flagship",
-            CreepRole::Excavator(_, _) => "Excavator",
+            CreepRole::Excavator(_) => "Excavator",
             CreepRole::Tugboat(_) => "Tugboat",
             CreepRole::Scrap(_) => "Scrap",
             CreepRole::Truck(_) => "Truck",
@@ -155,39 +155,31 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
         let mut vcreep = VirtualCreep::new(creep.clone());
 
         match &mut creep_data.role {
-            Flagship(state) => 
-                step(state, |state| state.update(&mut vcreep, &mut movement, &mut mem.flagship_coordinator)),
-            Excavator(state, source) => 
-                step(state, |state| state.update(&mut vcreep, &source.resolve(), &home, &mut movement)),
+            Flagship(state) => state.update(&mut vcreep, &mut movement, &mut mem.flagship_coordinator),
+            Excavator(state) => state.update(&mut vcreep, &home, &mut movement),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
+                state.update(&mut vcreep, &home, &mut movement, coordinator);
             },
             ImportTruck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                step(state, |state| state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), &mut movement, coordinator));
+                state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), &mut movement, coordinator);
             }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
-                step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
+                state.update(&mut vcreep, &home, &mut movement, coordinator);
             },
             Servicer(state) => {
                 let coordinator = mem.servicer_coordinators.entry(creep_data.home).or_default();
-                step(state, |state| state.update(&mut vcreep, &home, &mut movement, coordinator));
+                state.update(&mut vcreep, &home, &mut movement, coordinator);
             }
-            Terraformer(state) => {
-                step(state, |state| state.update(&mut vcreep, &home, &mut movement));
-            },
-            Seeder(state) => {
-                step(state, |state| state.update(&mut vcreep, &home, &mut movement));
-            },
+            Terraformer(state) => state.update(&mut vcreep, &home, &mut movement),
+            Seeder(state) => state.update(&mut vcreep, &home, &mut movement),
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
                 movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);
             },
-            Scrap(state) => {
-                step(state, |state| state.update(&mut vcreep, &home, &mut movement));
-            },
+            Scrap(state) => state.update(&mut vcreep, &home, &mut movement),
         }
 
         if let Err(e) = vcreep.commit() {

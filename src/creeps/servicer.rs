@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasPosition, Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_for, wait_if}, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, step, wait_for, wait_if}, structure::RepairableStructure};
 
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
 const REPAIR_PERCENTAGE: f32 = 0.95;
@@ -33,7 +33,11 @@ impl<'de> Deserialize<'de> for ServicerCreep {
 }
 
 impl ServicerCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut ServicerCoordinator) -> Step<Self> {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut ServicerCoordinator) {
+        step(self, |state| state.transition(creep, home, movement, coordinator));
+    }
+
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut ServicerCoordinator) -> Step<Self> {
 
         match self {
             Self::Idle => {
@@ -56,7 +60,7 @@ impl ServicerCreep {
                 handle.release();
                 Step::Next(Self::Idle)
             },
-            Self::Scrap(state) => state.update(creep, home, movement).map(Self::Scrap)
+            Self::Scrap(state) => state.transition(creep, home, movement).map(Self::Scrap)
         }
     }
 }

@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, excavator::ExcavatorCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
+use crate::{colony::ColonyView, creeps::{CreepData, CreepRole}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
 
@@ -24,18 +24,18 @@ impl ColonySyndrome {
     fn new(creeps: &ColonyCreeps, view: &ColonyView<'_>) -> Self {
         Self {
             any_trucks: creeps.0.values().any(|proto| matches!(proto.role(), CreepRole::Truck(_))),
-            any_excavating_excavators: creeps.0.values().any(|proto| matches!(proto.role(), CreepRole::Excavator(ExcavatorCreep::Mining, _))),
+            any_excavating_excavators: creeps.0.values().any(|proto| matches!(proto.role(), CreepRole::Excavator(excavator) if excavator.is_mining())),
             excavators:
                 view.plan.sources.keys()
                     .filter_map(|id| Some(id.resolve()?.id()))
                     .filter_map(|source| {
-                        let Some((excavator, proto)) = creeps.0.iter().find(|(_, proto)| matches!(proto.role(), CreepRole::Excavator(_, source2) if source == *source2)) else {
+                        let Some((excavator, proto)) = creeps.0.iter().find(|(_, proto)| matches!(proto.role(), CreepRole::Excavator(excavator) if source == *excavator.source())) else {
                             return Some((source, ExcavatorSyndrome::NoExcavator));
                         };
 
-                        let CreepRole::Excavator(state, _) = proto.role() else { unreachable!() };
+                        let CreepRole::Excavator(state) = proto.role() else { unreachable!() };
 
-                        if matches!(state, ExcavatorCreep::Going)
+                        if state.is_going()
                             && creeps.0.values().all(|proto| !matches!(proto.role(), CreepRole::Tugboat(tugged) if *excavator == *tugged)) {
                                 return Some((source, ExcavatorSyndrome::NoTugboatFor(excavator.clone())));
                         }
@@ -315,7 +315,7 @@ impl ColonyRoster {
         let structures = self.energy.allocate(cost);
 
         let dirs = if let Some(dir) = spawn.source_direction() {
-            if let CreepRole::Excavator(_, source) = proto.role() && spawn.is_source_spawn(source) {
+            if let CreepRole::Excavator(excavator) = proto.role() && spawn.is_source_spawn(excavator.source()) {
                 vec![dir]
             } else {
                 Direction::iter().filter(|dir2| **dir2 != dir).copied().collect_vec()

@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, wait_for, wait_if}};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, step, wait_for, wait_if}};
 
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -31,7 +31,11 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 }
 
 impl FabricatorCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> Step<Self> {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) {
+        step(self, |state| state.transition(creep, home, movement, coordinator));
+    }
+
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut FabricatorCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
                 if let Some(task) = coordinator.assign_build(creep) {
@@ -53,7 +57,7 @@ impl FabricatorCreep {
                 handle.release();
                 Step::Next(Self::Idle)
             },
-            FabricatorCreep::Scrap(state) => state.update(creep, home, movement).map(FabricatorCreep::Scrap)
+            FabricatorCreep::Scrap(state) => state.transition(creep, home, movement).map(FabricatorCreep::Scrap)
         }
     }
 }

@@ -7,7 +7,7 @@ use screeps::{HasPosition, ResourceType, RoomName};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::Step};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::{Step, step}};
 
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
@@ -98,8 +98,12 @@ impl ImportTruckCreep {
         Some((2 * self.total_trip_ticks) as f32 / self.trips as f32)
     }
 
-    pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
-        let new_state = self.state.update(creep, home, colonies, movement, coordinator)?;
+    pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) {
+        step(self, |state| state.transition(creep, home, colonies, movement, coordinator));
+    }
+
+    fn transition<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+        let new_state = self.state.transition(creep, home, colonies, movement, coordinator)?;
         
         if let State::GoingHome(ticks) = self.state && matches!(new_state, State::Arrived(_)) {
             self.trips += 1;
@@ -111,10 +115,12 @@ impl ImportTruckCreep {
 }
 
 impl State {
-    pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    fn transition<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
-                let export_colony = colonies.values().max_by_key(|colony| colony.buffer.used_energy_capacity());
+                let export_colony = colonies.values()
+                    .filter(|colony| home.name != colony.name)
+                    .max_by_key(|colony| colony.buffer.used_energy_capacity());
                 let Some(export_colony) = export_colony else { return Step::Stay };
 
                 Step::Next(Self::CollectingFrom(export_colony.name))
@@ -143,14 +149,14 @@ impl State {
                     next!(Self::Idle) 
                 }
 
-                arrived_state.update(creep, home, movement, coordinator).map(Self::Arrived)
+                arrived_state.transition(creep, home, movement, coordinator).map(Self::Arrived)
             }
         }
     }
 }
 
 impl ArrivedState {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
                 if let Some(buffer) = home.buffer.as_ref() && buffer.free_energy_capacity() > 0 {

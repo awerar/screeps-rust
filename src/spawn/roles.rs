@@ -20,8 +20,8 @@ pub enum RoleSelector {
 impl RoleSelector {
     fn matches(&self, role: &CreepRole) -> bool {
         match self {
-            RoleSelector::Excavator => matches!(role, CreepRole::Excavator(_, _)),
-            RoleSelector::SourceExcavator(source) => matches!(role, CreepRole::Excavator(_, source2) if *source2 == *source),
+            RoleSelector::Excavator => matches!(role, CreepRole::Excavator(_)),
+            RoleSelector::SourceExcavator(source) => matches!(role, CreepRole::Excavator(excavator) if *excavator.source() == *source),
             RoleSelector::Truck => matches!(role, CreepRole::Truck(_)),
             RoleSelector::ImportTruck => matches!(role, CreepRole::ImportTruck(_)),
             RoleSelector::Flagship => matches!(role, CreepRole::Flagship(_)),

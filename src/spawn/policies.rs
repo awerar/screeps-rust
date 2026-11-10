@@ -35,7 +35,7 @@ pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
                 }
             },
             get_excavator_body(roster.future_energy(), source_plan),
-            CreepRole::Excavator(ExcavatorCreep::default(), source.id())
+            CreepRole::Excavator(ExcavatorCreep::new(source.id()))
         ).log_err();
     }
 }
@@ -331,7 +331,7 @@ impl ColonyRoster {
             // TODO: Make more accurate
             let work_count = proto.body().part_count(Part::Work) as i32;
             let role_contribution = match proto.role() {
-                CreepRole::Excavator(_, _) => (work_count * HARVEST_POWER as i32).min(10),
+                CreepRole::Excavator(_) => (work_count * HARVEST_POWER as i32).min(10),
                 CreepRole::Fabricator(_) => -work_count * BUILD_POWER as i32,
                 CreepRole::Servicer(_) => -work_count,
                 CreepRole::Terraformer(_) | CreepRole::Seeder(_) => 
