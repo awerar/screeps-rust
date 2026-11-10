@@ -43,7 +43,7 @@ struct CachedPath {
 impl TriviallyChecked for CachedPath {}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
-struct MoveTarget {
+pub struct MoveTarget {
     pub target: Position, 
     pub range: u32
 }

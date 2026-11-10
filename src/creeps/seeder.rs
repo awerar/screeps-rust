@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::{Step, step, Wait::Ready, wait_if}, structure::ProviderStructure};
+use crate::{check::Check, colony::ColonyView, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, next, next_if, statemachine::{Step, step, Wait::Ready, wait_if}, structure::ProviderStructure};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ProviderStructure<S>, S)]
@@ -26,11 +26,11 @@ impl<'de> Deserialize<'de> for SeederCreep {
 }
 
 impl SeederCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) {
-        step(self, |state| state.transition(creep, home, movement));
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) {
+        step(self, |state| state.transition(creep, home));
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Step<Self> {
         use SeederCreep::*;
 
         match self {
@@ -52,14 +52,14 @@ impl SeederCreep {
                 Step::Stay
             },
             Refilling(target) => {
-                gather_energy(creep, movement, || Ready(*target))?;
+                gather_energy(creep, || Ready(*target))?;
                 next!(Upgrading)
             },
             Self::Upgrading => {
                 next_if!(creep.next_used_energy_capacity() == 0, Idle);
                 wait_if(creep.curr_used_energy_capacity() == 0)?;
 
-                movement.approach(creep, home.controller.pos(), 3)?;
+                creep.approach(home.controller.pos(), 3)?;
                 creep.upgrade_controller(home.controller.clone())?;
 
                 Step::Stay

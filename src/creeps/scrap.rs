@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, StructureSpawn, find, game};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, statemachine::{Step, step}};
+use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, next, statemachine::{Step, step}};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<StructureSpawn, S>, S)]
@@ -23,11 +23,11 @@ impl<'de> Deserialize<'de> for ScrapCreep {
 }
 
 impl ScrapCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) {
-        step(self, |state| state.transition(creep, home, movement));
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) {
+        step(self, |state| state.transition(creep, home));
     }
 
-    pub fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
+    pub fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Step<Self> {
         use ScrapCreep::*;
 
         match self {
@@ -51,7 +51,7 @@ impl ScrapCreep {
             Going(spawn) => {
                 let spawn = spawn.resolve();
 
-                movement.approach(creep, spawn.pos(), 1)?;
+                creep.approach(spawn.pos(), 1)?;
                 creep.recycle(&spawn)?;
 
                 Step::Stay

@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, statemachine::{Step, step}, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, statemachine::{Step, step}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>)]
@@ -114,14 +114,14 @@ impl ExcavatorCreep {
         Self { state: State::default(), source }
     }
 
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests) {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) {
         let source = self.source.resolve();
-        step(&mut self.state, |state| state.transition(creep, &source, home, movement));
+        step(&mut self.state, |state| state.transition(creep, &source, home));
     }
 }
 
 impl State {
-    fn transition(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>, movement: &mut MovementRequests) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Step<Self> {
         use State::*;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
@@ -129,7 +129,7 @@ impl State {
         match self {
             Going => {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                movement.approach_tugged(creep, harvest_pos, 0)?;
+                creep.approach_tugged(harvest_pos, 0)?;
 
                 Step::Next(Mining)
             },

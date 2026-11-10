@@ -155,34 +155,34 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
         let mut vcreep = VirtualCreep::new(creep.clone());
 
         match &mut creep_data.role {
-            Flagship(state) => state.update(&mut vcreep, &mut movement, &mut mem.flagship_coordinator),
-            Excavator(state) => state.update(&mut vcreep, &home, &mut movement),
+            Flagship(state) => state.update(&mut vcreep, &mut mem.flagship_coordinator),
+            Excavator(state) => state.update(&mut vcreep, &home),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mut movement, coordinator);
+                state.update(&mut vcreep, &home, coordinator);
             },
             ImportTruck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), &mut movement, coordinator);
+                state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), coordinator);
             }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mut movement, coordinator);
+                state.update(&mut vcreep, &home, coordinator);
             },
             Servicer(state) => {
                 let coordinator = mem.servicer_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mut movement, coordinator);
+                state.update(&mut vcreep, &home, coordinator);
             }
-            Terraformer(state) => state.update(&mut vcreep, &home, &mut movement),
-            Seeder(state) => state.update(&mut vcreep, &home, &mut movement),
+            Terraformer(state) => state.update(&mut vcreep, &home),
+            Seeder(state) => state.update(&mut vcreep, &home),
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
                 movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);
             },
-            Scrap(state) => state.update(&mut vcreep, &home, &mut movement),
+            Scrap(state) => state.update(&mut vcreep, &home),
         }
 
-        if let Err(e) = vcreep.commit() {
+        if let Err(e) = vcreep.commit(&mut movement) {
             error!("Failed to comit intents for {}: {}", creep.name(), e);
         }
     }
@@ -207,7 +207,7 @@ impl Memory {
     }
 }
 
-pub fn gather_energy<P, F>(creep: &mut VirtualCreep, movement: &mut MovementRequests, find_structure: F) -> Wait 
+pub fn gather_energy<P, F>(creep: &mut VirtualCreep, find_structure: F) -> Wait 
     where
         P : Withdrawable + HasPosition + 'static,
         F : FnOnce() -> Wait<P>
@@ -216,7 +216,7 @@ pub fn gather_energy<P, F>(creep: &mut VirtualCreep, movement: &mut MovementRequ
 
     let structure = find_structure()?;
 
-    movement.approach(creep, structure.pos(), 1)?;
+    creep.approach(structure.pos(), 1)?;
 
     wait_if(structure.used_energy_capacity() == 0)?;
     wait_if(creep.outgoing() > 0)?;

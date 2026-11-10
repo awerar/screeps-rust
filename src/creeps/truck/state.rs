@@ -4,7 +4,7 @@ use screeps::{HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, movement::requests::MovementRequests, next, next_if, statemachine::{Step, step, wait_if}};
+use crate::{check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::{IntentError, VirtualCreep}}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, next, next_if, statemachine::{Step, step, wait_if}};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>, S)]
@@ -54,11 +54,11 @@ impl TruckCreep {
         Self::Idle
     }
 
-    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) {
-        step(self, |state| state.transition(truck, home, movement, coordinator));
+    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) {
+        step(self, |state| state.transition(truck, home, coordinator));
     }
 
-    fn transition(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, movement: &mut MovementRequests, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    fn transition(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Step<Self> {
         match self {
             Self::Idle => {
                 if truck.next_used_energy_capacity() > 0 {
@@ -80,7 +80,7 @@ impl TruckCreep {
                 }
 
                 if let Some(buffer) = home.buffer.as_ref() {
-                    movement.approach(truck, buffer.pos(), 2)?;
+                    truck.approach(buffer.pos(), 2)?;
                 }
 
                 Step::Stay
@@ -95,7 +95,7 @@ impl TruckCreep {
                         next_if!(truck.next_used_energy_capacity() == 0, FillingUpFor(task.clone()))
                 }
 
-                movement.approach(truck, task.pos(), 1)?;
+                truck.approach(task.pos(), 1)?;
 
                 wait_if(truck.incoming_energy() > 0)?;
                 handle.consume(task.creep_perform(truck)?);
@@ -111,7 +111,7 @@ impl TruckCreep {
 
                 next_if!(truck.next_used_energy_capacity() > 0, Self::Performing(TruckTask::ProvidingTo(consumer.clone())));
 
-                movement.approach(truck, buffer.pos(), 1)?;
+                truck.approach(buffer.pos(), 1)?;
 
                 wait_if(truck.outgoing() > 0)?;
                 handle.consume(truck.withdraw(*buffer, ResourceType::Energy, None)?);
@@ -125,7 +125,7 @@ impl TruckCreep {
                 
                 next_if!(truck.next_used_energy_capacity() == 0, Self::Idle);
 
-                movement.approach(truck, buffer.pos(), 1)?;
+                truck.approach(buffer.pos(), 1)?;
                 
                 wait_if(truck.incoming_energy() > 0)?;
                 truck.transfer(*buffer, ResourceType::Energy, None)?;

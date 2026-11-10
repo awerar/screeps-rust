@@ -7,7 +7,7 @@ use log::warn;
 use screeps::{HasPosition, OwnedStructureProperties, Position, RoomName, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, movement::requests::MovementRequests, next, next_if, statemachine::{Step, step, wait_if}};
+use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, next, next_if, statemachine::{Step, step, wait_if}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep {
@@ -44,11 +44,11 @@ impl FlagshipCoordinator {
 }
 
 impl FlagshipCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, movement: &mut MovementRequests, coordinator: &mut FlagshipCoordinator) {
-        step(self, |state| state.transition(creep, movement, coordinator));
+    pub fn update(&mut self, creep: &mut VirtualCreep, coordinator: &mut FlagshipCoordinator) {
+        step(self, |state| state.transition(creep, coordinator));
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, movement: &mut MovementRequests, coordinator: &mut FlagshipCoordinator) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, coordinator: &mut FlagshipCoordinator) -> Step<Self> {
         use FlagshipCreep::*;
 
         match self {
@@ -76,11 +76,11 @@ impl FlagshipCreep {
                 }
 
                 let Some(controller_pos) = &controller_pos else {
-                    movement.approach(creep, Position::new(25.try_into().unwrap(), 25.try_into().unwrap(), *room_name), 20)?;
+                    creep.approach(Position::new(25.try_into().unwrap(), 25.try_into().unwrap(), *room_name), 20)?;
                     return Step::Stay;
                 };
 
-                movement.approach(creep, *controller_pos, 1)?;
+                creep.approach(*controller_pos, 1)?;
 
                 let controller = controller.expect("Creep should be in the room and the room should have a controller");
                 creep.claim_controller(controller.clone())?;

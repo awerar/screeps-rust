@@ -4,7 +4,7 @@ use bimap::BiHashMap;
 use derive_deref::Deref;
 use itertools::Itertools;
 use nonempty::{NonEmpty, nonempty};
-use screeps::{Creep, HasPosition, Position, RectStyle, RoomVisual, StructureSpawn, game};
+use screeps::{Creep, HasPosition, RectStyle, RoomVisual, StructureSpawn, game};
 
 use crate::{domain_traits::{CreepId, HasId, ResolvableId}, movement::{MoveTarget, MovementMemory, SpawningID, has_selected, simplifier::{RawMoveCreeps, RawTrain}, solver::MovementSolver}};
 
@@ -31,14 +31,14 @@ impl TugboatRequests {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum MoveToResult {
-    InRange, OutOfRange
+pub enum MoveRequestType {
+    Single,
+    Tugged
 }
 
-impl MoveToResult {
-    pub fn in_range(self) -> bool {
-        matches!(self, Self::InRange)
-    }
+pub struct MoveRequest {
+    pub target: MoveTarget,
+    pub ty: MoveRequestType
 }
 
 pub struct MovementRequests {
@@ -58,37 +58,19 @@ impl MovementRequests {
         }
     }
 
-    pub fn move_creep_to(&mut self, creep: &Creep, target: Position, range: u32) -> MoveToResult {
-        let target = MoveTarget { target, range };
-        let in_range = target.in_range(creep.pos());
+    pub fn request(&mut self, creep: &Creep, request: MoveRequest) {
+        handle_target_visualization(creep, &request.target);
 
-        handle_target_visualization(creep, &target);
-
-        self.singles.insert(creep.id(), target);
-        if in_range { 
-            MoveToResult::InRange 
-        } else { 
-            MoveToResult::OutOfRange 
+        if request.ty == MoveRequestType::Tugged && !request.target.in_range(creep.pos()) {
+            self.tuggeds.insert(Tugged(creep.id()), request.target);
+        } else {
+            self.singles.insert(creep.id(), request.target);
         }
     }
 
     pub fn do_tugboat(&mut self, tugboat: &Creep, tugged: CreepId, spawn: &StructureSpawn) {
         self.tugboats.insert(Tugboat(tugboat.id()), spawn.clone());
         self.sessions.insert(Tugboat(tugboat.id()), Tugged(tugged));
-    }
-
-    pub fn move_tugged_to(&mut self, creep: &Creep, target: Position, range: u32) -> MoveToResult {
-        let target = MoveTarget { target, range };
-        let in_range = target.in_range(creep.pos());
-
-        handle_target_visualization(creep, &target);
-
-        if in_range { 
-            MoveToResult::InRange 
-        } else { 
-            self.tuggeds.insert(Tugged(creep.id()), target);
-            MoveToResult::OutOfRange 
-        }
     }
 
     pub fn perform(mut self, mem: &mut MovementMemory) -> TugboatRequests {

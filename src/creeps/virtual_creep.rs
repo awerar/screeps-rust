@@ -4,7 +4,7 @@ use anyhow::Result;
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController, StructureSpawn};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::requests::{MoveToResult, MovementRequests}, spawn::prototype::Body, statemachine::{Step, Wait}};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::{MoveTarget, requests::{MoveRequest, MoveRequestType, MovementRequests}}, spawn::prototype::Body, statemachine::{Step, Wait}};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -111,7 +111,8 @@ pub struct VirtualCreep {
     resources: HashMap<ResourceType, u32>, // Amount left this tick per resource. Lazily initialized
     incoming_resources: HashMap<ResourceType, u32>,
     
-    intents: HashMap<IntentType, Intent>
+    intents: HashMap<IntentType, Intent>,
+    move_request: Option<MoveRequest>
 }
 
 enum IntentEffect {
@@ -161,7 +162,8 @@ impl VirtualCreep {
             resources: HashMap::new(),
             incoming_resources: HashMap::new(),
             creep,
-            intents: HashMap::new()
+            intents: HashMap::new(),
+            move_request: None
         }
     }
 
@@ -196,7 +198,11 @@ impl VirtualCreep {
         self.check_pipeline(intent, PIPELINE_B).is_ok()
     }
     
-    pub fn commit(self) -> Result<()> {
+    pub fn commit(self, movement: &mut MovementRequests) -> Result<()> {
+        if let Some(request) = self.move_request {
+            movement.request(&self.creep, request);
+        }
+
         for intent in self.intents.into_values() {
             (intent.commit)(&self.creep)?;
         }
@@ -465,47 +471,24 @@ impl VirtualCreep {
     pub fn recycle(&self, spawn: &StructureSpawn) -> Result<(), anyhow::Error> {
         spawn.recycle_creep(&self.creep).map_err(Into::into)
     }
-}
 
-impl MovementRequests {
-    pub fn move_vcreep_to(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Result<MoveToResult, IntentError> {
-        if creep.has_intent(IntentType::Move) { return Err(IntentError::AlreadyScheduled(IntentType::Move)) }
-
-        let result = self.move_creep_to(&creep.creep, target, range);
-        if !result.in_range() {
-            creep.register_intent(IntentType::Move, Intent::empty())?;
-        }
-        
-        Ok(result)
+    pub fn approach(&mut self, target: Position, range: u32) -> Wait {
+        self.request_move(target, range, MoveRequestType::Single)
     }
 
-    pub fn move_vtugged_to(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Result<MoveToResult, IntentError> {
-        if creep.has_intent(IntentType::Move) { return Err(IntentError::AlreadyScheduled(IntentType::Move)) }
-        
-        let result = self.move_tugged_to(&creep.creep, target, range);
-        if !result.in_range() {
-            creep.register_intent(IntentType::Move, Intent::empty())?;
-        }
-        
-        Ok(result)
+    pub fn approach_tugged(&mut self, target: Position, range: u32) -> Wait {
+        self.request_move(target, range, MoveRequestType::Tugged)
     }
 
-    pub fn approach(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Wait {
-        self.move_vcreep_to(creep, target, range).into()
-    }
+    fn request_move(&mut self, target: Position, range: u32, ty: MoveRequestType) -> Wait {
+        if self.has_intent(IntentType::Move) { return Wait::NotYet }
 
-    pub fn approach_tugged(&mut self, creep: &mut VirtualCreep, target: Position, range: u32) -> Wait {
-        self.move_vtugged_to(creep, target, range).into()
-    }
-}
+        let target = MoveTarget { target, range };
+        let in_range = target.in_range(self.pos());
+        self.move_request = Some(MoveRequest { target, ty });
+        if in_range { return Wait::Ready(()) }
 
-impl From<Result<MoveToResult, IntentError>> for Wait {
-    fn from(result: Result<MoveToResult, IntentError>) -> Self {
-        match result {
-            Ok(MoveToResult::InRange) => Wait::Ready(()),
-            Ok(MoveToResult::OutOfRange) => Wait::NotYet,
-            Err(e) if e.is_conflict() => Wait::NotYet,
-            Err(e) => Wait::Fail(e.into())
-        }
+        self.register_intent(IntentType::Move, Intent::empty())?;
+        Wait::NotYet
     }
 }
