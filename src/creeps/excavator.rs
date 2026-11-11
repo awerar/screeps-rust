@@ -7,7 +7,7 @@ use log::warn;
 use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, step}, structure::RepairableStructure};
+use crate::{goto, check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, Next, step}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>)]
@@ -124,7 +124,7 @@ impl ExcavatorCreep {
 }
 
 impl State {
-    fn transition(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Flow<Next<Self>> {
         use State::*;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
@@ -134,7 +134,7 @@ impl State {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
                 creep.approach_tugged(harvest_pos, 0)?;
 
-                Flow::Continue(Mining)
+                goto!(Mining)
             },
             Mining => {
                 creep.harvest_source(source.clone())?;

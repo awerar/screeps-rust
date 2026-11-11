@@ -6,7 +6,7 @@ use enum_display::EnumDisplay;
 use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, Next, OrBreak, step, break_if}};
 
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -38,12 +38,12 @@ impl FabricatorCreep {
         Ok(())
     }
 
-    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Next<Self>> {
         match self {
             Self::Idle => {
                 goto!(if let Some(task) = coordinator.assign_build(creep) { Self::Building(task) });
 
-                Flow::Continue(Self::Scrap(ScrapCreep::default()))
+                goto!(Self::Scrap(ScrapCreep::default()))
             },
             Self::Building(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::Idle) };
@@ -56,9 +56,9 @@ impl FabricatorCreep {
                 break_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Flow::Continue(Self::Idle)
+                goto!(Self::Idle)
             },
-            FabricatorCreep::Scrap(state) => state.transition(creep, home).map_continue(FabricatorCreep::Scrap)
+            FabricatorCreep::Scrap(state) => state.transition(creep, home).map_continue(|next| next.map(FabricatorCreep::Scrap))
         }
     }
 }

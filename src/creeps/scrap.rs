@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, StructureSpawn, find, game};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step}};
+use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, Next, step}};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<StructureSpawn, S>, S)]
@@ -30,7 +30,7 @@ impl ScrapCreep {
         Ok(())
     }
 
-    pub fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
+    pub fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Next<Self>> {
         use ScrapCreep::*;
 
         match self {

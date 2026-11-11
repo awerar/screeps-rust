@@ -6,7 +6,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasPosition, Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, Next, OrBreak, step, break_if}, structure::RepairableStructure};
 
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
 const REPAIR_PERCENTAGE: f32 = 0.95;
@@ -40,13 +40,13 @@ impl ServicerCreep {
         Ok(())
     }
 
-    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Flow<Next<Self>> {
 
         match self {
             Self::Idle => {
                 goto!(if let Some(task) = coordinator.assign_repair(creep) { Self::Repairing(task) });
 
-                Flow::Continue(Self::Scrap(ScrapCreep::default()))
+                goto!(Self::Scrap(ScrapCreep::default()))
             },
             Self::Repairing(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::Idle) };
@@ -59,9 +59,9 @@ impl ServicerCreep {
                 break_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Flow::Continue(Self::Idle)
+                goto!(Self::Idle)
             },
-            Self::Scrap(state) => state.transition(creep, home).map_continue(Self::Scrap)
+            Self::Scrap(state) => state.transition(creep, home).map_continue(|next| next.map(Self::Scrap))
         }
     }
 }

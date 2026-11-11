@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step, break_if}, structure::ProviderStructure};
+use crate::{check::Check, colony::ColonyView, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, Next, step, break_if}, structure::ProviderStructure};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ProviderStructure<S>, S)]
@@ -33,7 +33,7 @@ impl SeederCreep {
         Ok(())
     }
 
-    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Next<Self>> {
         use SeederCreep::*;
 
         match self {
@@ -52,7 +52,7 @@ impl SeederCreep {
             },
             Refilling(target) => {
                 gather_energy(creep, || Flow::Continue(target))?;
-                Flow::Continue(Upgrading)
+                goto!(Upgrading)
             },
             Self::Upgrading => {
                 goto!(if creep.next_used_energy_capacity() == 0 { Idle });
