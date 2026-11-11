@@ -23,6 +23,10 @@ impl SourcePlan {
             .or_else(|| self.get_construction_site().map(Work::Build))
     }
 
+    pub fn has_work(&self) -> bool {
+        self.get_work().is_some()
+    }
+
     fn get_dump(&self) -> Option<Dump> {
         self.link.resolve().filter(|link| link.free_energy_capacity() > 0).map(Dump::Link)
             .or_else(|| self.container.resolve().filter(|container| container.free_energy_capacity() > 0).map(Dump::Container))
