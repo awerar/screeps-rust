@@ -2,14 +2,11 @@ use std::{fmt::Display, mem};
 
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
-use screeps::{CARRY_CAPACITY, HasPosition, Part, ResourceType, RoomName};
-use anyhow::{Result, anyhow};
+use screeps::{CARRY_CAPACITY, HasPosition, Part, ResourceType, RoomName, pathfinder::{self, SearchOptions}};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, spawn::prototype::Body, statemachine::{Flow, OrBreak, step}};
-
-pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
-const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
+use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, spawn::prototype::Body, statemachine::{Flow, OrBreak, step}};
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ExportTruckCreep {
@@ -53,6 +50,17 @@ impl<'de> Deserialize<'de> for ArrivedState {
 }
 
 impl ExportTruckCreep {
+    pub fn new(home: &ColonyView<'_>, import_colony: &ColonyView<'_>) -> Self {
+        let export2import_ticks = pathfinder::search(home.center, import_colony.center, 0, Some(SearchOptions::default())).cost();
+        let import2export_ticks = pathfinder::search(import_colony.center, home.center, 0, Some(SearchOptions::default().swamp_cost(1))).cost();
+
+        Self { 
+            state: State::default(), 
+            import_colony: import_colony.name, 
+            roundtrip_ticks: export2import_ticks + import2export_ticks
+        }
+    }
+    
     pub fn roundtrip_ticks(&self) -> u32 {
         self.roundtrip_ticks.max(1)
     }
@@ -65,10 +73,8 @@ impl ExportTruckCreep {
         self.import_colony
     }
 
-    pub fn update<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &Colonies, coordinator: &mut TruckCoordinator) -> Result<()> {
-        // TODO: Instead scrap
-        let import_colony = colonies.view(self.import_colony).ok_or(anyhow!("Import colony doesn't exist"))?;
-        self.state = step(mem::take(&mut self.state), |state| state.transition(creep, home, &import_colony, coordinator))?;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, import_colony: &ColonyView<'_>, import_coordinator: &mut TruckCoordinator) -> Result<()> {
+        self.state = step(mem::take(&mut self.state), |state| state.transition(creep, home, import_colony, import_coordinator))?;
         Ok(())
     }
 }

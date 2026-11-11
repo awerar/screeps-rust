@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use derive_where::derive_where;
 use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, find, game, look, prelude::*};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if}, utils::adjacent_positions};
 
@@ -162,8 +162,13 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 state.update(&mut vcreep, &home, coordinator)
             },
             ExportTruck(state) => {
-                let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mem.colonies, coordinator)
+                if let Some(import_colony) = mem.colonies.view(state.import_colony()) {
+                    let import_coordinator = mem.truck_coordinators.entry(state.import_colony()).or_default();
+
+                    state.update(&mut vcreep, &home, &import_colony, import_coordinator)
+                } else {
+                    Err(anyhow!("Import colony is no longer a colony"))
+                }
             }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();

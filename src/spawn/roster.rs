@@ -5,7 +5,7 @@ use itertools::Itertools;
 use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{budget::ColonyBudget, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
+use crate::{colony::ColonyView, creeps::{CreepData, CreepRole}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{budget::ColonyBudget, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
 pub type SharedColonyBudgets = Rc<RefCell<HashMap<RoomName, ColonyBudget>>>;
@@ -153,8 +153,6 @@ pub struct ColonyRoster {
     energy: ColonyEnergy,
     local_creeps: ColonyCreeps,
 
-    buffer_energy: u32,
-
     syndrome: ColonySyndrome,
 
     budgets: SharedColonyBudgets,
@@ -260,9 +258,8 @@ impl ColonyRoster {
             energy: ColonyEnergy::new(groups),
             names,
             name: colony.name,
-            buffer_energy: colony.buffer.map_or_default(|buffer| buffer.used_energy_capacity()),
             local_creeps,
-            budgets: budgets.clone(),
+            budgets,
             syndrome
         }
     }
@@ -289,10 +286,6 @@ impl ColonyRoster {
 
     pub fn sustainable_budget(&self) -> f32 {
         self.budgets.borrow()[&self.name].sustainable()  
-    }
-
-    pub fn buffer_energy(&self) -> u32 {
-        self.buffer_energy
     }
 
     pub fn future_energy(&self) -> u32 {
@@ -429,24 +422,25 @@ impl Rosters {
         self.rosters.iter_mut()
     }
 
-    pub fn get(&self, room: RoomName) -> Option<&ColonyRoster> {
-        self.rosters.get(&room)
+    pub fn get(&self, colony: &ColonyView<'_>) -> &ColonyRoster {
+        self.rosters.get(&colony.name).unwrap()
     }
 
     pub fn global_creeps(&self) -> &GlobalCreeps {
         &self.global_creeps
     }
 
-    pub fn schedule_selected<S, B>(&mut self, select: S, make_body: B, role: CreepRole, home: Option<RoomName>) -> GlobalScheduleResult
+    pub fn schedule_selected<S, B, R>(&mut self, select: S, make_body: B, make_role: R, home: Option<RoomName>) -> GlobalScheduleResult
     where
         S: for<'a> FnOnce(hash_map::Iter<'a, RoomName, ColonyRoster>) -> Option<RoomName>,
-        B: FnOnce(&ColonyRoster) -> Option<Body>
+        B: FnOnce(&ColonyRoster) -> Option<Body>,
+        R: FnOnce(&ColonyRoster) -> CreepRole
     {
         let Some(choice) = select(self.rosters.iter()) else { return Err(GlobalScheduleError::NoRoom) };
         let roster = self.rosters.get_mut(&choice).expect("Room selection should return a valid room");
 
         let body = make_body(roster).ok_or(GlobalScheduleError::NoBody)?;
-        let result = roster.schedule_selected_absolute(ColonyRoster::default_select, body, role, home.unwrap_or(choice));
+        let result = roster.schedule_selected_absolute(ColonyRoster::default_select, body, make_role(roster), home.unwrap_or(choice));
 
         if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
             let roster = self.rosters.get_mut(&proto.home()).ok_or(GlobalScheduleError::InvalidHome(proto.home()))?;
@@ -460,11 +454,12 @@ impl Rosters {
         iter.max_by_key(|(_, roster)| roster.energy.future_energy()).map(|(room, _)| *room)
     }
 
-    pub fn schedule<B>(&mut self, make_body: B, role: CreepRole, home: Option<RoomName>) -> GlobalScheduleResult
+    pub fn schedule<B, R>(&mut self, make_body: B, make_role: R, home: Option<RoomName>) -> GlobalScheduleResult
     where
-        B: FnOnce(&ColonyRoster) -> Option<Body>
+        B: FnOnce(&ColonyRoster) -> Option<Body>,
+        R: FnOnce(&ColonyRoster) -> CreepRole
     {
-        self.schedule_selected(Self::default_select, make_body, role, home)
+        self.schedule_selected(Self::default_select, make_body, make_role, home)
     }
 
     pub fn gather_new_creeps(self, mem: &mut Memory) {

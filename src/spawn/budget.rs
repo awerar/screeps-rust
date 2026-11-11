@@ -14,10 +14,10 @@ impl ColonyBudget {
         let mut budget = Self { 
             colony: colony.name, 
             creep_budget: 0.0, 
-            storage_budget: colony.buffer.map_or_default(|buffer| buffer.used_energy_capacity() as f32 / 1500 as f32)
+            storage_budget: colony.buffer.map_or_default(|buffer| buffer.used_energy_capacity() as f32 / 1500.0)
         };
 
-        for (_, proto) in creeps.iter() {
+        for proto in creeps.values() {
             budget.add_creep(proto);
         }
 
@@ -42,10 +42,9 @@ impl ColonyBudget {
     } 
 
     fn add_nonlocal_creep(&mut self, proto: &AbsolutePrototype) {
-        if let CreepRole::ExportTruck(truck) = proto.role() {
-            if truck.import_colony() == self.colony {
+        if let CreepRole::ExportTruck(truck) = proto.role()
+            && truck.import_colony() == self.colony {
                 self.creep_budget += truck.power(proto.body());
-            }
         }
     }
 

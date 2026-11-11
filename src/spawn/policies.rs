@@ -2,9 +2,10 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use log::warn;
-use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HARVEST_POWER, HasPosition, Part, UPGRADE_CONTROLLER_POWER};
+use ordered_float::OrderedFloat;
+use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ExportTruckCreep, STOP_IMPORT_STEP, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters, ScheduleDecision}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -88,23 +89,39 @@ pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     }
 }
 
+const IMPORT_BUDGET_LIMIT: f32 = 100.0; 
+const EXPORT_BUDGET_LIMIT: f32 = 10.0;
+
 static EXPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Move, Carry]) });
 pub fn schedule_export_trucks(rosters: &mut Rosters, mem: &mut Memory) {
-    if mem.colonies.view_export_colonies().is_empty() { return; }
+    for import_colony in mem.colonies.view_all() {
+        if import_colony.buffer.is_some_and(|buffer| matches!(buffer, ColonyBuffer::Storage(_))) { continue; }
 
-    for colony in mem.colonies.view_all() {
-        if colony.step >= STOP_IMPORT_STEP { continue; }
+        while rosters.get(&import_colony).sustainable_budget() <= IMPORT_BUDGET_LIMIT {
+            let result = rosters.schedule_selected(
+                |iter| {
+                    iter.map(|(name, roster)| (*name, roster.full_budget()))
+                        .map(|(colony, roster)| (mem.colonies.view(colony).unwrap(), roster))
+                        .filter(|(export_colony, _)| export_colony.name != import_colony.name)
+                        .filter(|(export_colony, _)| matches!(export_colony.buffer, Some(ColonyBuffer::Storage(_))))
+                        .filter(|(_, budget)| *budget > EXPORT_BUDGET_LIMIT)
+                        .max_by_key(|(_, budget)| OrderedFloat(*budget))
+                        .map(|(room, _)| room.name)
+                },
+                |roster| EXPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None),
+                |roster| {
+                    CreepRole::ExportTruck(ExportTruckCreep::new(
+                        &mem.colonies.view(roster.room()).unwrap(), 
+                        &import_colony
+                    ))
+                },
+                None
+            ).log_err();
 
-        let roster = rosters.get(colony.name).unwrap();
-        if roster.local_creeps().part_count(RoleSelector::ExportTruck, Part::Carry) > 100 {
-            continue;
+            if matches!(result, None | Some(ScheduleDecision::WaitingForEnergy | ScheduleDecision::WaitingForSpawn)) {
+                break;
+            }
         }
-
-        rosters.schedule(
-            |roster| EXPORT_TRUCK_TEMPLATE.scaled(roster.future_energy(), None),
-            CreepRole::ExportTruck(ExportTruckCreep::default()),
-            Some(colony.name)
-        ).log_err();
     }
 }
 
@@ -117,7 +134,7 @@ pub fn schedule_flagships(rosters: &mut Rosters, mem: &mut Memory) {
 
     rosters.schedule(
         |_| Some(FLAGSHIP_TEMPLATE.clone()),
-        CreepRole::Flagship(FlagshipCreep::default()),
+        |_| CreepRole::Flagship(FlagshipCreep::default()),
         None
     ).log_err();
 }
@@ -229,12 +246,11 @@ pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
     for colony in mem.colonies.view_all() {
         if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
 
-        let roster = rosters.get(colony.name).unwrap();
-        if roster.local_creeps().of_role(RoleSelector::Fabricator).next().is_some() { continue; }
+        if rosters.get(&colony).local_creeps().of_role(RoleSelector::Fabricator).next().is_some() { continue; }
 
         rosters.schedule(
             |roster| FABRICATOR_TEMPLATE.scaled(roster.future_energy(), None),
-            CreepRole::Fabricator(FabricatorCreep::default()),
+            |_| CreepRole::Fabricator(FabricatorCreep::default()),
             Some(colony.name)
         ).log_err();
     }
