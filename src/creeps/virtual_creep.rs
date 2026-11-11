@@ -143,6 +143,7 @@ impl VirtualCreep {
         self.creep.pos()
     }
 
+    #[expect(unused)]
     pub fn name(&self) -> String {
         self.creep.name()
     }
@@ -255,11 +256,12 @@ impl VirtualCreep {
         self.get_resource(ResourceType::Energy)
     }
 
+    #[expect(unused)]
     pub fn capacity(&self) -> u32 {
         self.creep.capacity(None)
     }
 
-    // Free capacity left this tick
+    #[expect(unused)]
     pub fn curr_free_capacity(&self) -> u32 {
         self.free_capacity
     }
@@ -417,6 +419,10 @@ impl VirtualCreep {
         )
     }
 
+    pub fn transfer_energy(&mut self, target: impl Transferable + Sized + 'static, amount: Option<u32>) -> Flow<u32> {
+        self.transfer(target, ResourceType::Energy, amount)
+    }
+
     pub fn withdraw(&mut self, target: impl Withdrawable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Flow<u32> {
         let amount = amount.unwrap_or(self.free_capacity)
             .min(target.used_capacity(Some(ty)));
@@ -428,6 +434,10 @@ impl VirtualCreep {
                 Some(IntentEffect::Incoming(ty, amount))
             )
         )
+    }
+
+    pub fn withdraw_energy(&mut self, target: impl Withdrawable + Sized + 'static, amount: Option<u32>) -> Flow<u32> {
+        self.withdraw(target, ResourceType::Energy, amount)
     }
 
     pub fn recycle(&self, spawn: &StructureSpawn) -> Result<(), anyhow::Error> {

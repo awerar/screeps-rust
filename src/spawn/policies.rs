@@ -8,11 +8,10 @@ use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Cre
 use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters, ScheduleDecision}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
-    // TODO: Look over numbers here
-    let target_excavator_works = if source_plan.get_construction_site().is_some() || source_plan.get_repair_target().is_some() { 
-        7 
+    let target_excavator_works = if source_plan.get_construction_site().is_some() { 
+        7
     } else { 
-        5 
+        6 
     };
 
     let excavator_works = energy.saturating_sub(Part::Carry.cost()).div_floor(Part::Work.cost()).min(target_excavator_works);
