@@ -5,7 +5,7 @@ use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -55,7 +55,6 @@ impl CreepData {
         let role = match creep.name().split_ascii_whitespace().next()? {
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
-            "ImportTruck" => CreepRole::ImportTruck(ImportTruckCreep::default()),
             "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Servicer" => CreepRole::Servicer(ServicerCreep::default()),
             "Terraformer" => CreepRole::Terraformer(TerraformerCreep::default()),
@@ -82,7 +81,8 @@ pub enum CreepRole<S: CheckState = Checked> {
     Excavator(ExcavatorCreep<S>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
-    ImportTruck(ImportTruckCreep),
+    #[serde(alias = "ImportTruck")]
+    ExportTruck(ExportTruckCreep),
     Fabricator(FabricatorCreep),
     Servicer(ServicerCreep),
     Tugboat(CreepId<S>),
@@ -100,7 +100,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::Excavator(state) => Self::Excavator(state.check()?),
             Self::Unchecked::Flagship(state) => Self::Flagship(state),
             Self::Unchecked::Truck(state) => Self::Truck(state),
-            Self::Unchecked::ImportTruck(state) => Self::ImportTruck(state),
+            Self::Unchecked::ExportTruck(state) => Self::ExportTruck(state),
             Self::Unchecked::Fabricator(state) => Self::Fabricator(state),
             Self::Unchecked::Servicer(state) => Self::Servicer(state),
             Self::Unchecked::Tugboat(tugged) => Self::Tugboat(tugged.check()?),
@@ -119,7 +119,7 @@ impl CreepRole {
             CreepRole::Tugboat(_) => "Tugboat",
             CreepRole::Scrap(_) => "Scrap",
             CreepRole::Truck(_) => "Truck",
-            CreepRole::ImportTruck(_) => "ImportTruck",
+            CreepRole::ExportTruck(_) => "ExportTruck",
             CreepRole::Fabricator(_) => "Fabricator",
             CreepRole::Servicer(_) => "Servicer",
             CreepRole::Terraformer(_) => "Terraformer",
@@ -161,9 +161,9 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
                 state.update(&mut vcreep, &home, coordinator)
             },
-            ImportTruck(state) => {
+            ExportTruck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), coordinator)
+                state.update(&mut vcreep, &home, &mem.colonies, coordinator)
             }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();

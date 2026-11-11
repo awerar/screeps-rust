@@ -83,7 +83,7 @@ plan-creation vs per-tick-runtime seam:
 ### Creeps (`src/creeps/`)
 
 Each live creep has a persisted `CreepRole` (in `Memory.creeps`, keyed by `CreepId`) that is one of
-`Flagship`, `Excavator`, `Truck`, `ImportTruck`, `Fabricator`, `Tugboat`, or `Scrap`, each with its own
+`Flagship`, `Excavator`, `Truck`, `ExportTruck`, `Fabricator`, `Tugboat`, or `Scrap`, each with its own
 per-role state type and update logic in a matching submodule (`flagship.rs`, `excavator.rs`,
 `truck/`, `fabricator/`). `do_creeps` (`src/creeps/mod.rs`) recovers `CreepData` for newly-seen creeps
 (`CreepData::try_recover_from`, inferring role from name prefix) and then, per creep, calls

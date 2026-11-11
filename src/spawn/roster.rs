@@ -5,9 +5,10 @@ use itertools::Itertools;
 use screeps::{Creep, Direction, HasPosition, RoomName, Source, SpawnOptions, Structure, StructureSpawn, action_error_codes::SpawnCreepErrorCode, game};
 use thiserror::Error;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
+use crate::{colony::ColonyView, creeps::{CreepData, CreepRole}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::{budget::ColonyBudget, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::{AbsolutePrototype, Body, RelativePrototype}}};
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
+pub type SharedColonyBudgets = Rc<RefCell<HashMap<RoomName, ColonyBudget>>>;
 
 enum ExcavatorSyndrome {
     NoExcavator,
@@ -156,6 +157,7 @@ pub struct ColonyRoster {
 
     syndrome: ColonySyndrome,
 
+    budgets: SharedColonyBudgets,
     names: SharedUsedNames
 }
 
@@ -196,7 +198,7 @@ pub enum ColonyScheduleError {
 pub type ColonyScheduleResult = Result<ScheduleDecision, ColonyScheduleError>;
 
 impl ColonyRoster {
-    pub fn new(colony: &ColonyView<'_>, mem: &Memory, names: SharedUsedNames) -> Self {
+    pub fn new(colony: &ColonyView<'_>, mem: &Memory, names: SharedUsedNames, budgets: SharedColonyBudgets, global_creeps: &GlobalCreeps) -> Self {
         let local_creeps = ColonyCreeps::new(colony.name, mem);
         let syndrome = ColonySyndrome::new(&local_creeps, colony);
 
@@ -251,6 +253,8 @@ impl ColonyRoster {
                 })
         );
 
+        budgets.borrow_mut().insert(colony.name, ColonyBudget::new(colony, global_creeps));
+
         Self {
             spawns,
             energy: ColonyEnergy::new(groups),
@@ -258,6 +262,7 @@ impl ColonyRoster {
             name: colony.name,
             buffer_energy: colony.buffer.map_or_default(|buffer| buffer.used_energy_capacity()),
             local_creeps,
+            budgets: budgets.clone(),
             syndrome
         }
     }
@@ -276,6 +281,14 @@ impl ColonyRoster {
 
     pub fn syndrome(&self) -> &ColonySyndrome {
         &self.syndrome
+    }
+
+    pub fn full_budget(&self) -> f32 {
+        self.budgets.borrow()[&self.name].full()
+    }
+
+    pub fn sustainable_budget(&self) -> f32 {
+        self.budgets.borrow()[&self.name].sustainable()  
     }
 
     pub fn buffer_energy(&self) -> u32 {
@@ -332,6 +345,10 @@ impl ColonyRoster {
                 .energy_structures(structures.into_iter().map_into::<Structure>())
                 .directions(&dirs)
         )?;
+
+        for budget in self.budgets.borrow_mut().values_mut() {
+            budget.add_creep(&proto);
+        }
 
         let id = game::creeps().get(name).unwrap().id();
         spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home(), spawn_room: self.name }, dirs);
@@ -397,12 +414,14 @@ pub struct Rosters {
 impl Rosters {
     pub fn new(mem: &Memory) -> Self {
         let names = Rc::new(RefCell::new(UsedNames::new()));
+        let budgets = Rc::new(RefCell::new(HashMap::new()));
+        let global_creeps = GlobalCreeps::new(mem);
 
         Self {
             rosters: mem.colonies.view_all()
-                .map(|colony| (colony.name, ColonyRoster::new(&colony, mem, names.clone())))
+                .map(|colony| (colony.name, ColonyRoster::new(&colony, mem, names.clone(), budgets.clone(), &global_creeps)))
                 .collect(),
-            global_creeps: GlobalCreeps::new(mem)
+            global_creeps
         }
     }
 
@@ -430,9 +449,8 @@ impl Rosters {
         let result = roster.schedule_selected_absolute(ColonyRoster::default_select, body, role, home.unwrap_or(choice));
 
         if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
-            self.rosters.get_mut(&proto.home())
-                .ok_or(GlobalScheduleError::InvalidHome(proto.home()))?
-                .local_creeps.0.insert(id.clone(), proto.relative().clone());
+            let roster = self.rosters.get_mut(&proto.home()).ok_or(GlobalScheduleError::InvalidHome(proto.home()))?;
+            roster.local_creeps.0.insert(id.clone(), proto.relative().clone());
         }
 
         result.map_err(GlobalScheduleError::from)

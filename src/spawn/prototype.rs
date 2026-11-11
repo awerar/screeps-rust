@@ -63,6 +63,10 @@ impl Body {
         self.0.iter().map(|part| part.cost()).sum()
     }
 
+    pub fn energy_drain(&self) -> f32 {
+        self.energy_required() as f32 / self.life_time() as f32
+    }
+
     pub fn part_count(&self, part: Part) -> usize {
         self.0.iter().filter(|p| **p == part).count()
     }
@@ -163,6 +167,10 @@ impl AbsolutePrototype {
 
     pub fn home(&self) -> RoomName {
         self.home
+    }
+
+    pub fn spawn_room(&self) -> RoomName {
+        self.proto.spawn_room
     }
 
     pub fn relative(&self) -> &RelativePrototype {
