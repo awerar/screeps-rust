@@ -27,8 +27,8 @@ impl RoleSelector {
             RoleSelector::TugboatFor(tugged) => matches!(role, CreepRole::Tugboat(tugged2) if *tugged2 == *tugged),
             RoleSelector::Fabricator => matches!(role, CreepRole::Fabricator(_)),
             RoleSelector::Servicer => matches!(role, CreepRole::Servicer(_)),
-            RoleSelector::Upgrader => matches!(role, CreepRole::Terraformer(_) | CreepRole::Seeder(_)),
-            RoleSelector::Seeder => matches!(role, CreepRole::Seeder(_)),
+            RoleSelector::Upgrader => matches!(role, CreepRole::Terraformer(_) | CreepRole::Seeder),
+            RoleSelector::Seeder => matches!(role, CreepRole::Seeder),
             RoleSelector::Terraformer => matches!(role, CreepRole::Terraformer(_))
         }
     }

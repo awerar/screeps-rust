@@ -99,6 +99,18 @@ where
     Err(anyhow!("Transitioned too many times:\n{}", state_names.into_iter().format(" -> ").to_string()))
 }
 
+pub fn run<E: Into<anyhow::Error>>(mut transition: impl FnMut() -> Flow<(), E>) -> anyhow::Result<()> {
+    for _ in 0..MAX_TRANSITIONS {
+        match transition() {
+            Flow::Continue(()) => {}
+            Flow::Break => return Ok(()),
+            Flow::Fail(e) => return Err(e.into()),
+        }
+    }
+    
+    Err(anyhow!("Looped {MAX_TRANSITIONS} times without breaking"))
+}
+
 pub fn break_if(cond: bool) -> Flow {
     if cond { Flow::Break } else { Flow::Continue(()) }
 }

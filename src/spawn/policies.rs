@@ -5,7 +5,7 @@ use log::warn;
 use ordered_float::OrderedFloat;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, seeder::SeederCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters, ScheduleDecision}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters, ScheduleDecision}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -323,14 +323,14 @@ pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
             if max_body_work as u32 <= allowed_seeder_work {
                 roster.schedule(
                     max_body,
-                    CreepRole::Seeder(SeederCreep::default())
+                    CreepRole::Seeder
                 ).log_err();
             } else { break; }
         } else {
             if missing_seeder_work == 0 { break; }
             let Some(body) = SEEDER_TEMPLATE.scaled_with_stop(roster.future_energy(), Some(3), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)) else { break };
 
-            roster.schedule(body, CreepRole::Seeder(SeederCreep::default())).log_err();
+            roster.schedule(body, CreepRole::Seeder).log_err();
         }
     }
 }

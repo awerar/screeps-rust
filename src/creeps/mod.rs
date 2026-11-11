@@ -5,7 +5,7 @@ use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, find, game, look, prelude::*};
 use anyhow::{Result, anyhow};
 
-use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -58,7 +58,7 @@ impl CreepData {
             "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Servicer" => CreepRole::Servicer(ServicerCreep::default()),
             "Terraformer" => CreepRole::Terraformer(TerraformerCreep::default()),
-            "Seeder" => CreepRole::Seeder(SeederCreep::default()),
+            "Seeder" => CreepRole::Seeder,
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())
                     .flat_map(|pos| pos.look_for(look::SOURCES))
@@ -87,7 +87,7 @@ pub enum CreepRole<S: CheckState = Checked> {
     Servicer(ServicerCreep),
     Tugboat(CreepId<S>),
     Terraformer(TerraformerCreep),
-    Seeder(SeederCreep),
+    Seeder,
     Scrap(ScrapCreep),
 }
 
@@ -106,7 +106,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::Tugboat(tugged) => Self::Tugboat(tugged.check()?),
             Self::Unchecked::Scrap(state) => Self::Scrap(state),
             Self::Unchecked::Terraformer(state) => Self::Terraformer(state),
-            Self::Unchecked::Seeder(state) => Self::Seeder(state)
+            Self::Unchecked::Seeder => Self::Seeder
         })
     }
 }
@@ -123,7 +123,7 @@ impl CreepRole {
             CreepRole::Fabricator(_) => "Fabricator",
             CreepRole::Servicer(_) => "Servicer",
             CreepRole::Terraformer(_) => "Terraformer",
-            CreepRole::Seeder(_) => "Seeder"
+            CreepRole::Seeder => "Seeder"
         }
     }
 }
@@ -179,7 +179,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 state.update(&mut vcreep, &home, coordinator)
             }
             Terraformer(state) => state.update(&mut vcreep, &home),
-            Seeder(state) => state.update(&mut vcreep, &home),
+            Seeder => run(|| seeder::transition(&mut vcreep, &home)),
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
                 movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);

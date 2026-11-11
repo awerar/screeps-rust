@@ -31,7 +31,7 @@ impl ColonyBudget {
             CreepRole::Excavator(_) => (work_count * HARVEST_POWER as f32).min(10.0),
             CreepRole::Fabricator(_) => -work_count * BUILD_POWER as f32,
             CreepRole::Servicer(_) => -work_count,
-            CreepRole::Terraformer(_) | CreepRole::Seeder(_) => -work_count * UPGRADE_CONTROLLER_POWER as f32,
+            CreepRole::Terraformer(_) | CreepRole::Seeder => -work_count * UPGRADE_CONTROLLER_POWER as f32,
             CreepRole::ExportTruck(truck) => -truck.power(proto.body()),
             CreepRole::Flagship(_) | CreepRole::Truck(_) 
             | CreepRole::Tugboat(_) 
