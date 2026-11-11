@@ -3,11 +3,9 @@ use screeps::{Part, Source};
 use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId}, spawn::{prototype::{AbsolutePrototype, RelativePrototype}, roster::{ColonyCreeps, GlobalCreeps}}};
 
 pub enum RoleSelector {
-    #[expect(unused)] Excavator,
     SourceExcavator(ObjectId<Source>),
     Truck,
     Flagship,
-    #[expect(unused)] Tugboat,
     TugboatFor(CreepId),
     Fabricator,
     Servicer,
@@ -19,17 +17,15 @@ pub enum RoleSelector {
 impl RoleSelector {
     fn matches(&self, role: &CreepRole) -> bool {
         match self {
-            RoleSelector::Excavator => matches!(role, CreepRole::Excavator(_)),
-            RoleSelector::SourceExcavator(source) => matches!(role, CreepRole::Excavator(excavator) if *excavator.source() == *source),
+            RoleSelector::SourceExcavator(source) => matches!(role, CreepRole::Excavator(source2) if source == source2),
             RoleSelector::Truck => matches!(role, CreepRole::Truck(_)),
             RoleSelector::Flagship => matches!(role, CreepRole::Flagship(_)),
-            RoleSelector::Tugboat => matches!(role, CreepRole::Tugboat(_)),
             RoleSelector::TugboatFor(tugged) => matches!(role, CreepRole::Tugboat(tugged2) if *tugged2 == *tugged),
             RoleSelector::Fabricator => matches!(role, CreepRole::Fabricator(_)),
             RoleSelector::Servicer => matches!(role, CreepRole::Servicer(_)),
-            RoleSelector::Upgrader => matches!(role, CreepRole::Terraformer(_) | CreepRole::Seeder),
+            RoleSelector::Upgrader => matches!(role, CreepRole::Terraformer | CreepRole::Seeder),
             RoleSelector::Seeder => matches!(role, CreepRole::Seeder),
-            RoleSelector::Terraformer => matches!(role, CreepRole::Terraformer(_))
+            RoleSelector::Terraformer => matches!(role, CreepRole::Terraformer)
         }
     }
 }
@@ -37,6 +33,10 @@ impl RoleSelector {
 impl ColonyCreeps {
     pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = (&CreepId, &RelativePrototype)> {
         self.iter().filter(move |(_, proto)| role.matches(proto.role()))
+    }
+
+    pub fn any_of_role(&self, role: RoleSelector) -> bool {
+        self.iter().any(move |(_, proto)| role.matches(proto.role()))
     }
 
     pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {

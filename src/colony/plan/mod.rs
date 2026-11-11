@@ -4,7 +4,7 @@ use screeps::{Direction, HasPosition, ObjectId, Position, Room, RoomXY, Source, 
 use serde::{Deserialize, Serialize};
 use serde_json_any_key::any_key_map;
 
-use crate::colony::{plan::refs::{OptionalPlannedStructureRef, PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep};
+use crate::colony::{plan::refs::{PlannedStructureRef, PlannedStructureRefs}, steps::ColonyStep};
 
 mod diff;
 mod execute;
@@ -31,11 +31,11 @@ pub struct CenterPlan {
     pub pos: Position,
 
     pub spawn: PlannedStructureRef<StructureSpawn>,
-    pub storage: OptionalPlannedStructureRef<StructureStorage>,
-    pub container_storage: OptionalPlannedStructureRef<StructureContainer>,
-    pub link: OptionalPlannedStructureRef<StructureLink>,
-    pub terminal: OptionalPlannedStructureRef<StructureTerminal>,
-    pub observer: OptionalPlannedStructureRef<StructureObserver>,
+    pub storage: PlannedStructureRef<StructureStorage>,
+    pub container_storage: PlannedStructureRef<StructureContainer>,
+    pub link: PlannedStructureRef<StructureLink>,
+    pub terminal: PlannedStructureRef<StructureTerminal>,
+    pub observer: PlannedStructureRef<StructureObserver>,
     pub towers: PlannedStructureRefs<StructureTower>,
     pub extensions: PlannedStructureRefs<StructureExtension>
 }
@@ -44,9 +44,9 @@ pub type SourcesPlan = HashMap<ObjectId<Source>, SourcePlan>;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourcePlan {
-    pub spawn: OptionalPlannedStructureRef<StructureSpawn>,
-    pub container: OptionalPlannedStructureRef<StructureContainer>,
-    pub link: OptionalPlannedStructureRef<StructureLink>,
+    pub spawn: PlannedStructureRef<StructureSpawn>,
+    pub container: PlannedStructureRef<StructureContainer>,
+    pub link: PlannedStructureRef<StructureLink>,
     pub extensions: PlannedStructureRefs<StructureExtension>,
 
     pub distance: u32,
@@ -55,8 +55,8 @@ pub struct SourcePlan {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MineralPlan {
-    pub container: OptionalPlannedStructureRef<StructureContainer>,
-    pub extractor: OptionalPlannedStructureRef<StructureExtractor>,
+    pub container: PlannedStructureRef<StructureContainer>,
+    pub extractor: PlannedStructureRef<StructureExtractor>,
 
     pub distance: u32
 }

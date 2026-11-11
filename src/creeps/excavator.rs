@@ -1,50 +1,8 @@
-use std::mem;
-
-use anyhow::{Result, anyhow};
-use derive_where::derive_where;
-use enum_display::EnumDisplay;
+use anyhow::anyhow;
 use log::warn;
-use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
-use serde::{Deserialize, Serialize};
+use screeps::{ConstructionSite, HasId, Part, Position, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 
-use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, step}, structure::RepairableStructure};
-
-#[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>)]
-pub struct ExcavatorCreep<S: CheckState = Checked> {
-    state: State,
-    source: ObjectId<Source, S>
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, EnumDisplay, Default)]
-enum State {
-    #[default]
-    Going,
-    Mining
-}
-
-impl CheckFrom for ExcavatorCreep {
-    type Unchecked = ExcavatorCreep<Unchecked>;
-    type Err = anyhow::Error;
-
-    fn check_from(us: Self::Unchecked) -> Result<Self> {
-        Ok(Self { state: us.state, source: us.source.check()? })
-    }
-}
-
-impl ExcavatorCreep {
-    pub fn source(&self) -> &ObjectId<Source> {
-        &self.source
-    }
-
-    pub fn is_going(&self) -> bool {
-        self.state == State::Going
-    }
-
-    pub fn is_mining(&self) -> bool {
-        self.state == State::Mining
-    }
-}
+use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId}, statemachine::{Flow, Stop}, structure::RepairableStructure};
 
 impl SourcePlan {
     pub fn get_construction_site(&self) -> Option<ConstructionSite> {
@@ -111,66 +69,44 @@ impl EnergyDestination {
     }
 }
 
-impl ExcavatorCreep {
-    pub fn new(source: ObjectId<Source>) -> Self {
-        Self { state: State::default(), source }
-    }
-
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Result<()> {
-        let source = self.source.resolve();
-        self.state = step(mem::take(&mut self.state), |state| state.transition(creep, &source, home))?;
-        Ok(())
-    }
+pub fn is_in_position(creep_pos: Position, source: &ObjectId<Source>, home: &ColonyView) -> bool {
+    home.plan.sources.get(&source.screeps_id()).is_some_and(|plan| plan.container.pos == creep_pos)
 }
 
-impl State {
-    fn transition(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Flow<Self> {
-        use State::*;
+pub fn update(creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Stop {
+    let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Source plan doesn't exist"))?;
 
-        let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
+    creep.approach_tugged(plan.container.pos, 0)?;
 
-        match self {
-            Going => {
-                let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
-                creep.approach_tugged(harvest_pos, 0)?;
+    let harvest_energy = (creep.body().part_count(Part::Work) * 2) as u32;
+    let target_energy = creep.capacity() - harvest_energy;
 
-                Flow::Continue(Mining)
-            },
-            Mining => {
-                creep.harvest_source(source.clone())?;
+    let mut transferring_to_container = false;
+    if creep.next_used_energy_capacity() > target_energy {
+        let Some(energy_dest) = plan.get_energy_destination() else {
+            creep.cancel_intent(IntentType::Harvest);
 
-                let harvest_energy = (creep.body().part_count(Part::Work) * 2) as u32;
-                let target_energy = creep.capacity() - harvest_energy;
+            warn!("{} has nowhere to put its energy", creep.name());
+            return Flow::Break;
+        };
 
-                let mut transferring_to_container = false;
-                if creep.next_used_energy_capacity() > target_energy {
-                    let Some(energy_dest) = plan.get_energy_destination() else {
-                        creep.cancel_intent(IntentType::Harvest);
-
-                        warn!("{} has nowhere to put its energy", creep.name());
-                        return Flow::Break;
-                    };
-
-                    if !energy_dest.can_also_harvest() {
-                        creep.cancel_intent(IntentType::Harvest);
-                    }
-
-                    transferring_to_container = matches!(energy_dest, EnergyDestination::Container(_));
-                    energy_dest.recieve(creep)?;
-                }
-
-                if transferring_to_container { return Flow::Break }
-
-                let container: Option<StructureContainer> = plan.container.resolve();
-                let Some(container) = container else { return Flow::Break };
-
-                let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
-                let defecit = defecit.min(container.used_energy_capacity()).min(creep.curr_free_capacity());
-                if defecit == 0 { return Flow::Break }
-
-                creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
-                Flow::Break
-            }
+        if !energy_dest.can_also_harvest() {
+            creep.cancel_intent(IntentType::Harvest);
         }
+
+        transferring_to_container = matches!(energy_dest, EnergyDestination::Container(_));
+        energy_dest.recieve(creep)?;
     }
+
+    if transferring_to_container { return Flow::Break }
+
+    let container: Option<StructureContainer> = plan.container.resolve();
+    let Some(container) = container else { return Flow::Break };
+
+    let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
+    let defecit = defecit.min(container.used_energy_capacity()).min(creep.curr_free_capacity());
+    if defecit == 0 { return Flow::Break }
+
+    creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
+    Flow::Break
 }

@@ -5,7 +5,7 @@ use log::warn;
 use ordered_float::OrderedFloat;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, excavator::ExcavatorCreep, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, terraformer::TerraformerCreep, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters, ScheduleDecision}}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::{prototype::{Body, ScaleStopCondition}, roles::RoleSelector, roster::{ColonyRoster, Rosters, ScheduleDecision}}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     // TODO: Look over numbers here
@@ -36,7 +36,7 @@ pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
                 }
             },
             get_excavator_body(roster.future_energy(), source_plan),
-            CreepRole::Excavator(ExcavatorCreep::new(source.id()))
+            CreepRole::Excavator(source.id())
         ).log_err();
     }
 }
@@ -281,7 +281,7 @@ fn calculate_target_upgrade_work(colony: &ColonyView<'_>, roster: &ColonyRoster)
 
 pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     if roster.syndrome().any_problems() { return; }
-    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer(_))) { return; }
+    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer)) { return; }
 
     let mut energy = roster.future_energy();
     energy = energy.saturating_sub(Part::Carry.cost());
@@ -291,14 +291,14 @@ pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) 
 
     roster.schedule(
         Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize),
-        CreepRole::Terraformer(TerraformerCreep::default())
+        CreepRole::Terraformer
     ).log_err();
 }
 
 static SEEDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Work, Move, Work, Work]) });
 pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
     if roster.syndrome().any_problems() { return; }
-    if !roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer(_))) { return; }
+    if !roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer)) { return; }
 
     while roster.has_free() {
         let target_work = calculate_target_upgrade_work(colony, roster);

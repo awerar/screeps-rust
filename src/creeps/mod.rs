@@ -2,10 +2,10 @@ use std::fmt::Debug;
 
 use derive_where::derive_where;
 use log::{error, warn};
-use screeps::{Creep, ResourceType, RoomName, find, game, look, prelude::*};
+use screeps::{Creep, ResourceType, RoomName, Source, find, game, look, prelude::*};
 use anyhow::{Result, anyhow};
 
-use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -57,7 +57,7 @@ impl CreepData {
             "Truck" => CreepRole::Truck(TruckCreep::default()),
             "Fabricator" => CreepRole::Fabricator(FabricatorCreep::default()),
             "Servicer" => CreepRole::Servicer(ServicerCreep::default()),
-            "Terraformer" => CreepRole::Terraformer(TerraformerCreep::default()),
+            "Terraformer" => CreepRole::Terraformer,
             "Seeder" => CreepRole::Seeder,
             "Excavator" => {
                 let source = adjacent_positions(creep.pos())
@@ -66,7 +66,7 @@ impl CreepData {
                     .next()
                     .or_else(|| creep.pos().find_closest_by_path(find::SOURCES, None))?;
 
-                CreepRole::Excavator(ExcavatorCreep::new(source.id()))
+                CreepRole::Excavator(source.id())
             },
             _ => CreepRole::Scrap(ScrapCreep::default())
         };
@@ -76,17 +76,16 @@ impl CreepData {
 }
 
 #[derive(Debug)]
-#[derive_where(Serialize, Deserialize, Clone; ExcavatorCreep<S>, CreepId<S>)]
+#[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>, CreepId<S>)]
 pub enum CreepRole<S: CheckState = Checked> {
-    Excavator(ExcavatorCreep<S>),
+    Excavator(ObjectId<Source, S>),
     Flagship(FlagshipCreep),
     Truck(TruckCreep),
-    #[serde(alias = "ImportTruck")]
     ExportTruck(ExportTruckCreep),
     Fabricator(FabricatorCreep),
     Servicer(ServicerCreep),
     Tugboat(CreepId<S>),
-    Terraformer(TerraformerCreep),
+    Terraformer,
     Seeder,
     Scrap(ScrapCreep),
 }
@@ -105,7 +104,7 @@ impl CheckFrom for CreepRole {
             Self::Unchecked::Servicer(state) => Self::Servicer(state),
             Self::Unchecked::Tugboat(tugged) => Self::Tugboat(tugged.check()?),
             Self::Unchecked::Scrap(state) => Self::Scrap(state),
-            Self::Unchecked::Terraformer(state) => Self::Terraformer(state),
+            Self::Unchecked::Terraformer => Self::Terraformer,
             Self::Unchecked::Seeder => Self::Seeder
         })
     }
@@ -122,7 +121,7 @@ impl CreepRole {
             CreepRole::ExportTruck(_) => "ExportTruck",
             CreepRole::Fabricator(_) => "Fabricator",
             CreepRole::Servicer(_) => "Servicer",
-            CreepRole::Terraformer(_) => "Terraformer",
+            CreepRole::Terraformer => "Terraformer",
             CreepRole::Seeder => "Seeder"
         }
     }
@@ -156,7 +155,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
 
         let result = match &mut creep_data.role {
             Flagship(state) => state.update(&mut vcreep, &mut mem.flagship_coordinator),
-            Excavator(state) => state.update(&mut vcreep, &home),
+            Excavator(source) => excavator::update(&mut vcreep, &source.resolve(), &home).into_result(),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
                 state.update(&mut vcreep, &home, coordinator)
@@ -178,7 +177,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 let coordinator = mem.servicer_coordinators.entry(creep_data.home).or_default();
                 state.update(&mut vcreep, &home, coordinator)
             }
-            Terraformer(state) => state.update(&mut vcreep, &home),
+            Terraformer => terraformer::update(&mut vcreep, &home).into_result(),
             Seeder => run(|| seeder::transition(&mut vcreep, &home)),
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };

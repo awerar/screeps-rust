@@ -9,6 +9,17 @@ pub enum Flow<T = (), E = anyhow::Error> {
     Fail(E)
 }
 
+pub type Stop<E = anyhow::Error> = Flow<!, E>;
+
+impl<E> Stop<E> {
+    pub fn into_result(self) -> Result<(), E> {
+        match self {
+            Flow::Break => Ok(()),
+            Flow::Fail(e) => Err(e)
+        }
+    }
+}
+
 impl<T, E> Flow<T, E> {
     pub fn map_continue<U>(self, f: impl FnOnce(T) -> U) -> Flow<U, E> {
         match self {
@@ -21,7 +32,7 @@ impl<T, E> Flow<T, E> {
 
 impl<T, E> Try for Flow<T, E> {
     type Output = T;
-    type Residual = Flow<Infallible, E>;
+    type Residual = Stop<E>;
 
     fn from_output(output: Self::Output) -> Self {
         Self::Continue(output)
@@ -36,8 +47,8 @@ impl<T, E> Try for Flow<T, E> {
     }
 }
 
-impl<T, E, F: Into<E>> FromResidual<Flow<Infallible, F>> for Flow<T, E> {
-    fn from_residual(residual: Flow<Infallible, F>) -> Self {
+impl<T, E, F: Into<E>> FromResidual<Stop<F>> for Flow<T, E> {
+    fn from_residual(residual: Stop<F>) -> Self {
         match residual {
             Flow::Break => Self::Break,
             Flow::Fail(e) => Self::Fail(e.into()),
@@ -60,7 +71,6 @@ impl<T, E, F: Into<E>> From<Result<T, F>> for Flow<T, E> {
     }
 }
 
-/// Explicitly treat a missing value as "stop for this tick".
 pub trait OrBreak<T> {
     fn or_break(self) -> Flow<T>;
 }
@@ -71,7 +81,7 @@ impl<T> OrBreak<T> for Option<T> {
     }
 }
 
-impl<T, E> Residual<T> for Flow<Infallible, E> { type TryType = Flow<T, E>; }
+impl<T, E> Residual<T> for Stop<E> { type TryType = Flow<T, E>; }
 
 const MAX_TRANSITIONS: u32 = 20;
 
