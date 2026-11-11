@@ -1,3 +1,5 @@
+use std::mem;
+
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{HasPosition, Position, ResourceType};
@@ -54,11 +56,12 @@ impl TruckCreep {
         Self::Idle
     }
 
-    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) {
-        step(self, |state| state.transition(truck, home, coordinator));
+    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Result<()> {
+        *self = step(mem::take(self), |state| state.transition(truck, home, coordinator))?;
+        Ok(())
     }
 
-    fn transition(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
+    fn transition(self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
                 if truck.next_used_energy_capacity() > 0 {
@@ -82,9 +85,9 @@ impl TruckCreep {
                 Flow::Break
             },
             Self::Performing(task) => {
-                let Some(mut handle) = coordinator.heartbeat(truck, task) else { goto!(Self::Idle) };
+                let Some(mut handle) = coordinator.heartbeat(truck, &task) else { goto!(Self::Idle) };
 
-                match task {
+                match &task {
                     TruckTask::CollectingFrom(_) => 
                         goto!(if truck.next_free_capacity() == 0 { Self::finish_task(handle) }),
                     TruckTask::ProvidingTo(task) => 
@@ -99,20 +102,20 @@ impl TruckCreep {
                 Flow::Continue(Self::finish_task(handle))
             },
             Self::FillingUpFor(consumer) => {
-                let Some(mut handle) = coordinator.consumers.heartbeat(consumer, truck.handle()) else { goto!(Self::Idle) };
+                let Some(mut handle) = coordinator.consumers.heartbeat(&consumer, truck.handle()) else { goto!(Self::Idle) };
 
                 let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.used_energy_capacity() > 0) else {
                     goto!(Self::finish_task(handle))
                 };
 
-                goto!(if truck.next_used_energy_capacity() > 0 { Self::Performing(TruckTask::ProvidingTo(consumer.clone())) });
+                goto!(if truck.next_used_energy_capacity() > 0 { Self::Performing(TruckTask::ProvidingTo(consumer)) });
 
                 truck.approach(buffer.pos(), 1)?;
 
                 break_if(truck.outgoing() > 0)?;
                 handle.consume(truck.withdraw(*buffer, ResourceType::Energy, None)?);
 
-                Flow::Continue(Self::Performing(TruckTask::ProvidingTo(consumer.clone())))
+                Flow::Continue(Self::Performing(TruckTask::ProvidingTo(consumer)))
             },
             Self::StoringAway => {
                 let Some(buffer) = home.buffer.as_ref().filter(|buffer| buffer.free_energy_capacity() > 0) else { 

@@ -1,3 +1,5 @@
+use std::mem;
+
 use anyhow::{Result, anyhow};
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
@@ -114,14 +116,15 @@ impl ExcavatorCreep {
         Self { state: State::default(), source }
     }
 
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) {
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Result<()> {
         let source = self.source.resolve();
-        step(&mut self.state, |state| state.transition(creep, &source, home));
+        self.state = step(mem::take(&mut self.state), |state| state.transition(creep, &source, home))?;
+        Ok(())
     }
 }
 
 impl State {
-    fn transition(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Flow<Self> {
         use State::*;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;

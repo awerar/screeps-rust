@@ -1,9 +1,8 @@
 use std::collections::{HashSet, hash_map};
 
-use itertools::Itertools;
 use js_sys::JsString;
 use screeps::{HasPosition, OwnedStructureProperties, Room, RoomName, find, game};
-use log::{info, warn};
+use log::{error, info, warn};
 
 use crate::{colony::{ColonyView, plan::ColonyPlan, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, clear_room_visual, draw_in_room_replaced}};
 
@@ -86,7 +85,11 @@ pub fn update_colonies(mem: &mut Memory) {
 
         let (plan, stp) = mem.colonies.0.get_mut(&name).unwrap();
         let view = ColonyView::new(room.clone(), plan, *stp);
-        step(stp, |stp| stp.update(&room, &view));
+
+        match step(*stp, |stp| stp.update(&room, &view)) {
+            Ok(new_step) => *stp = new_step,
+            Err(e) => error!("Colony {name} failed, falling back to the default step: {e:#}"),
+        }
     }
 }
 

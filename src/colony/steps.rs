@@ -9,7 +9,7 @@ use strum::{EnumIter, FromRepr, IntoEnumIterator};
 use crate::{colony::ColonyView, statemachine::Flow};
 
 impl ColonyStep {
-    pub fn update(&mut self, room: &Room, colony_data: &ColonyView<'_>) -> Flow<Self> {
+    pub fn update(self, room: &Room, colony_data: &ColonyView<'_>) -> Flow<Self> {
 
         let controller_level = colony_data.controller.level();
         if self.controller_level() > controller_level { 
@@ -17,7 +17,7 @@ impl ColonyStep {
         }
 
         let controller_is_upgraded = controller_level > self.controller_level();
-        let built_step = colony_data.plan.steps.get(&*self).map_or(Ok(true), |step| step.build(room))?;
+        let built_step = colony_data.plan.steps.get(&self).map_or(Ok(true), |step| step.build(room))?;
 
         let Some(promotion) = self.promotion() else { return Flow::Break };
         let promotion_is_upgrade = promotion.controller_level() > self.controller_level();

@@ -1,3 +1,5 @@
+use std::mem;
+
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part};
@@ -26,11 +28,12 @@ impl<'de> Deserialize<'de> for SeederCreep {
 }
 
 impl SeederCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) {
-        step(self, |state| state.transition(creep, home));
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> anyhow::Result<()> {
+        *self = step(mem::take(self), |state| state.transition(creep, home))?;
+        Ok(())
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
         use SeederCreep::*;
 
         match self {
@@ -48,7 +51,7 @@ impl SeederCreep {
                 Flow::Break
             },
             Refilling(target) => {
-                gather_energy(creep, || Flow::Continue(*target))?;
+                gather_energy(creep, || Flow::Continue(target))?;
                 Flow::Continue(Upgrading)
             },
             Self::Upgrading => {

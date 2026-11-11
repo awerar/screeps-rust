@@ -1,3 +1,5 @@
+use std::mem;
+
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use ordered_float::OrderedFloat;
@@ -33,11 +35,12 @@ impl<'de> Deserialize<'de> for ServicerCreep {
 }
 
 impl ServicerCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) {
-        step(self, |state| state.transition(creep, home, coordinator));
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> anyhow::Result<()> {
+        *self = step(mem::take(self), |state| state.transition(creep, home, coordinator))?;
+        Ok(())
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Flow<Self> {
 
         match self {
             Self::Idle => {
@@ -46,12 +49,12 @@ impl ServicerCreep {
                 Flow::Continue(Self::Scrap(ScrapCreep::default()))
             },
             Self::Repairing(task) => {
-                let Some(mut handle) = coordinator.refresh(creep, task) else { goto!(Self::Idle) };
+                let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::Idle) };
 
                 gather_energy(creep, || home.buffer.or_break())?;
 
                 creep.approach(task.pos(), 3)?;
-                handle.consume(creep.repair(*task)? * REPAIR_POWER);
+                handle.consume(creep.repair(task)? * REPAIR_POWER);
 
                 break_if(handle.reserved() > 0)?;
 

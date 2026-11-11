@@ -1,3 +1,5 @@
+use std::mem;
+
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
 use screeps::{HasPosition, StructureSpawn, find, game};
@@ -23,11 +25,12 @@ impl<'de> Deserialize<'de> for ScrapCreep {
 }
 
 impl ScrapCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) {
-        step(self, |state| state.transition(creep, home));
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> anyhow::Result<()> {
+        *self = step(mem::take(self), |state| state.transition(creep, home))?;
+        Ok(())
     }
 
-    pub fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
+    pub fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
         use ScrapCreep::*;
 
         match self {

@@ -1,3 +1,5 @@
+use std::mem;
+
 use anyhow::Result;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
@@ -31,11 +33,12 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 }
 
 impl FabricatorCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) {
-        step(self, |state| state.transition(creep, home, coordinator));
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<()> {
+        *self = step(mem::take(self), |state| state.transition(creep, home, coordinator))?;
+        Ok(())
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
                 goto!(if let Some(task) = coordinator.assign_build(creep) { Self::Building(task) });
@@ -43,7 +46,7 @@ impl FabricatorCreep {
                 Flow::Continue(Self::Scrap(ScrapCreep::default()))
             },
             Self::Building(task) => {
-                let Some(mut handle) = coordinator.refresh(creep, task) else { goto!(Self::Idle) };
+                let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::Idle) };
 
                 gather_energy(creep, || home.buffer.or_break())?;
 

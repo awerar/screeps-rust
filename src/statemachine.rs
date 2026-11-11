@@ -1,6 +1,6 @@
 use std::{convert::Infallible, fmt::Display, ops::{ControlFlow, FromResidual, Residual, Try}};
+use anyhow::anyhow;
 use itertools::Itertools;
-use log::{error, warn};
 
 #[must_use]
 pub enum Flow<T = (), E = anyhow::Error> {
@@ -76,33 +76,27 @@ impl<T, E> Residual<T> for Flow<Infallible, E> { type TryType = Flow<T, E>; }
 const MAX_TRANSITIONS: u32 = 20;
 
 #[expect(clippy::to_string_in_format_args)]
-pub fn step<T, E, F>(state: &mut T, mut transition: F)
+pub fn step<T, E, F>(mut state: T, mut transition: F) -> Result<T, anyhow::Error>
 where
-    F : FnMut(&mut T) -> Flow<T, E>,
-    T : Default + Display,
-    E : Display
+    F : FnMut(T) -> Flow<T, E>,
+    T : Display + Clone,
+    E : Into<anyhow::Error>
 {
     let mut state_names = vec![];
 
     for _ in 0..MAX_TRANSITIONS {
-        let curr_state_name = state.to_string();
-
-        match transition(state) {
-            Flow::Fail(e) => {
-                error!("Failed on state {curr_state_name}. Falling back to default state: {e}");
-                *state = T::default();
-                return;
-            },
-            Flow::Break => return,
+        match transition(state.clone()) {
+            Flow::Fail(e) => return Err(e.into().context(format!("Failed in state {state}"))),
+            Flow::Break => return Ok(state),
             Flow::Continue(new_state) => {
-                state_names.push(curr_state_name);
-                *state = new_state;
+                state_names.push(state.to_string());
+                state = new_state;
             }
         }
     }
 
     state_names.push(state.to_string());
-    warn!("Transitioned too many times:\n{}", state_names.into_iter().format(" -> ").to_string());
+    Err(anyhow!("Transitioned too many times:\n{}", state_names.into_iter().format(" -> ").to_string()))
 }
 
 pub fn break_if(cond: bool) -> Flow {

@@ -154,32 +154,37 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
 
         let mut vcreep = VirtualCreep::new(creep.clone());
 
-        match &mut creep_data.role {
+        let result = match &mut creep_data.role {
             Flagship(state) => state.update(&mut vcreep, &mut mem.flagship_coordinator),
             Excavator(state) => state.update(&mut vcreep, &home),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, coordinator);
+                state.update(&mut vcreep, &home, coordinator)
             },
             ImportTruck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), coordinator);
+                state.update(&mut vcreep, &home, &mem.colonies.view_export_colonies(), coordinator)
             }
             Fabricator(state) => {
                 let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, coordinator);
+                state.update(&mut vcreep, &home, coordinator)
             },
             Servicer(state) => {
                 let coordinator = mem.servicer_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, coordinator);
+                state.update(&mut vcreep, &home, coordinator)
             }
             Terraformer(state) => state.update(&mut vcreep, &home),
             Seeder(state) => state.update(&mut vcreep, &home),
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
                 movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);
+                Ok(())
             },
             Scrap(state) => state.update(&mut vcreep, &home),
+        };
+
+        if let Err(e) = result {
+            error!("{} update failed: {e:#}", creep.name());
         }
 
         if let Err(e) = vcreep.commit(&mut movement) {
