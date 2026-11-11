@@ -6,10 +6,10 @@ use screeps::Room;
 use serde::{Deserialize, Serialize};
 use strum::{EnumIter, FromRepr, IntoEnumIterator};
 
-use crate::{goto, colony::ColonyView, statemachine::{Flow, Next}};
+use crate::{colony::ColonyView, statemachine::Flow};
 
 impl ColonyStep {
-    pub fn update(self, room: &Room, colony_data: &ColonyView<'_>) -> Flow<Next<Self>> {
+    pub fn update(self, room: &Room, colony_data: &ColonyView<'_>) -> Flow<Self> {
 
         let controller_level = colony_data.controller.level();
         if self.controller_level() > controller_level { 
@@ -21,9 +21,11 @@ impl ColonyStep {
 
         let Some(promotion) = self.promotion() else { return Flow::Break };
         let promotion_is_upgrade = promotion.controller_level() > self.controller_level();
-        goto!(if built_step && (!promotion_is_upgrade || controller_is_upgraded) { promotion });
-
-        Flow::Break
+        if built_step && (!promotion_is_upgrade || controller_is_upgraded) {
+            Flow::Continue(promotion)
+        } else {
+            Flow::Break
+        }
     }
 }
 

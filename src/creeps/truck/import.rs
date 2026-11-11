@@ -7,7 +7,7 @@ use screeps::{HasPosition, ResourceType, RoomName};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, stay, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, Next, step}};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::{IntentType, VirtualCreep}}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, break_if, step}};
 
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
@@ -103,23 +103,21 @@ impl ImportTruckCreep {
         Ok(())
     }
 
-    fn transition<'a>(mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Flow<Next<Self>> {
+    fn transition<'a>(mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         let going_home_ticks = if let State::GoingHome(ticks) = self.state { Some(ticks) } else { None };
-        let next = self.state.transition(creep, home, colonies, coordinator)?;
+        self.state = self.state.transition(creep, home, colonies, coordinator)?;
 
-        Flow::Continue(next.map(|state| {
-            if let Some(ticks) = going_home_ticks && matches!(state, State::Arrived(_)) {
-                self.trips += 1;
-                self.total_trip_ticks += ticks;
-            }
+        if let Some(ticks) = going_home_ticks && matches!(self.state, State::Arrived(_)) {
+            self.trips += 1;
+            self.total_trip_ticks += ticks;
+        }
 
-            Self { state, ..self }
-        }))
+        Flow::Continue(self)
     }
 }
 
 impl State {
-    fn transition<'a>(self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Flow<Next<Self>> {
+    fn transition<'a>(self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
                 let export_colony = colonies.values()
@@ -127,7 +125,7 @@ impl State {
                     .max_by_key(|colony| colony.buffer.used_energy_capacity());
                 let Some(export_colony) = export_colony else { return Flow::Break };
 
-                goto!(Self::CollectingFrom(export_colony.name))
+                Flow::Continue(Self::CollectingFrom(export_colony.name))
             },
             Self::CollectingFrom(room_name) => {
                 let Some(colony) = colonies.get(&room_name) else { goto!(Self::Idle) };
@@ -135,12 +133,18 @@ impl State {
                 creep.approach(colony.buffer.pos(), 1)?;
                 creep.withdraw(colony.buffer, ResourceType::Energy, None)?;
                 
-                goto!(Self::GoingHome(1))
+                Flow::Continue(Self::GoingHome(0))
             },
-            Self::GoingHome(ticks) => match creep.approach(home.center, 3) {
-                Flow::Continue(()) => goto!(Self::Arrived(ArrivedState::Idle)),
-                Flow::Break => stay!(Self::GoingHome(ticks + 1)),
-                Flow::Fail(e) => Flow::Fail(e),
+            Self::GoingHome(dist) => {
+                break_if(!creep.can_do(IntentType::Move))?;
+
+                match creep.approach(home.center, 3) {
+                    Flow::Continue(()) => (),
+                    Flow::Break => goto!(Self::GoingHome(dist + 1)),
+                    Flow::Fail(e) => return Flow::Fail(e),
+                }
+
+                Flow::Continue(Self::Arrived(ArrivedState::Idle))
             },
             Self::Arrived(arrived_state) => {
                 if creep.next_used_energy_capacity() == 0 { 
@@ -152,14 +156,14 @@ impl State {
                     goto!(Self::Idle) 
                 }
 
-                arrived_state.transition(creep, home, coordinator).map_continue(|next| next.map(Self::Arrived))
+                arrived_state.transition(creep, home, coordinator).map_continue(Self::Arrived)
             }
         }
     }
 }
 
 impl ArrivedState {
-    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Flow<Next<Self>> {
+    fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
                 goto!(if let Some(buffer) = home.buffer.as_ref().filter(|b| b.free_energy_capacity() > 0) { Self::StoringAway(*buffer) });
@@ -176,7 +180,7 @@ impl ArrivedState {
                 task_handle.consume(creep.transfer(consumer, ResourceType::Energy, None)?);
 
                 task_handle.release();
-                goto!(Self::Idle)
+                Flow::Continue(Self::Idle)
             },
             Self::StoringAway(buffer) => {
                 goto!(if buffer.free_energy_capacity() == 0 { Self::Idle });
@@ -184,7 +188,7 @@ impl ArrivedState {
                 creep.approach(buffer.pos(), 1)?;
                 creep.transfer(buffer, ResourceType::Energy, None)?;
 
-                goto!(Self::Idle)
+                Flow::Continue(Self::Idle)
             },
         }
     }

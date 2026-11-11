@@ -7,7 +7,7 @@ use log::warn;
 use screeps::{HasPosition, OwnedStructureProperties, Position, RoomName, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, goto, statemachine::{Flow, Next, step, break_if}};
+use crate::{commands::{Command, handle_commands}, creeps::virtual_creep::VirtualCreep, goto, statemachine::{Flow, step, break_if}};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default, Clone, EnumDisplay)]
 pub enum FlagshipCreep {
@@ -49,7 +49,7 @@ impl FlagshipCreep {
         Ok(())
     }
 
-    fn transition(self, creep: &mut VirtualCreep, coordinator: &mut FlagshipCoordinator) -> Flow<Next<Self>> {
+    fn transition(self, creep: &mut VirtualCreep, coordinator: &mut FlagshipCoordinator) -> Flow<Self> {
         use FlagshipCreep::*;
 
         match self {
@@ -87,7 +87,7 @@ impl FlagshipCreep {
                 break_if(controller.reservation().is_some_and(|r| r.ticks_to_end() > 0))?;
 
                 coordinator.rooms.remove(&room_name);
-                goto!(Idle)
+                Flow::Continue(Idle)
             }
         }
     }
