@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail};
 use derive_where::derive_where;
 use screeps::{Creep, HasPosition, Position, Resource, ResourceType, Ruin, Tombstone};
 
-use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::{IntentError, VirtualCreep}, domain_traits::{CreepId, HasStore, HasStoreExt, ObjectId, ResolvableId, Transferable}, ids::{CheckState, Checked, Unchecked}, structure::{ConsumerStructure, ProviderStructure}};
+use crate::{check::{Check, CheckFrom}, creeps::virtual_creep::VirtualCreep, domain_traits::{CreepId, HasStore, HasStoreExt, ObjectId, ResolvableId, Transferable}, ids::{CheckState, Checked, Unchecked}, statemachine::Flow, structure::{ConsumerStructure, ProviderStructure}};
 
 #[derive_where(Debug, PartialEq, Eq, Hash)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<Ruin, S>, ObjectId<Resource, S>, ObjectId<Tombstone, S>, ProviderStructure<S>, ObjectId<Creep, S>)]
@@ -56,17 +56,17 @@ impl ProviderTruckStop {
         }
     }
 
-    pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> anyhow::Result<u32, IntentError> { 
+    pub fn creep_withdraw(&self, creep: &mut VirtualCreep, ty: ResourceType) -> Flow<u32> { 
         match self {
-            Self::Ruin(id) => Ok(creep.withdraw(id.resolve(), ty, None)?),
-            Self::Tombstone(id) => Ok(creep.withdraw(id.resolve(), ty, None)?),
-            Self::Creep(id) => Ok(creep.transfer_from(&id.resolve(), ty, None)?),
+            Self::Ruin(id) => creep.withdraw(id.resolve(), ty, None),
+            Self::Tombstone(id) => creep.withdraw(id.resolve(), ty, None),
+            Self::Creep(id) => creep.transfer_from(&id.resolve(), ty, None),
             Self::Structure(id) => creep.withdraw(*id, ty, None),
             Self::Resource(id) => 
                 if id.resolve().resource_type() == ty { 
-                    Ok(creep.pickup(id.resolve())?) 
+                    creep.pickup(id.resolve())
                 } else { 
-                    Err(anyhow!("Resource pile does not contain {ty}").into()) 
+                    Flow::Fail(anyhow!("Resource pile does not contain {ty}"))
                 },
         }
     }

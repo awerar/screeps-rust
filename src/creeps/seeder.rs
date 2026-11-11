@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{CARRY_CAPACITY, CONTAINER_CAPACITY, HasPosition, Part};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, next, next_if, statemachine::{Step, step, Wait::Ready, wait_if}, structure::ProviderStructure};
+use crate::{check::Check, colony::ColonyView, creeps::{gather_energy, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step, break_if}, structure::ProviderStructure};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ProviderStructure<S>, S)]
@@ -30,39 +30,35 @@ impl SeederCreep {
         step(self, |state| state.transition(creep, home));
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
         use SeederCreep::*;
 
         match self {
             Idle => {
-                if creep.next_used_energy_capacity() > 0 { next!(Upgrading) }
+                goto!(if creep.next_used_energy_capacity() > 0 { Upgrading });
                 
                 let min_refill = (creep.body().part_count(Part::Carry) as u32 * CARRY_CAPACITY).min(CONTAINER_CAPACITY);
                 
-                if let Some(container) = home.plan.upgrader_container.resolve()
-                    && container.used_energy_capacity() > min_refill {
-                        next!(Refilling(ProviderStructure::new(container)));
-                }
+                let container = home.plan.upgrader_container.resolve().filter(|c| c.used_energy_capacity() > min_refill);
+                goto!(if let Some(container) = container { Refilling(ProviderStructure::new(container)) });
 
-                if let Some(buffer) = home.buffer 
-                    && buffer.used_energy_capacity() > min_refill {
-                        next!(Refilling(ProviderStructure::new(buffer)))
-                }
+                let buffer = home.buffer.filter(|b| b.used_energy_capacity() > min_refill);
+                goto!(if let Some(buffer) = buffer { Refilling(ProviderStructure::new(buffer)) });
 
-                Step::Stay
+                Flow::Break
             },
             Refilling(target) => {
-                gather_energy(creep, || Ready(*target))?;
-                next!(Upgrading)
+                gather_energy(creep, || Flow::Continue(*target))?;
+                Flow::Continue(Upgrading)
             },
             Self::Upgrading => {
-                next_if!(creep.next_used_energy_capacity() == 0, Idle);
-                wait_if(creep.curr_used_energy_capacity() == 0)?;
+                goto!(if creep.next_used_energy_capacity() == 0 { Idle });
+                break_if(creep.curr_used_energy_capacity() == 0)?;
 
                 creep.approach(home.controller.pos(), 3)?;
                 creep.upgrade_controller(home.controller.clone())?;
 
-                Step::Stay
+                Flow::Break
             }
         }
     }

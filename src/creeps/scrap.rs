@@ -3,7 +3,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, StructureSpawn, find, game};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, next, statemachine::{Step, step}};
+use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step}};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<StructureSpawn, S>, S)]
@@ -27,26 +27,22 @@ impl ScrapCreep {
         step(self, |state| state.transition(creep, home));
     }
 
-    pub fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Step<Self> {
+    pub fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Flow<Self> {
         use ScrapCreep::*;
 
         match self {
             Idle => {
-                if creep.pos().room_name() == home.name
+                goto!(if creep.pos().room_name() == home.name
                     && let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
-                        next!(Going(spawn.id()))
-                }
+                        Going(spawn.id())
+                });
 
-                if let Some(spawn) = home.plan.center.spawn.resolve() {
-                    next!(Going(spawn.id()))
-                }
+                goto!(if let Some(spawn) = home.plan.center.spawn.resolve() { Going(spawn.id()) });
 
-                if let Some(spawn) = game::spawns().values()
-                    .min_by_key(|spawn| creep.pos().get_range_to(spawn.pos())) {
-                        next!(Going(spawn.id()))
-                }
+                let closest_spawn = game::spawns().values().min_by_key(|spawn| creep.pos().get_range_to(spawn.pos()));
+                goto!(if let Some(spawn) = closest_spawn { Going(spawn.id()) });
 
-                Step::Stay   
+                Flow::Break   
             },
             Going(spawn) => {
                 let spawn = spawn.resolve();
@@ -54,7 +50,7 @@ impl ScrapCreep {
                 creep.approach(spawn.pos(), 1)?;
                 creep.recycle(&spawn)?;
 
-                Step::Stay
+                Flow::Break
             }
         }
     }

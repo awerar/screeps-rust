@@ -4,7 +4,7 @@ use enum_display::EnumDisplay;
 use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, next, statemachine::{Step, step, wait_for, wait_if}};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
 
 const MAX_TASK_TICKS: u32 = 100;
 
@@ -35,29 +35,27 @@ impl FabricatorCreep {
         step(self, |state| state.transition(creep, home, coordinator));
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
-                if let Some(task) = coordinator.assign_build(creep) {
-                    next!(Self::Building(task))
-                }
+                goto!(if let Some(task) = coordinator.assign_build(creep) { Self::Building(task) });
 
-                Step::Next(Self::Scrap(ScrapCreep::default()))
+                Flow::Continue(Self::Scrap(ScrapCreep::default()))
             },
             Self::Building(task) => {
-                let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
+                let Some(mut handle) = coordinator.refresh(creep, task) else { goto!(Self::Idle) };
 
-                gather_energy(creep, || wait_for(home.buffer))?;
+                gather_energy(creep, || home.buffer.or_break())?;
 
                 creep.approach(task.resolve().pos(), 1)?;
                 handle.consume(creep.build(task.resolve())?);
 
-                wait_if(handle.reserved() > 0)?;
+                break_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Step::Next(Self::Idle)
+                Flow::Continue(Self::Idle)
             },
-            FabricatorCreep::Scrap(state) => state.transition(creep, home).map(FabricatorCreep::Scrap)
+            FabricatorCreep::Scrap(state) => state.transition(creep, home).map_continue(FabricatorCreep::Scrap)
         }
     }
 }

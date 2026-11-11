@@ -5,7 +5,7 @@ use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, find, game, look, prelude::*};
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Wait, wait_if}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, creeps::{excavator::ExcavatorCreep, fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, seeder::SeederCreep, servicer::ServicerCreep, terraformer::TerraformerCreep, truck::{CreepStops, ImportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if}, utils::adjacent_positions};
 
 pub mod flagship;
 pub mod excavator;
@@ -207,21 +207,21 @@ impl Memory {
     }
 }
 
-pub fn gather_energy<P, F>(creep: &mut VirtualCreep, find_structure: F) -> Wait 
+pub fn gather_energy<P, F>(creep: &mut VirtualCreep, find_structure: F) -> Flow 
     where
         P : Withdrawable + HasPosition + 'static,
-        F : FnOnce() -> Wait<P>
+        F : FnOnce() -> Flow<P>
 {
-    if creep.next_used_energy_capacity() > 0 { return Wait::Ready(()); }
+    if creep.next_used_energy_capacity() > 0 { return Flow::Continue(()); }
 
     let structure = find_structure()?;
 
     creep.approach(structure.pos(), 1)?;
 
-    wait_if(structure.used_energy_capacity() == 0)?;
-    wait_if(creep.outgoing() > 0)?;
+    break_if(structure.used_energy_capacity() == 0)?;
+    break_if(creep.outgoing() > 0)?;
     
     creep.withdraw(structure, ResourceType::Energy, None)?;
 
-    Wait::Ready(())
+    Flow::Continue(())
 }

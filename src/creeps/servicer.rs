@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasPosition, Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, next, statemachine::{Step, step, wait_for, wait_if}, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}, structure::RepairableStructure};
 
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
 const REPAIR_PERCENTAGE: f32 = 0.95;
@@ -37,30 +37,28 @@ impl ServicerCreep {
         step(self, |state| state.transition(creep, home, coordinator));
     }
 
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Flow<Self> {
 
         match self {
             Self::Idle => {
-                if let Some(task) = coordinator.assign_repair(creep) {
-                    next!(Self::Repairing(task))
-                }
+                goto!(if let Some(task) = coordinator.assign_repair(creep) { Self::Repairing(task) });
 
-                Step::Next(Self::Scrap(ScrapCreep::default()))
+                Flow::Continue(Self::Scrap(ScrapCreep::default()))
             },
             Self::Repairing(task) => {
-                let Some(mut handle) = coordinator.refresh(creep, task) else { next!(Self::Idle) };
+                let Some(mut handle) = coordinator.refresh(creep, task) else { goto!(Self::Idle) };
 
-                gather_energy(creep, || wait_for(home.buffer))?;
+                gather_energy(creep, || home.buffer.or_break())?;
 
                 creep.approach(task.pos(), 3)?;
                 handle.consume(creep.repair(*task)? * REPAIR_POWER);
 
-                wait_if(handle.reserved() > 0)?;
+                break_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Step::Next(Self::Idle)
+                Flow::Continue(Self::Idle)
             },
-            Self::Scrap(state) => state.transition(creep, home).map(Self::Scrap)
+            Self::Scrap(state) => state.transition(creep, home).map_continue(Self::Scrap)
         }
     }
 }

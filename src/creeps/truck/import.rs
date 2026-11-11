@@ -7,7 +7,7 @@ use screeps::{HasPosition, ResourceType, RoomName};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, next, next_if, statemachine::{Step, step}};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyView, steps::ColonyStep}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step}};
 
 pub const STOP_IMPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel5;
 const START_EXPORT_STEP: ColonyStep = ColonyStep::UpgradeToLevel6;
@@ -102,7 +102,7 @@ impl ImportTruckCreep {
         step(self, |state| state.transition(creep, home, colonies, coordinator));
     }
 
-    fn transition<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    fn transition<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         let new_state = self.state.transition(creep, home, colonies, coordinator)?;
         
         if let State::GoingHome(ticks) = self.state && matches!(new_state, State::Arrived(_)) {
@@ -110,34 +110,34 @@ impl ImportTruckCreep {
             self.total_trip_ticks += ticks;
         }
 
-        Step::Next(Self { state: new_state, ..*self })
+        Flow::Continue(Self { state: new_state, ..*self })
     }
 }
 
 impl State {
-    fn transition<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    fn transition<'a>(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'a>, colonies: &HashMap<RoomName, ExportColonyView<'a>>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
                 let export_colony = colonies.values()
                     .filter(|colony| home.name != colony.name)
                     .max_by_key(|colony| colony.buffer.used_energy_capacity());
-                let Some(export_colony) = export_colony else { return Step::Stay };
+                let Some(export_colony) = export_colony else { return Flow::Break };
 
-                Step::Next(Self::CollectingFrom(export_colony.name))
+                Flow::Continue(Self::CollectingFrom(export_colony.name))
             },
             Self::CollectingFrom(room_name) => {
-                let Some(colony) = colonies.get(room_name) else { next!(Self::Idle) };
+                let Some(colony) = colonies.get(room_name) else { goto!(Self::Idle) };
 
                 creep.approach(colony.buffer.pos(), 1)?;
                 creep.withdraw(colony.buffer, ResourceType::Energy, None)?;
                 
-                Step::Next(Self::GoingHome(0))
+                Flow::Continue(Self::GoingHome(0))
             },
             Self::GoingHome(ticks) => {
                 *ticks += 1;
                 creep.approach(home.center, 3)?;
 
-                Step::Next(Self::Arrived(ArrivedState::Idle))
+                Flow::Continue(Self::Arrived(ArrivedState::Idle))
             },
             Self::Arrived(arrived_state) => {
                 if creep.next_used_energy_capacity() == 0 { 
@@ -146,47 +146,42 @@ impl State {
                             handle.release();
                     }
 
-                    next!(Self::Idle) 
+                    goto!(Self::Idle) 
                 }
 
-                arrived_state.transition(creep, home, coordinator).map(Self::Arrived)
+                arrived_state.transition(creep, home, coordinator).map_continue(Self::Arrived)
             }
         }
     }
 }
 
 impl ArrivedState {
-    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Flow<Self> {
         match self {
             Self::Idle => {
-                if let Some(buffer) = home.buffer.as_ref() && buffer.free_energy_capacity() > 0 {
-                    next!(Self::StoringAway(*buffer))
-                }
-
-                if let Some(consumer) = coordinator.assign_consumer(creep) {
-                    next!(Self::ProvidingTo(consumer))
-                }
+                goto!(if let Some(buffer) = home.buffer.as_ref().filter(|b| b.free_energy_capacity() > 0) { Self::StoringAway(*buffer) });
+                goto!(if let Some(consumer) = coordinator.assign_consumer(creep) { Self::ProvidingTo(consumer) });
 
                 creep.approach(home.center, 3)?;
 
-                Step::Stay
+                Flow::Break
             },
             Self::ProvidingTo(consumer) => {
-                let Some(mut task_handle) = coordinator.consumers.heartbeat(consumer, creep.handle()) else { next!(Self::Idle) };
+                let Some(mut task_handle) = coordinator.consumers.heartbeat(consumer, creep.handle()) else { goto!(Self::Idle) };
 
                 creep.approach(consumer.pos(), 1)?;
                 task_handle.consume(creep.transfer(consumer.clone(), ResourceType::Energy, None)?);
 
                 task_handle.release();
-                Step::Next(Self::Idle)
+                Flow::Continue(Self::Idle)
             },
             Self::StoringAway(buffer) => {
-                next_if!(buffer.free_energy_capacity() == 0, Self::Idle);
+                goto!(if buffer.free_energy_capacity() == 0 { Self::Idle });
 
                 creep.approach(buffer.pos(), 1)?;
                 creep.transfer(*buffer, ResourceType::Energy, None)?;
 
-                Step::Next(Self::Idle)
+                Flow::Continue(Self::Idle)
             },
         }
     }

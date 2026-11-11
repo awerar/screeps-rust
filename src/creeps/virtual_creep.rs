@@ -1,10 +1,10 @@
-use std::{collections::HashMap, convert::Infallible, error::Error, ops::FromResidual};
+use std::{collections::HashMap, error::Error};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use enum_display::EnumDisplay;
 use screeps::{ConstructionSite, Creep, HasPosition, Part, Position, Resource, ResourceType, SharedCreepProperties, Source, StructureController, StructureSpawn};
 
-use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::{MoveTarget, requests::{MoveRequest, MoveRequestType, MovementRequests}}, spawn::prototype::Body, statemachine::{Step, Wait}};
+use crate::{domain_traits::{HasStoreExt, Repairable, Transferable, Withdrawable}, ids::{GetHandle, Handle}, movement::{MoveTarget, requests::{MoveRequest, MoveRequestType, MovementRequests}}, spawn::prototype::Body, statemachine::Flow};
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy, EnumDisplay)]
 #[expect(unused)]
@@ -48,38 +48,6 @@ const PIPELINE_B: [IntentType; 5] = [
     IntentType::Repair,
     IntentType::RangedHeal,
 ];
-
-#[derive(thiserror::Error, Debug)]
-pub enum IntentError {
-    #[error("Trying to register multiple {0} intents")]
-    AlreadyScheduled(IntentType),
-    #[error("Trying to schedule {new} from the same pipeline as {existing}")]
-    PipelineCollision { existing: IntentType, new: IntentType },
-    #[error("Not enough free capacity for {resource}: {curr} out of {target}")]
-    NotEnoughCapacity { resource: ResourceType, target: u32, curr: u32 },
-    #[error("Not enough {resource}: {curr} out of {target}")]
-    NotEnoughResource { resource: ResourceType, target: u32, curr: u32 },
-    #[error(transparent)]
-    Other(#[from] anyhow::Error)
-}
-
-impl IntentError {
-    pub fn is_conflict(&self) -> bool {
-        matches!(self, IntentError::AlreadyScheduled(_) | IntentError::PipelineCollision { .. })
-    }
-}
-
-impl<S> FromResidual<Result<Infallible, IntentError>> for Step<S> {
-    fn from_residual(Err(e): Result<Infallible, IntentError>) -> Self {
-        if e.is_conflict() { Self::Stay } else { Self::Fail(e.into()) }
-    }
-}
-
-impl<T> FromResidual<Result<Infallible, IntentError>> for Wait<T> {
-    fn from_residual(Err(e): Result<Infallible, IntentError>) -> Self {
-        if e.is_conflict() { Self::NotYet } else { Self::Fail(e.into()) }
-    }
-}
 
 
 /*
@@ -191,11 +159,10 @@ impl VirtualCreep {
         self.intents.contains_key(&intent)
     }
 
-    #[expect(unused)]
     pub fn can_do(&self, intent: IntentType) -> bool {
         !self.has_intent(intent) &&
-        self.check_pipeline(intent, PIPELINE_A).is_ok() &&
-        self.check_pipeline(intent, PIPELINE_B).is_ok()
+        self.pipeline_free(intent, PIPELINE_A) &&
+        self.pipeline_free(intent, PIPELINE_B)
     }
     
     pub fn commit(self, movement: &mut MovementRequests) -> Result<()> {
@@ -210,17 +177,12 @@ impl VirtualCreep {
         Ok(())
     }
 
-    fn check_pipeline<const N: usize>(&self, intent: IntentType, pipeline: [IntentType; N]) -> Result<(), IntentError> {
-        if !pipeline.contains(&intent) { return Ok(()) }
-        let Some(other) = pipeline.iter().find(|other| self.has_intent(**other)) else { return Ok(()) };
-        Err(IntentError::PipelineCollision { existing: *other, new: intent })
+    fn pipeline_free<const N: usize>(&self, intent: IntentType, pipeline: [IntentType; N]) -> bool {
+        !pipeline.contains(&intent) || !pipeline.iter().any(|other| self.has_intent(*other))
     }
 
-    fn register_intent(&mut self, ty: IntentType, intent: Intent) -> Result<u32, IntentError> {
-        if self.intents.contains_key(&ty) { return Err(IntentError::AlreadyScheduled(ty)) }
-
-        self.check_pipeline(ty, PIPELINE_A)?;
-        self.check_pipeline(ty, PIPELINE_B)?;
+    fn register_intent(&mut self, ty: IntentType, intent: Intent) -> Flow<u32> {
+        if !self.can_do(ty) { return Flow::Break }
 
         match &intent.effect {
             Some(IntentEffect::Incoming(ty, amount)) => self.add_incoming(*ty, *amount)?,
@@ -235,12 +197,12 @@ impl VirtualCreep {
 
         self.intents.insert(ty, intent);
 
-        Ok(amount)
+        Flow::Continue(amount)
     }
 
-    fn add_outgoing(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
+    fn add_outgoing(&mut self, ty: ResourceType, amount: u32) -> Result<()> {
         let resource = self.resources.entry(ty).or_insert_with(|| self.creep.used_capacity(Some(ty)));
-        if amount > *resource { return Err(IntentError::NotEnoughResource { resource: ty, target: amount, curr: *resource }); }
+        if amount > *resource { bail!("Not enough {ty}: {} out of {amount}", *resource) }
 
         *resource -= amount;
         self.total_resources -= amount;
@@ -249,8 +211,8 @@ impl VirtualCreep {
         Ok(())
     }
 
-    fn add_incoming(&mut self, ty: ResourceType, amount: u32) -> Result<(), IntentError> {
-        if amount > self.free_capacity { return Err(IntentError::NotEnoughCapacity { resource: ty, curr: self.free_capacity, target: amount }) }
+    fn add_incoming(&mut self, ty: ResourceType, amount: u32) -> Result<()> {
+        if amount > self.free_capacity { bail!("Not enough free capacity for {ty}: {} out of {amount}", self.free_capacity) }
 
         self.free_capacity -= amount;
         *self.incoming_resources.entry(ty).or_default() += amount;
@@ -341,7 +303,7 @@ impl VirtualCreep {
     pub fn next_used_energy_capacity(&self) -> u32 { self.next_used_capacity(Some(ResourceType::Energy)) }
     pub fn incoming_energy(&self) -> u32 { self.incoming(Some(ResourceType::Energy)) }
     
-    pub fn build(&mut self, target: ConstructionSite) -> Result<u32, IntentError> {
+    pub fn build(&mut self, target: ConstructionSite) -> Flow<u32> {
         let amount = self.part_amount(Part::Work, 5)
             .min(target.progress_total() - target.progress())
             .min(self.get_energy());
@@ -355,15 +317,15 @@ impl VirtualCreep {
         )
     }
 
-    pub fn claim_controller(&mut self, target: StructureController) -> Result<(), IntentError> {
+    pub fn claim_controller(&mut self, target: StructureController) -> Flow {
         self.register_intent(
             IntentType::ClaimController, 
             Intent::new(move |creep| creep.claim_controller(&target), None)
-        ).map(|_| ())
+        ).map_continue(|_| ())
     }
 
     #[expect(unused)]
-    pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
+    pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Flow<u32> {
         let amount = amount.unwrap_or(self.get_resource(ty));
 
         self.register_intent(
@@ -375,7 +337,7 @@ impl VirtualCreep {
         )
     }
 
-    pub fn harvest_source(&mut self, source: Source) -> Result<u32, IntentError> {
+    pub fn harvest_source(&mut self, source: Source) -> Flow<u32> {
         let amount = self.part_amount(Part::Work, 2)
             .min(source.energy())
             .min(self.free_capacity);
@@ -389,7 +351,7 @@ impl VirtualCreep {
         )
     }
 
-    pub fn pickup(&mut self, target: Resource) -> Result<u32, IntentError> {
+    pub fn pickup(&mut self, target: Resource) -> Flow<u32> {
         let ty = target.resource_type();
         let amount = target.amount()
             .min(self.free_capacity);
@@ -403,7 +365,7 @@ impl VirtualCreep {
         )
     }
 
-    pub fn upgrade_controller(&mut self, target: StructureController) -> Result<u32, IntentError> {
+    pub fn upgrade_controller(&mut self, target: StructureController) -> Flow<u32> {
         let amount = self.part_amount(Part::Work, 1)
             .min(if target.level() == 8 { 15 } else { u32::MAX })
             .min(self.get_energy());
@@ -417,7 +379,7 @@ impl VirtualCreep {
         )
     }
 
-    pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Result<u32, IntentError> {
+    pub fn repair(&mut self, target: impl Repairable + Sized + 'static) -> Flow<u32> {
         let amount = self.part_amount(Part::Work, 1)
             .min((target.hits_max() - target.hits()).div_ceil(100))
             .min(self.get_energy());
@@ -433,16 +395,16 @@ impl VirtualCreep {
 
     // Transfer from other creep into this creep
     // TODO: Make this cancellable?
-    pub fn transfer_from(&mut self, target: &Creep, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
+    pub fn transfer_from(&mut self, target: &Creep, ty: ResourceType, amount: Option<u32>) -> Flow<u32> {
         let amount = amount.unwrap_or(self.free_capacity)
             .min(target.used_capacity(Some(ty)));
 
         self.add_incoming(ty, amount)?;
-        target.transfer(&self.creep, ty, Some(amount)).map_err(anyhow::Error::new)?;
-        Ok(amount)
+        target.transfer(&self.creep, ty, Some(amount))?;
+        Flow::Continue(amount)
     }
 
-    pub fn transfer(&mut self, target: impl Transferable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
+    pub fn transfer(&mut self, target: impl Transferable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Flow<u32> {
         let amount = amount.unwrap_or(self.get_resource(ty))
             .min(target.free_capacity(Some(ty)));
         
@@ -455,7 +417,7 @@ impl VirtualCreep {
         )
     }
 
-    pub fn withdraw(&mut self, target: impl Withdrawable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Result<u32, IntentError> {
+    pub fn withdraw(&mut self, target: impl Withdrawable + Sized + 'static, ty: ResourceType, amount: Option<u32>) -> Flow<u32> {
         let amount = amount.unwrap_or(self.free_capacity)
             .min(target.used_capacity(Some(ty)));
         
@@ -472,23 +434,23 @@ impl VirtualCreep {
         spawn.recycle_creep(&self.creep).map_err(Into::into)
     }
 
-    pub fn approach(&mut self, target: Position, range: u32) -> Wait {
+    pub fn approach(&mut self, target: Position, range: u32) -> Flow {
         self.request_move(target, range, MoveRequestType::Single)
     }
 
-    pub fn approach_tugged(&mut self, target: Position, range: u32) -> Wait {
+    pub fn approach_tugged(&mut self, target: Position, range: u32) -> Flow {
         self.request_move(target, range, MoveRequestType::Tugged)
     }
 
-    fn request_move(&mut self, target: Position, range: u32, ty: MoveRequestType) -> Wait {
-        if self.has_intent(IntentType::Move) { return Wait::NotYet }
+    fn request_move(&mut self, target: Position, range: u32, ty: MoveRequestType) -> Flow {
+        if self.has_intent(IntentType::Move) { return Flow::Break }
 
         let target = MoveTarget { target, range };
         let in_range = target.in_range(self.pos());
         self.move_request = Some(MoveRequest { target, ty });
-        if in_range { return Wait::Ready(()) }
+        if in_range { return Flow::Continue(()) }
 
         self.register_intent(IntentType::Move, Intent::empty())?;
-        Wait::NotYet
+        Flow::Break
     }
 }

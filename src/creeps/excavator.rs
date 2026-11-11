@@ -5,7 +5,7 @@ use log::warn;
 use screeps::{ConstructionSite, HasId, Part, REPAIR_POWER, ResourceType, Source, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentError, IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, statemachine::{Step, step}, structure::RepairableStructure};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, step}, structure::RepairableStructure};
 
 #[derive(Debug)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<Source, S>)]
@@ -91,7 +91,7 @@ impl EnergyDestination {
         !matches!(self, Self::ConstructionSite(_) | Self::Repair(_))
     }
 
-    fn recieve(self, creep: &mut VirtualCreep) -> Result<u32, IntentError> {
+    fn recieve(self, creep: &mut VirtualCreep) -> Flow<u32> {
         match self {
             EnergyDestination::Repair(structure) => 
                 creep.repair(structure),
@@ -121,7 +121,7 @@ impl ExcavatorCreep {
 }
 
 impl State {
-    fn transition(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Step<Self> {
+    fn transition(&mut self, creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Flow<Self> {
         use State::*;
 
         let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Plan doesn't exist"))?;
@@ -131,7 +131,7 @@ impl State {
                 let harvest_pos = plan.container.as_ref().ok_or(anyhow!("No container"))?.pos;
                 creep.approach_tugged(harvest_pos, 0)?;
 
-                Step::Next(Mining)
+                Flow::Continue(Mining)
             },
             Mining => {
                 creep.harvest_source(source.clone())?;
@@ -145,7 +145,7 @@ impl State {
                         creep.cancel_intent(IntentType::Harvest);
 
                         warn!("{} has nowhere to put its energy", creep.name());
-                        return Step::Stay;
+                        return Flow::Break;
                     };
 
                     if !energy_dest.can_also_harvest() {
@@ -156,17 +156,17 @@ impl State {
                     energy_dest.recieve(creep)?;
                 }
 
-                if transferring_to_container { return Step::Stay }
+                if transferring_to_container { return Flow::Break }
 
                 let container: Option<StructureContainer> = plan.container.resolve();
-                let Some(container) = container else { return Step::Stay };
+                let Some(container) = container else { return Flow::Break };
 
                 let defecit = target_energy.saturating_sub(creep.next_used_energy_capacity());
                 let defecit = defecit.min(container.used_energy_capacity()).min(creep.curr_free_capacity());
-                if defecit == 0 { return Step::Stay }
+                if defecit == 0 { return Flow::Break }
 
                 creep.withdraw(container, ResourceType::Energy, Some(defecit))?;
-                Step::Stay
+                Flow::Break
             }
         }
     }
