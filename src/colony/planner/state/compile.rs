@@ -153,7 +153,7 @@ impl ColonyPlanner {
             }).into_group_map();
 
         let controller = self.room.controller().unwrap().pos().xy();
-        new_structures.entry(ColonyStep::BuildSpawn).or_default().insert((controller, StructureType::Controller));
+        new_structures.entry(ColonyStep::first()).or_default().insert((controller, StructureType::Controller));
 
         IntermediateColonyPlan {
             room: self.room,

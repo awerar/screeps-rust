@@ -17,7 +17,7 @@ impl ColonyPlan {
         
         let mut center_planner = CenterPlanner::new(center, room);
 
-        planner.plan_container(center, LifeTime::temporary(BuildBufferAndSourceContainers, UpgradeToLevel5).unwrap(), PlannedContainer::Buffer)?;
+        planner.plan_container(center, LifeTime::temporary(BuildCenterAndSourceContainers, UpgradeToLevel5).unwrap(), PlannedContainer::Buffer)?;
         center_planner.plan_structure(&mut planner, BuildLvl4, PlannedImpassableStructure::Storage)?;
         center_planner.plan_structure(&mut planner, BuildSpawn, PlannedImpassableStructure::MainSpawn)?;
         center_planner.plan_structure(&mut planner, BuildLvl5, PlannedImpassableStructure::CentralLink)?;
@@ -27,8 +27,8 @@ impl ColonyPlan {
 
         let controller = room.controller().unwrap().pos().xy();
         let controller_connection = planner.find_wall_connection(center, controller, Some(BuildArterialRoads), None)?;
-        planner.plan_blocker(controller_connection.creep_pos, ColonyStep::BuildSpawn, PlannedCreep::Upgrader.into())?;
-        planner.plan_container(controller_connection.creep_pos, LifeTime::permanent(ColonyStep::BuildBufferAndSourceContainers), PlannedContainer::Upgrader)?;
+        planner.plan_blocker(controller_connection.creep_pos, ColonyStep::first(), PlannedCreep::Upgrader.into())?;
+        planner.plan_container(controller_connection.creep_pos, LifeTime::permanent(ColonyStep::BuildCenterAndSourceContainers), PlannedContainer::Upgrader)?;
         planner.keep_clear(controller_connection.road_pos);
 
         let deposit = room.find(find::MINERALS, None).first().unwrap().pos().xy();

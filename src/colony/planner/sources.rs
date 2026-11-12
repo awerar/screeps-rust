@@ -39,8 +39,8 @@ pub fn plan_sources(planner: &mut ColonyPlanner, center: RoomXY) -> anyhow::Resu
         let link_step = planner.get_earliest_step_for(StructureType::Link)?;
         let connection = planner.find_wall_connection(center, source_pos, Some(BuildArterialRoads), Some(link_step))?;
 
-        planner.plan_container(connection.creep_pos, LifeTime::permanent(BuildBufferAndSourceContainers), PlannedContainer::Source(source_id))?;
-        planner.plan_blocker(connection.creep_pos, BuildSpawn, PlannedCreep::SourceHarvester(source.id()).into())?;
+        planner.plan_container(connection.creep_pos, LifeTime::permanent(BuildCenterAndSourceContainers), PlannedContainer::Source(source_id))?;
+        planner.plan_blocker(connection.creep_pos, ColonyStep::first(), PlannedCreep::SourceHarvester(source.id()).into())?;
         planner.plan_blocker_earliest(connection.road_pos, PlannedImpassableStructure::SourceSpawn(source_id))?;
 
         let mut slots = SourceSlots::new(connection.creep_pos.neighbors());

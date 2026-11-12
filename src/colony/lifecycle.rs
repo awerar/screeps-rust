@@ -132,6 +132,6 @@ impl ColonyPlan {
         unreachable!()*/
 
         // TODO: FIX
-        ColonyStep::BuildSpawn
+        ColonyStep::first()
     }
 }
