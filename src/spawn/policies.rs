@@ -96,7 +96,7 @@ pub fn schedule_export_trucks(rosters: &mut Rosters, mem: &mut Memory) {
     for import_colony in mem.colonies.view_all() {
         if import_colony.buffer.is_some_and(|buffer| matches!(buffer, ColonyBuffer::Storage(_))) { continue; }
 
-        while rosters.get(&import_colony).sustainable_budget() <= IMPORT_BUDGET_LIMIT {
+        while rosters.get(&import_colony).income() <= IMPORT_BUDGET_LIMIT {
             let result = rosters.schedule_selected(
                 |iter| {
                     iter.map(|(name, roster)| (*name, roster.full_budget()))

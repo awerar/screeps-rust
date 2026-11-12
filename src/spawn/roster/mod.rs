@@ -141,6 +141,10 @@ impl ColonyRoster {
         self.budgets.borrow()[&self.name].sustainable()  
     }
 
+    pub fn income(&self) -> f32 {
+        self.budgets.borrow()[&self.name].income()
+    }
+
     pub fn future_energy(&self) -> u32 {
         self.energy.future_energy()
     }
