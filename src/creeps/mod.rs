@@ -5,7 +5,7 @@ use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, Source, find, game, look, prelude::*};
 use anyhow::{Result, anyhow};
 
-use crate::{check::{Check, CheckFrom}, creeps::{fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
 
 pub mod body;
 pub mod flagship;
@@ -201,14 +201,20 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
 }
 
 impl Memory {
-    pub fn get_creep_stops(&self, room: RoomName) -> CreepStops {
+    pub fn get_creep_stops(&self, colony: &ColonyView<'_>) -> CreepStops {
         let mut result = CreepStops { consumers: Vec::new(), providers: Vec::new() };
 
         for (creep, data) in &self.creeps {
             if creep.resolve().spawning() { continue; }
-            if creep.resolve().pos().room_name() != room { continue; }
+            if creep.resolve().pos().room_name() != colony.name { continue; }
 
-            if matches!(data.role, CreepRole::Fabricator(_) | CreepRole::Servicer(_)) {
+            let is_consumer = match data.role {
+                CreepRole::Fabricator(_) | CreepRole::Servicer(_) => true,
+                CreepRole::Seeder | CreepRole::Terraformer => !colony.plan.upgrader_container.is_complete(),
+                _ => false,
+            };
+            
+            if is_consumer {
                 result.consumers.push(creep.resolve());
             }
         }

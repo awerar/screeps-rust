@@ -150,9 +150,12 @@ pub fn update(creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) 
         } else if let Some(work) = work {
             creep.cancel_intent(IntentType::Harvest);
             creep.work(work)?;
+        } else if let Some(dump) = plan.get_dump() {
+            if dump.free_energy_capacity() > 0 {
+                creep.transfer_energy(dump, None)?;
+            }
         } else {
-            let dump = plan.get_dump().or_break()?;
-            creep.transfer_energy(dump, None)?;
+            creep.drop_energy(None)?;
         }
 
         return Flow::Break

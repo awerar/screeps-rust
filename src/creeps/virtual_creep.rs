@@ -326,7 +326,6 @@ impl VirtualCreep {
         ).map_continue(|_| ())
     }
 
-    #[expect(unused)]
     pub fn drop(&mut self, ty: ResourceType, amount: Option<u32>) -> Flow<u32> {
         let amount = amount.unwrap_or(self.get_resource(ty));
 
@@ -337,6 +336,10 @@ impl VirtualCreep {
                     Some(IntentEffect::Outgoing(ty, amount))
             )
         )
+    }
+
+    pub fn drop_energy(&mut self, amount: Option<u32>) -> Flow<u32> {
+        self.drop(ResourceType::Energy, amount)
     }
 
     pub fn harvest_source(&mut self, source: Source) -> Flow<u32> {

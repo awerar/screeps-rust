@@ -102,7 +102,7 @@ fn update_coordinators(mem: &mut Memory) {
     mem.flagship_coordinator.update();
 
     for colony in mem.colonies.view_all() {
-        let creep_stops = mem.get_creep_stops(colony.name);
+        let creep_stops = mem.get_creep_stops(&colony);
 
         mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, creep_stops);
         mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room);
