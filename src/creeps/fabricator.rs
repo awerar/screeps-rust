@@ -3,7 +3,7 @@ use std::mem;
 use anyhow::Result;
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
-use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find};
+use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find, game};
 use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
@@ -16,7 +16,7 @@ type TaskExpiration = Expiration<MAX_TASK_TICKS>;
 #[derive(Debug, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<ConstructionSite, S>, Expiration<MAX_IDLE_TICKS, S>, S)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
-    Idle(Expiration<MAX_IDLE_TICKS, S>),
+    Idle { ticks_left: u32, last_update_tick: u32 },
     Building(ObjectId<ConstructionSite, S>),
     Scrap(ScrapCreep)
 }
@@ -29,8 +29,7 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let us = FabricatorCreep::<Unchecked>::deserialize(deserializer)?;
         Ok(match us {
-            FabricatorCreep::Idle(e) => 
-                e.check().map_or(FabricatorCreep::Scrap(ScrapCreep::default()), FabricatorCreep::Idle),
+            FabricatorCreep::Idle { last_update_tick, ticks_left } => FabricatorCreep::Idle { last_update_tick, ticks_left },
             FabricatorCreep::Building(task) => 
                 task.check().map_or_else(|_| FabricatorCreep::idle(), FabricatorCreep::Building),
             FabricatorCreep::Scrap(state) => FabricatorCreep::Scrap(state)
@@ -39,7 +38,7 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 }
 
 impl FabricatorCreep {
-    fn idle() -> Self { Self::Idle(Expiration::new()) }
+    fn idle() -> Self { Self::Idle { ticks_left: MAX_IDLE_TICKS, last_update_tick: game::time() } }
 
     pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<()> {
         *self = step(mem::take(self), |state| state.transition(creep, home, coordinator))?;
@@ -48,10 +47,13 @@ impl FabricatorCreep {
 
     fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
         match self {
-            Self::Idle(_) => {
+            Self::Idle { last_update_tick, ticks_left } => {
                 goto!(if let Some(task) = coordinator.assign_build(creep) { Self::Building(task) });
+                
+                goto!(if last_update_tick != game::time() { Self::Idle { ticks_left: ticks_left.saturating_sub(1), last_update_tick: game::time() } });
+                break_if(ticks_left > 0)?;
 
-                Flow::Break
+                Flow::Continue(FabricatorCreep::Scrap(ScrapCreep::default()))
             },
             Self::Building(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::idle()) };
