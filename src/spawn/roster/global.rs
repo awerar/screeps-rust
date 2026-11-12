@@ -1,19 +1,8 @@
 use std::{cell::RefCell, collections::{HashMap, hash_map}, rc::Rc};
 
 use screeps::RoomName;
-use thiserror::Error;
 
-use crate::{colony::ColonyView, creeps::{CreepRole, body::Body}, memory::Memory, names::UsedNames, spawn::roster::{ColonyRoster, ColonyScheduleError, ScheduleDecision, creeps::GlobalCreeps}};
-
-#[derive(Debug, Error)]
-pub enum GlobalScheduleError {
-    #[error("No valid room")] NoRoom,
-    #[error("Unable to create prototype")] NoBody,
-    #[error("{0} is not a valid home colony")] InvalidHome(RoomName),
-    #[error(transparent)] Roster(#[from] ColonyScheduleError),
-}
-
-pub type GlobalScheduleResult = Result<ScheduleDecision, GlobalScheduleError>;
+use crate::{colony::ColonyView, creeps::{CreepRole, body::Body}, memory::Memory, names::UsedNames, spawn::roster::{ColonyRoster, creeps::GlobalCreeps}, statemachine::{Flow, OrBreak}};
 
 pub struct Rosters {
     rosters: HashMap<RoomName, ColonyRoster>,
@@ -46,33 +35,37 @@ impl Rosters {
         &self.global_creeps
     }
 
-    pub fn schedule_selected<S, B, R>(&mut self, select: S, make_body: B, make_role: R, home: Option<RoomName>) -> GlobalScheduleResult
+    pub fn schedule_selected<S, B, R>(&mut self, select: S, make_body: B, make_role: R, home: Option<RoomName>) -> Flow
     where
-        S: for<'a> FnOnce(hash_map::Iter<'a, RoomName, ColonyRoster>) -> Option<RoomName>,
-        B: FnOnce(&ColonyRoster) -> Option<Body>,
+        S: for<'a> FnOnce(hash_map::Iter<'a, RoomName, ColonyRoster>) -> Flow<RoomName>,
+        B: FnOnce(&ColonyRoster) -> Flow<Body>,
         R: FnOnce(&ColonyRoster) -> CreepRole
     {
-        let Some(choice) = select(self.rosters.iter()) else { return Err(GlobalScheduleError::NoRoom) };
+        let choice = select(self.rosters.iter())?;
+        let home = home.unwrap_or(choice);
+        assert!(self.rosters.contains_key(&home), "{home} is not a valid home colony");
+
         let roster = self.rosters.get_mut(&choice).expect("Room selection should return a valid room");
 
-        let body = make_body(roster).ok_or(GlobalScheduleError::NoBody)?;
-        let result = roster.schedule_selected_absolute(ColonyRoster::default_select, body, make_role(roster), home.unwrap_or(choice));
+        let body = make_body(roster)?;
+        let role = make_role(roster);
+        let (id, proto) = roster.schedule_selected_absolute(ColonyRoster::default_select, body, role, home)?;
 
-        if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
-            let roster = self.rosters.get_mut(&proto.home()).ok_or(GlobalScheduleError::InvalidHome(proto.home()))?;
-            roster.local_creeps.0.insert(id.clone(), proto.relative().clone());
-        }
+        self.rosters.get_mut(&home).expect("Home was validated before spawning").local_creeps.0.insert(id, proto.relative().clone());
 
-        result.map_err(GlobalScheduleError::from)
+        Flow::Continue(())
     }
 
-    pub fn default_select(iter: hash_map::Iter<'_, RoomName, ColonyRoster>) -> Option<RoomName> {
-        iter.max_by_key(|(_, roster)| roster.energy.future_energy()).map(|(room, _)| *room)
+    pub fn default_select(iter: hash_map::Iter<'_, RoomName, ColonyRoster>) -> Flow<RoomName> {
+        iter.filter(|(_, roster)| roster.has_free())
+            .max_by_key(|(_, roster)| roster.energy.future_energy())
+            .map(|(room, _)| *room)
+            .or_break()
     }
 
-    pub fn schedule<B, R>(&mut self, make_body: B, make_role: R, home: Option<RoomName>) -> GlobalScheduleResult
+    pub fn schedule<B, R>(&mut self, make_body: B, make_role: R, home: Option<RoomName>) -> Flow
     where
-        B: FnOnce(&ColonyRoster) -> Option<Body>,
+        B: FnOnce(&ColonyRoster) -> Flow<Body>,
         R: FnOnce(&ColonyRoster) -> CreepRole
     {
         self.schedule_selected(Self::default_select, make_body, make_role, home)

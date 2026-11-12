@@ -1,43 +1,49 @@
 use std::sync::LazyLock;
 
 use itertools::Itertools;
-use log::{info, warn};
+use log::warn;
 use ordered_float::OrderedFloat;
-use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
+use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part, Source};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::FabricatorCreep, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::roster::{ColonyRoster, RoleSelector, Rosters, ScheduleDecision}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::FabricatorCreep, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, memory::Memory, movement::requests::TugboatRequests, spawn::roster::{ColonyRoster, RoleSelector, Rosters}, statemachine::{Flow, OrBreak, break_if, run}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
-    let target_excavator_works = if source_plan.get_construction_site().is_some() { 
+    let target_excavator_works = if source_plan.get_construction_site().is_some() {
         7
-    } else { 
-        6 
+    } else {
+        6
     };
 
     let excavator_works = energy.saturating_sub(Part::Carry.cost()).div_floor(Part::Work.cost()).min(target_excavator_works);
     Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, excavator_works as usize)
 }
 
-pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) {
+pub fn schedule_excavators(roster: &mut ColonyRoster, view: &ColonyView<'_>) -> anyhow::Result<()> {
     for (source, source_plan) in &view.plan.sources {
         let Some(source) = source.resolve() else { continue; };
-        if !roster.has_free() { continue; }
-        if roster.local_creeps().of_role(RoleSelector::SourceExcavator(source.id())).next().is_some() { continue; }
-
-        let has_source_spawn = source_plan.spawn.resolve().is_some();
-
-        roster.schedule_selected(
-            |mut iter| {
-                if has_source_spawn {
-                    iter.find(|(_, spawn)| spawn.is_source_spawn(&source.id())).map(|(ix, _)| ix)
-                } else {
-                    ColonyRoster::default_select(iter)
-                }
-            },
-            get_excavator_body(roster.future_energy(), source_plan),
-            CreepRole::Excavator(source.id())
-        ).log_err();
+        schedule_excavator(roster, &source, source_plan).into_result()?;
     }
+
+    Ok(())
+}
+
+fn schedule_excavator(roster: &mut ColonyRoster, source: &Source, source_plan: &SourcePlan) -> Flow {
+    break_if(!roster.has_free())?;
+    break_if(roster.local_creeps().of_role(RoleSelector::SourceExcavator(source.id())).next().is_some())?;
+
+    let has_source_spawn = source_plan.spawn.resolve().is_some();
+
+    roster.schedule_selected(
+        |mut iter| {
+            if has_source_spawn {
+                iter.find(|(_, spawn)| spawn.is_source_spawn(&source.id())).map(|(ix, _)| ix).or_break()
+            } else {
+                ColonyRoster::default_select(iter)
+            }
+        },
+        get_excavator_body(roster.future_energy(), source_plan),
+        CreepRole::Excavator(source.id())
+    )
 }
 
 // Truck capacity C = 50y energy
@@ -64,7 +70,7 @@ fn get_truck_body(energy: u32) -> Option<Body> {
     TRUCK_TEMPLATE.scaled(energy.min(*MAX_TRUCK_ENERGY))
 }
 
-pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
+pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) -> anyhow::Result<()> {
     let total_carry_for_sources = colony.plan.sources.values()
         .filter(|source_plan| !source_plan.link.is_complete() && source_plan.container.is_complete())
         .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
@@ -76,66 +82,69 @@ pub fn schedule_trucks(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
         ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize
     };
 
-    while roster.has_free() {
-        if roster.local_creeps().part_count(RoleSelector::Truck, Part::Carry) >= target_carry { break; }
+    run(|| {
+        break_if(roster.local_creeps().part_count(RoleSelector::Truck, Part::Carry) >= target_carry)?;
 
-        let Some(body) = get_truck_body(roster.future_energy()) else { break };
+        let body = get_truck_body(roster.future_energy()).or_break()?;
 
         roster.schedule(
             body,
             CreepRole::Truck(TruckCreep::default())
-        ).log_err();
-    }
+        )
+    })
 }
 
-const IMPORT_BUDGET_LIMIT: f32 = 100.0; 
+const IMPORT_BUDGET_LIMIT: f32 = 100.0;
 const EXPORT_BUDGET_LIMIT: f32 = 10.0;
 
 static EXPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Move, Carry]) });
-pub fn schedule_export_trucks(rosters: &mut Rosters, mem: &mut Memory) {
+pub fn schedule_export_trucks(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::Result<()> {
     for import_colony in mem.colonies.view_all() {
         if import_colony.buffer.is_some_and(|buffer| matches!(buffer, ColonyBuffer::Storage(_))) { continue; }
 
-        while rosters.get(&import_colony).income() <= IMPORT_BUDGET_LIMIT {
-            let result = rosters.schedule_selected(
+        run(|| {
+            break_if(rosters.get(&import_colony).income() > IMPORT_BUDGET_LIMIT)?;
+
+            rosters.schedule_selected(
                 |iter| {
-                    iter.map(|(name, roster)| (*name, roster.full_budget()))
-                        .map(|(colony, roster)| (mem.colonies.view(colony).unwrap(), roster))
+                    iter.filter(|(_, roster)| roster.has_free())
+                        .filter_map(|(name, roster)| Some((mem.colonies.view(*name)?, roster.full_budget())))
                         .filter(|(export_colony, _)| export_colony.name != import_colony.name)
                         .filter(|(export_colony, _)| matches!(export_colony.buffer, Some(ColonyBuffer::Storage(_))))
                         .filter(|(_, budget)| *budget > EXPORT_BUDGET_LIMIT)
                         .max_by_key(|(_, budget)| OrderedFloat(*budget))
                         .map(|(room, _)| room.name)
+                        .or_break()
                 },
-                |roster| EXPORT_TRUCK_TEMPLATE.scaled(roster.future_energy()),
+                |roster| EXPORT_TRUCK_TEMPLATE.scaled(roster.future_energy()).or_break(),
                 |roster| {
                     CreepRole::ExportTruck(ExportTruckCreep::new(
-                        &mem.colonies.view(roster.room()).unwrap(), 
+                        &mem.colonies.view(roster.room()).unwrap(),
                         &import_colony
                     ))
                 },
                 None
-            ).log_err();
-
-            if matches!(result, None | Some(ScheduleDecision::WaitingForEnergy | ScheduleDecision::WaitingForSpawn)) {
-                break;
-            }
-        }
+            )
+        })?;
     }
+
+    Ok(())
 }
 
 static FLAGSHIP_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Claim, Move]) });
-pub fn schedule_flagships(rosters: &mut Rosters, mem: &mut Memory) {
+pub fn schedule_flagship(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::Result<()> {
     let coordinator = &mut mem.flagship_coordinator;
-    if coordinator.rooms.is_empty() { return; }
+    if coordinator.rooms.is_empty() { return Ok(()); }
 
-    if rosters.global_creeps().of_role(RoleSelector::Flagship).count() > 0 { return; }
+    if rosters.global_creeps().of_role(RoleSelector::Flagship).count() > 0 { return Ok(()); }
 
     rosters.schedule(
-        |_| Some(FLAGSHIP_TEMPLATE.clone()),
+        |_| Flow::Continue(FLAGSHIP_TEMPLATE.clone()),
         |_| CreepRole::Flagship(FlagshipCreep::default()),
         None
-    ).log_err();
+    ).into_result()?;
+
+    Ok(())
 }
 
 fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
@@ -152,7 +161,7 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
     Body::of_part(Part::Move, target_tugboat_move_parts.clamp(0, (energy / 50) as usize))
 }
 
-pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRequests) {
+pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRequests) -> anyhow::Result<()> {
     let tugged = roster.syndrome().tugged_order()
         .unwrap_or_else(|| {
             tugboat_requests.iter()
@@ -162,73 +171,77 @@ pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRe
         });
 
     for tugged in tugged {
-        if !roster.has_free() { continue; }
-        if roster.local_creeps().of_role(RoleSelector::TugboatFor(tugged.id())).next().is_some() { continue; }
-
-        roster.schedule_selected(
-            |iter| {
-                iter.min_by_key(|(_, spawn)| spawn.spawn.pos().get_range_to(tugged.pos()))
-                    .map(|(ix, _)| ix)
-            },
-            get_tugboat_body(roster.future_energy(), &tugged),
-            CreepRole::Tugboat(tugged.id())
-        ).log_err();
+        schedule_tugboat(roster, &tugged).into_result()?;
     }
+
+    Ok(())
+}
+
+fn schedule_tugboat(roster: &mut ColonyRoster, tugged: &Creep) -> Flow {
+    break_if(!roster.has_free())?;
+    break_if(roster.local_creeps().of_role(RoleSelector::TugboatFor(tugged.id())).next().is_some())?;
+
+    roster.schedule_selected(
+        |iter| {
+            iter.min_by_key(|(_, spawn)| spawn.spawn.pos().get_range_to(tugged.pos()))
+                .map(|(ix, _)| ix)
+                .or_break()
+        },
+        get_tugboat_body(roster.future_energy(), tugged),
+        CreepRole::Tugboat(tugged.id())
+    )
 }
 
 const MAX_LEVEL_FOR_FABRICATOR_IMPORT: u8 = 4;
 
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
-pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
+pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::Result<()> {
     for colony in mem.colonies.view_all() {
         let coordinator = mem.fabricator_coordinators.entry(colony.name).or_default();
 
         let total_work_ticks = coordinator.total_build_work_ticks();
 
-        loop {
+        run(|| {
             let reserved_work_ticks = rosters.get(&colony).local_creeps().part_ticks_left_of_role(RoleSelector::Fabricator, Part::Work);
 
-            if reserved_work_ticks >= total_work_ticks { break; }
+            break_if(reserved_work_ticks >= total_work_ticks)?;
 
             let max_work = rosters.get(&colony).full_budget() as u32 / BUILD_POWER;
             let may_import = colony.step.controller_level() <= MAX_LEVEL_FOR_FABRICATOR_IMPORT;
 
-            let result = rosters.schedule_selected(
+            rosters.schedule_selected(
                 |iter| {
                     iter.filter(|(_, other_roster)| {
                         other_roster.room() == colony.name || (may_import && other_roster.has_free())
-                    }).max_by_key(|(other_name, other_roster)| {
-                        let other_colony = mem.colonies.view(**other_name).unwrap();
+                    }).filter_map(|(other_name, other_roster)| {
+                        Some((*other_name, other_roster, mem.colonies.view(*other_name)?))
+                    }).max_by_key(|(_, other_roster, other_colony)| {
                         let dist = colony.center.get_range_to(other_colony.center);
 
                         (other_roster.future_energy(), -(dist as i32))
-                    }).map(|(other_name, _)| *other_name)
+                    }).map(|(other_name, _, _)| other_name)
+                    .or_break()
                 },
-                |roster| FABRICATOR_TEMPLATE.scaled_with_stop(roster.future_energy(), ScaleStopCondition::PartCount(Part::Work, max_work)),
+                |roster| FABRICATOR_TEMPLATE.scaled_with_stop(roster.future_energy(), ScaleStopCondition::PartCount(Part::Work, max_work)).or_break(),
                 |_| CreepRole::Fabricator(FabricatorCreep::default()),
                 Some(colony.name)
-            );
-
-            if let Err(err) = result {
-                info!("Couldn't spawn fabricator: {err}");
-                break;
-            }
-
-            if !matches!(result, Ok(ScheduleDecision::Scheduled(_, _))) { break; }
-        }
+            )
+        })?;
     }
+
+    Ok(())
 }
 
 static SERVICER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Move, Work]) });
-pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoordinator) {
-    if roster.syndrome().any_problems() { return }
+pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoordinator) -> anyhow::Result<()> {
+    if roster.syndrome().any_problems() { return Ok(()) }
 
     let total_work_ticks = coordinator.total_work_ticks();
-    
-    while roster.has_free() {
+
+    run(|| {
         let need_emergency_servicer = roster.local_creeps().part_count(RoleSelector::Servicer, Part::Work) == 0 && coordinator.any_emergency_repair();
 
-        let Some(body) = SERVICER_TEMPLATE.scaled(roster.future_energy()) else { break };
+        let body = SERVICER_TEMPLATE.scaled(roster.future_energy()).or_break()?;
 
         if !need_emergency_servicer {
             let reserved_work_ticks = roster.local_creeps()
@@ -239,16 +252,16 @@ pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoord
 
             let work_power = body.part_count(Part::Work) as u32;
             let additional_reserved_work_ticks = body.part_count(Part::Work) as u32 * body.life_time();
-    
-            if reserved_work_ticks + additional_reserved_work_ticks >= total_work_ticks { break; }
-            if work_power as f32 > roster.full_budget() { break; }
+
+            break_if(reserved_work_ticks + additional_reserved_work_ticks >= total_work_ticks)?;
+            break_if(work_power as f32 > roster.full_budget())?;
         }
 
         roster.schedule(
             body,
             CreepRole::Servicer(ServicerCreep::default())
-        ).log_err();
-    }
+        )
+    })
 }
 
 const BASELINE_UPGRADE_POWER: u32 = 2;
@@ -274,33 +287,35 @@ fn calculate_target_upgrade_work(colony: &ColonyView<'_>, roster: &ColonyRoster)
     target_upgrade_power
 }
 
-pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
-    if roster.syndrome().any_problems() { return; }
-    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer)) { return; }
+pub fn schedule_terraformer(roster: &mut ColonyRoster, colony: &ColonyView<'_>) -> anyhow::Result<()> {
+    if roster.syndrome().any_problems() { return Ok(()); }
+    if roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer)) { return Ok(()); }
 
     let mut energy = roster.future_energy();
     energy = energy.saturating_sub(Part::Carry.cost());
 
     let work = energy.div_floor(Part::Work.cost()).min(calculate_target_upgrade_work(colony, roster));
-    if work == 0 { return }
+    if work == 0 { return Ok(()) }
 
     roster.schedule(
         Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, work as usize),
         CreepRole::Terraformer
-    ).log_err();
+    ).into_result()?;
+
+    Ok(())
 }
 
 static SEEDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Work, Move, Work, Work]) });
-pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
-    if roster.syndrome().any_problems() { return; }
-    if !roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer)) { return; }
+pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) -> anyhow::Result<()> {
+    if roster.syndrome().any_problems() { return Ok(()); }
+    if !roster.local_creeps().values().any(|proto| matches!(proto.role(), CreepRole::Terraformer)) { return Ok(()); }
 
-    while roster.has_free() {
+    run(|| {
         let target_work = calculate_target_upgrade_work(colony, roster);
         let target_seeder_work = target_work.saturating_sub(roster.local_creeps().part_count(RoleSelector::Terraformer, Part::Work) as u32);
         let missing_seeder_work = target_seeder_work.saturating_sub(roster.local_creeps().part_count(RoleSelector::Seeder, Part::Work) as u32);
 
-        let Some(max_body) = SEEDER_TEMPLATE.scaled(roster.future_energy()) else { break; };
+        let max_body = SEEDER_TEMPLATE.scaled(roster.future_energy()).or_break()?;
         let max_body_work = max_body.part_count(Part::Work);
 
         let small_seeder_work = roster.local_creeps()
@@ -313,19 +328,18 @@ pub fn schedule_seeders(roster: &mut ColonyRoster, colony: &ColonyView<'_>) {
 
         if any_small_seeders {
             let allowed_seeder_work = missing_seeder_work + small_seeder_work;
-            if allowed_seeder_work == 0 { break; }
+            break_if(allowed_seeder_work == 0)?;
+            break_if(max_body_work as u32 > allowed_seeder_work)?;
 
-            if max_body_work as u32 <= allowed_seeder_work {
-                roster.schedule(
-                    max_body,
-                    CreepRole::Seeder
-                ).log_err();
-            } else { break; }
+            roster.schedule(
+                max_body,
+                CreepRole::Seeder
+            )
         } else {
-            if missing_seeder_work == 0 { break; }
-            let Some(body) = SEEDER_TEMPLATE.scaled_with_stop(roster.future_energy(), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)) else { break };
+            break_if(missing_seeder_work == 0)?;
+            let body = SEEDER_TEMPLATE.scaled_with_stop(roster.future_energy(), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)).or_break()?;
 
-            roster.schedule(body, CreepRole::Seeder).log_err();
+            roster.schedule(body, CreepRole::Seeder)
         }
-    }
+    })
 }

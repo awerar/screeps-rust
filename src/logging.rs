@@ -106,25 +106,3 @@ fn panic_hook(info: &panic::PanicHookInfo) {
 
     error!("{fmt_error}");
 }
-
-pub trait LogResultErr<T> {
-    fn log_err(self) -> Option<T>;
-}
-
-impl<T, E: std::error::Error> LogResultErr<T> for Result<T, E> {
-    #[track_caller]
-    fn log_err(self) -> Option<T> {
-        let loc = panic::Location::caller();
-        self.map_err(|err| {
-            log::logger().log(
-                &log::Record::builder()
-                    .args(format_args!("{err}"))
-                    .level(log::Level::Error)
-                    .file(Some(loc.file()))
-                    .line(Some(loc.line()))
-                    .build(),
-            );
-        })
-        .ok()
-    }
-}

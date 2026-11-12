@@ -156,7 +156,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
 
         let result = match &mut creep_data.role {
             Flagship(state) => state.update(&mut vcreep, &mut mem.flagship_coordinator),
-            Excavator(source) => excavator::update(&mut vcreep, &source.resolve(), &home).into_result(),
+            Excavator(source) => excavator::update(&mut vcreep, &source.resolve(), &home).into_result().map(|_| ()),
             Truck(state) => {
                 let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
                 state.update(&mut vcreep, &home, coordinator)
@@ -178,7 +178,7 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
                 let coordinator = mem.servicer_coordinators.entry(creep_data.home).or_default();
                 state.update(&mut vcreep, &home, coordinator)
             }
-            Terraformer => terraformer::update(&mut vcreep, &home).into_result(),
+            Terraformer => terraformer::update(&mut vcreep, &home).into_result().map(|_| ()),
             Seeder => run(|| seeder::transition(&mut vcreep, &home)),
             Tugboat(tugged) => {
                 let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };

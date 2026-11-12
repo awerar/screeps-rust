@@ -11,16 +11,15 @@ pub enum Flow<T = (), E = anyhow::Error> {
 
 pub type Stop<E = anyhow::Error> = Flow<!, E>;
 
-impl<E> Stop<E> {
-    pub fn into_result(self) -> Result<(), E> {
+impl<T, E> Flow<T, E> {
+    pub fn into_result(self) -> Result<Option<T>, E> {
         match self {
-            Flow::Break => Ok(()),
+            Flow::Continue(val) => Ok(Some(val)),
+            Flow::Break => Ok(None),
             Flow::Fail(e) => Err(e)
         }
     }
-}
 
-impl<T, E> Flow<T, E> {
     pub fn map_continue<U>(self, f: impl FnOnce(T) -> U) -> Flow<U, E> {
         match self {
             Flow::Continue(val) => Flow::Continue(f(val)),

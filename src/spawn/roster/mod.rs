@@ -10,10 +10,10 @@ mod syndrome;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use itertools::Itertools;
-use screeps::{Direction, HasPosition, RoomName, SpawnOptions, Structure, action_error_codes::SpawnCreepErrorCode, game};
-use thiserror::Error;
+use screeps::{Direction, HasPosition, RoomName, SpawnOptions, Structure, game};
+use anyhow::anyhow;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{CreepId, HasId}, memory::Memory, names::UsedNames, spawn::roster::{budget::ColonyBudget, creeps::{ColonyCreeps, GlobalCreeps}, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::AbsolutePrototype, spawns::{ColonySpawn, ColonySpawnIterator, ColonySpawnType}, syndrome::ColonySyndrome}};
+use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{CreepId, HasId}, memory::Memory, names::UsedNames, statemachine::{Flow, OrBreak}, spawn::roster::{budget::ColonyBudget, creeps::{ColonyCreeps, GlobalCreeps}, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::AbsolutePrototype, spawns::{ColonySpawn, ColonySpawnIterator, ColonySpawnType}, syndrome::ColonySyndrome}};
 
 pub use global::Rosters;
 pub use roles::RoleSelector;
@@ -33,20 +33,6 @@ pub struct ColonyRoster {
     budgets: SharedColonyBudgets,
     names: SharedUsedNames
 }
-
-pub enum ScheduleDecision {
-    Scheduled(CreepId, AbsolutePrototype),
-    WaitingForEnergy,
-    WaitingForSpawn
-}
-
-#[derive(Debug, Error)]
-pub enum ColonyScheduleError {
-    #[error(transparent)] SpawnError(#[from] SpawnCreepErrorCode),
-    #[error("Not enough energy")] NotEnoughEnergy
-}
-
-pub type ColonyScheduleResult = Result<ScheduleDecision, ColonyScheduleError>;
 
 impl ColonyRoster {
     pub fn new(colony: &ColonyView<'_>, mem: &Memory, names: SharedUsedNames, budgets: SharedColonyBudgets, global_creeps: &GlobalCreeps) -> Self {
@@ -154,25 +140,24 @@ impl ColonyRoster {
     }
 
     // Not meant to be used by user
-    fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: RoomName) -> ColonyScheduleResult
+    fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: RoomName) -> Flow<(CreepId, AbsolutePrototype)>
     where
-        S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Option<usize>
+        S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Flow<usize>
     {
-        
-        let Some(choice) = select(ColonySpawnIterator::new(&self.spawns)) else { return Ok(ScheduleDecision::WaitingForSpawn) };
+        let choice = select(ColonySpawnIterator::new(&self.spawns))?;
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
-        
-        let proto = AbsolutePrototype::new(body, role, home, spawn.spawn.room().unwrap().name());
+
+        let proto = AbsolutePrototype::new(body, role, home, self.name);
 
         assert!(spawn.is_free());
 
         let cost = proto.body().energy_required();
 
-        if cost > self.energy.future_energy() { return Err(ColonyScheduleError::NotEnoughEnergy) }
+        if cost > self.energy.future_energy() { return Flow::Fail(anyhow!("Not enough energy")) }
         if cost > self.energy.energy() {
             spawn.block();
             self.energy.reserve_future(cost);
-            return Ok(ScheduleDecision::WaitingForEnergy)
+            return Flow::Break
         }
 
         let structures = self.energy.allocate(cost);
@@ -188,43 +173,46 @@ impl ColonyRoster {
         };
 
         let name = self.names.borrow_mut().generate_new(proto.role());
-        spawn.spawn.spawn_creep_with_options(
+        let result = spawn.spawn.spawn_creep_with_options(
             proto.body().parts(),
             &name,
             &SpawnOptions::new()
                 .energy_structures(structures.into_iter().map_into::<Structure>())
                 .directions(&dirs)
-        )?;
+        );
+
+        if let Err(err) = result {
+            spawn.block();
+            return Flow::Fail(err.into());
+        }
 
         for budget in self.budgets.borrow_mut().values_mut() {
             budget.add_creep(&proto);
         }
 
-        let id = game::creeps().get(name).unwrap().id();
+        let id = game::creeps().get(name).expect("Creep should exist in Game.creeps right after spawning").id();
         spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home(), spawn_room: self.name }, dirs);
 
-        Ok(ScheduleDecision::Scheduled(id, proto))
+        Flow::Continue((id, proto))
     }
 
-    pub fn schedule_selected<S>(&mut self, select: S, body: Body, role: CreepRole) -> ColonyScheduleResult
+    pub fn schedule_selected<S>(&mut self, select: S, body: Body, role: CreepRole) -> Flow
     where
-        S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Option<usize>
+        S: for<'a> FnOnce(ColonySpawnIterator<'a>) -> Flow<usize>
     {
         let home = self.name;
-        let result = self.schedule_selected_absolute(select, body, role, home);
+        let (id, proto) = self.schedule_selected_absolute(select, body, role, home)?;
 
-        if let Ok(ScheduleDecision::Scheduled(id, proto)) = &result {
-            self.local_creeps.0.insert(id.clone(), proto.relative().clone());
-        }
+        self.local_creeps.0.insert(id, proto.relative().clone());
 
-        result
+        Flow::Continue(())
     }
 
-    pub fn default_select(iter: ColonySpawnIterator<'_>) -> Option<usize> {
-        iter.max_by_key(|(_, spawn)| spawn.is_central()).map(|(ix, _)| ix)
+    pub fn default_select(iter: ColonySpawnIterator<'_>) -> Flow<usize> {
+        iter.max_by_key(|(_, spawn)| spawn.is_central()).map(|(ix, _)| ix).or_break()
     }
 
-    pub fn schedule(&mut self, body: Body, role: CreepRole) -> ColonyScheduleResult {
+    pub fn schedule(&mut self, body: Body, role: CreepRole) -> Flow {
         self.schedule_selected(Self::default_select, body, role)
     }
 
