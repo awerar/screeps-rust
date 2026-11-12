@@ -1,5 +1,6 @@
-use std::{collections::HashMap, iter, ops::{Add, Mul}};
+use std::{collections::{HashMap, HashSet}, iter, ops::{Add, Mul}};
 
+use itertools::Itertools;
 use screeps::{CREEP_CLAIM_LIFE_TIME, CREEP_LIFE_TIME, Creep, MAX_CREEP_SIZE, Part};
 
 #[derive(Clone)]
@@ -12,14 +13,14 @@ pub enum ScaleStopCondition {
 }
 
 impl Body {
-    pub fn scaled(&self, energy: u32, min_parts: Option<usize>) -> Option<Body> {
-        self.scaled_with_stop(energy, min_parts, ScaleStopCondition::None)
+    pub fn scaled(&self, energy: u32) -> Option<Body> {
+        self.scaled_with_stop(energy, ScaleStopCondition::None)
     }
 
-    pub fn scaled_with_stop(&self, energy: u32, min_parts: Option<usize>, stop_condition: ScaleStopCondition) -> Option<Body> {
-        let min_parts = min_parts.unwrap_or(self.0.len());
-   
+    pub fn scaled_with_stop(&self, energy: u32, stop_condition: ScaleStopCondition) -> Option<Body> {   
         let mut part_type_counts: HashMap<_, u32> = HashMap::new();
+        let mut part_types_left: HashSet<_> = self.parts().iter().unique().copied().collect();
+
         let mut counts: Vec<usize> = vec![0; self.0.len()];
         let mut cost = 0;
         let mut part_count = 0;
@@ -34,7 +35,7 @@ impl Body {
                 };
 
                 if part_count >= MAX_CREEP_SIZE || energy < cost || stop_condition_trigged  {
-                    return (part_count as usize >= min_parts).then(|| {
+                    return part_types_left.is_empty().then(|| {
                         Body(self.0.iter()
                         .zip(counts)
                         .flat_map(|(part, count)| vec![*part; count].into_iter())
@@ -45,6 +46,7 @@ impl Body {
                 counts[i] += 1;
                 part_count += 1;
                 *part_type_counts.entry(*part).or_default() += 1;
+                part_types_left.remove(part);
             }
         }
     }
