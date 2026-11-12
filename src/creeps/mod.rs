@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow};
 
 use crate::{check::{Check, CheckFrom}, creeps::{fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
 
+pub mod body;
 pub mod flagship;
 pub mod excavator;
 pub mod truck;

@@ -1,6 +1,6 @@
 use screeps::{Part, Source};
 
-use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId}, spawn::{prototype::{AbsolutePrototype, RelativePrototype}, roster::{ColonyCreeps, GlobalCreeps}}};
+use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId}, spawn::roster::{creeps::{ColonyCreeps, GlobalCreeps}, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 pub enum RoleSelector {
     SourceExcavator(ObjectId<Source>),

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use screeps::{BUILD_POWER, HARVEST_POWER, LINK_LOSS_RATIO, ObjectId, Part, RoomName, Source, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::ColonyView, creeps::CreepRole, domain_traits::EnergyStoreAccessors, spawn::{prototype::{AbsolutePrototype, RelativePrototype}, roster::GlobalCreeps}};
+use crate::{colony::ColonyView, creeps::CreepRole, domain_traits::EnergyStoreAccessors, spawn::roster::{creeps::GlobalCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 const SOURCE_POWER: f32 = 10.0;
 

@@ -6,7 +6,7 @@ use screeps::{CARRY_CAPACITY, HasPosition, Part, ResourceType, RoomName, pathfin
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::{truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, spawn::prototype::Body, statemachine::{Flow, OrBreak, step}};
+use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::{body::Body, truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, OrBreak, step}};
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ExportTruckCreep {
