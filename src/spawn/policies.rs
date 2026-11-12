@@ -1,11 +1,11 @@
 use std::sync::LazyLock;
 
 use itertools::Itertools;
-use log::warn;
+use log::{info, warn};
 use ordered_float::OrderedFloat;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::{FabricatorCoordinator, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::roster::{ColonyRoster, RoleSelector, Rosters, ScheduleDecision}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::FabricatorCreep, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, logging::LogResultErr, memory::Memory, movement::requests::TugboatRequests, spawn::roster::{ColonyRoster, RoleSelector, Rosters, ScheduleDecision}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() { 
@@ -176,51 +176,46 @@ pub fn schedule_tugboats(roster: &mut ColonyRoster, tugboat_requests: &TugboatRe
     }
 }
 
+const MAX_LEVEL_FOR_FABRICATOR_IMPORT: u8 = 4;
+
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
-pub fn schedule_fabricators(roster: &mut ColonyRoster, coordinator: &FabricatorCoordinator) {
-    if roster.syndrome().any_problems() { return }
-
-    let total_work_ticks = coordinator.total_build_work_ticks();
-    
-    while roster.has_free() {
-        let Some(mut body) = FABRICATOR_TEMPLATE.scaled(roster.future_energy()) else { break };
-
-        let reserved_work_ticks = roster.local_creeps()
-            .of_role(RoleSelector::Fabricator)
-            .map(|(creep , proto)| {
-                creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(Part::Work) as u32
-            })
-            .sum::<u32>();
-
-        let work_power = body.part_count(Part::Work) as u32 * BUILD_POWER;
-
-        if reserved_work_ticks >= total_work_ticks { break; }
-
-        if work_power as f32 > roster.full_budget() {
-            let target_work = (roster.full_budget() as u32).div_floor(BUILD_POWER).max(1);
-
-            let Some(new_body) = FABRICATOR_TEMPLATE.scaled_with_stop(roster.future_energy(), ScaleStopCondition::PartCount(Part::Work, target_work)) else { break; };
-            body = new_body;
-        }
-
-        roster.schedule(
-            body,
-            CreepRole::Fabricator(FabricatorCreep::default())
-        ).log_err();
-    }
-}
-
-pub fn schedule_remote_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
+pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) {
     for colony in mem.colonies.view_all() {
-        if !matches!(colony.step, ColonyStep::BuildSpawn) { continue; }
+        let coordinator = mem.fabricator_coordinators.entry(colony.name).or_default();
 
-        if rosters.get(&colony).local_creeps().of_role(RoleSelector::Fabricator).next().is_some() { continue; }
+        let total_work_ticks = coordinator.total_build_work_ticks();
 
-        rosters.schedule(
-            |roster| FABRICATOR_TEMPLATE.scaled(roster.future_energy()),
-            |_| CreepRole::Fabricator(FabricatorCreep::default()),
-            Some(colony.name)
-        ).log_err();
+        loop {
+            let reserved_work_ticks = rosters.get(&colony).local_creeps().part_ticks_left_of_role(RoleSelector::Fabricator, Part::Work);
+
+            if reserved_work_ticks >= total_work_ticks { break; }
+
+            let max_work = rosters.get(&colony).full_budget() as u32 / BUILD_POWER;
+            let may_import = colony.step.controller_level() <= MAX_LEVEL_FOR_FABRICATOR_IMPORT;
+
+            let result = rosters.schedule_selected(
+                |iter| {
+                    iter.filter(|(_, other_roster)| {
+                        other_roster.room() == colony.name || (may_import && other_roster.has_free())
+                    }).max_by_key(|(other_name, other_roster)| {
+                        let other_colony = mem.colonies.view(**other_name).unwrap();
+                        let dist = colony.center.get_range_to(other_colony.center);
+
+                        (other_roster.future_energy(), -(dist as i32))
+                    }).map(|(other_name, _)| *other_name)
+                },
+                |roster| FABRICATOR_TEMPLATE.scaled_with_stop(roster.future_energy(), ScaleStopCondition::PartCount(Part::Work, max_work)),
+                |_| CreepRole::Fabricator(FabricatorCreep::default()),
+                Some(colony.name)
+            );
+
+            if let Err(err) = result {
+                info!("Couldn't spawn fabricator: {err}");
+                break;
+            }
+
+            if !matches!(result, Ok(ScheduleDecision::Scheduled(_, _))) { break; }
+        }
     }
 }
 

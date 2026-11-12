@@ -1,6 +1,6 @@
-use screeps::{Part, Source};
+use screeps::{CREEP_LIFE_TIME, Part, Source};
 
-use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId}, spawn::roster::{creeps::{ColonyCreeps, GlobalCreeps}, prototype::{AbsolutePrototype, RelativePrototype}}};
+use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId, ResolvableId}, spawn::roster::{creeps::{ColonyCreeps, GlobalCreeps}, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 pub enum RoleSelector {
     SourceExcavator(ObjectId<Source>),
@@ -41,6 +41,14 @@ impl ColonyCreeps {
 
     pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {
         self.of_role(role).map(|(_, proto)| proto.body().part_count(part)).sum()
+    }
+
+    pub fn part_ticks_left_of_role(&self, role: RoleSelector, part: Part) -> u32 {
+        self.of_role(role)
+            .map(|(creep , proto)| {
+                creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(part) as u32
+            })
+            .sum()
     }
 }
 
