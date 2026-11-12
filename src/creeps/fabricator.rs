@@ -9,30 +9,38 @@ use serde::{Deserialize, Serialize};
 use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
 
 const MAX_TASK_TICKS: u32 = 100;
+const MAX_IDLE_TICKS: u32 = 10;
 
 type TaskExpiration = Expiration<MAX_TASK_TICKS>;
 
-#[derive(Debug, Default, EnumDisplay)]
-#[derive_where(Serialize, Deserialize, Clone; ObjectId<ConstructionSite, S>, S)]
+#[derive(Debug, EnumDisplay)]
+#[derive_where(Serialize, Deserialize, Clone; ObjectId<ConstructionSite, S>, Expiration<MAX_IDLE_TICKS, S>, S)]
 pub enum FabricatorCreep<S: CheckState = Checked> {
-    #[default] Idle,
+    Idle(Expiration<MAX_IDLE_TICKS, S>),
     Building(ObjectId<ConstructionSite, S>),
     Scrap(ScrapCreep)
+}
+
+impl Default for FabricatorCreep {
+    fn default() -> Self { Self::idle() }
 }
 
 impl<'de> Deserialize<'de> for FabricatorCreep {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let us = FabricatorCreep::<Unchecked>::deserialize(deserializer)?;
         Ok(match us {
-            FabricatorCreep::Idle => Self::Idle,
+            FabricatorCreep::Idle(e) => 
+                e.check().map_or(FabricatorCreep::Scrap(ScrapCreep::default()), FabricatorCreep::Idle),
             FabricatorCreep::Building(task) => 
-                task.check().map_or(FabricatorCreep::Idle, FabricatorCreep::Building),
+                task.check().map_or_else(|_| FabricatorCreep::idle(), FabricatorCreep::Building),
             FabricatorCreep::Scrap(state) => FabricatorCreep::Scrap(state)
         })
     }
 }
 
 impl FabricatorCreep {
+    fn idle() -> Self { Self::Idle(Expiration::new()) }
+
     pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<()> {
         *self = step(mem::take(self), |state| state.transition(creep, home, coordinator))?;
         Ok(())
@@ -40,13 +48,13 @@ impl FabricatorCreep {
 
     fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
         match self {
-            Self::Idle => {
+            Self::Idle(_) => {
                 goto!(if let Some(task) = coordinator.assign_build(creep) { Self::Building(task) });
 
-                Flow::Continue(Self::Scrap(ScrapCreep::default()))
+                Flow::Break
             },
             Self::Building(task) => {
-                let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::Idle) };
+                let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::idle()) };
 
                 gather_energy(creep, || home.buffer.or_break())?;
 
@@ -56,7 +64,7 @@ impl FabricatorCreep {
                 break_if(handle.reserved() > 0)?;
 
                 handle.release();
-                Flow::Continue(Self::Idle)
+                Flow::Continue(Self::idle())
             },
             FabricatorCreep::Scrap(state) => state.transition(creep, home).map_continue(FabricatorCreep::Scrap)
         }

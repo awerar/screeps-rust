@@ -240,6 +240,12 @@ impl<const LIFETIME: u32> Expiration<LIFETIME> {
     }
 }
 
+impl<const LIFETIME: u32> Default for Expiration<LIFETIME> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ExpirationCheckError;
 impl<const LT: u32> CheckFrom for Expiration<LT> {
     type Unchecked = Expiration<LT, Unchecked>;
