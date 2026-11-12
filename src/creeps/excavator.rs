@@ -27,6 +27,10 @@ impl SourcePlan {
         self.get_work().is_some()
     }
 
+    fn has_built_any_dump(&self) -> bool {
+        self.link.is_complete() || self.container.is_complete()
+    }
+
     fn get_dump(&self) -> Option<Dump> {
         self.link.resolve().filter(|link| link.free_energy_capacity() > 0).map(Dump::Link)
             .or_else(|| self.container.resolve().filter(|container| container.free_energy_capacity() > 0).map(Dump::Container))
@@ -151,10 +155,8 @@ pub fn update(creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) 
             creep.cancel_intent(IntentType::Harvest);
             creep.work(work)?;
         } else if let Some(dump) = plan.get_dump() {
-            if dump.free_energy_capacity() > 0 {
-                creep.transfer_energy(dump, None)?;
-            }
-        } else {
+            creep.transfer_energy(dump, None)?;
+        } else if !plan.has_built_any_dump() {
             creep.drop_energy(None)?;
         }
 
