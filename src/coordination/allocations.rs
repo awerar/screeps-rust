@@ -83,7 +83,7 @@ impl<Owner: Hash + Eq, AllocationData> Allocations<Owner, AllocationData> {
 
     pub fn allocate(&mut self, owner: Owner, amount: u32, data: AllocationData) {
         if let Some(other_state) = self.allocations.insert(owner, Allocation { amount, data }) {
-            self.state.reserved = self.state.reserved.saturating_sub(other_state.amount);
+            self.state.reserved -= other_state.amount;
         }
 
         self.state.reserved += amount;
@@ -132,7 +132,7 @@ where
                     (worker_state.amount, ExpiringEntryCheckError::Expired(owner, worker_state.data)),
             };
 
-            checked.state.reserved = checked.state.reserved.saturating_sub(amount);
+            checked.state.reserved -= amount;
             new_errs.push(new_err);
         }
 
@@ -149,13 +149,25 @@ pub type CreepAllocationHandle<'a, AllocationData = ()> = AllocationHandle<'a, H
 
 impl<Owner, AllocationData> AllocationHandle<'_, Owner, AllocationData> {
     pub fn consume(&mut self, amount: u32) {
-        self.resource_state.reserved = self.resource_state.reserved.saturating_sub(amount);
+        let alloc = self.live_handle.get_mut();
+
+        let from_reservation = alloc.amount.min(amount);
+        alloc.amount -= from_reservation;
+        self.resource_state.reserved -= from_reservation;
+
         self.resource_state.amount = self.resource_state.amount.saturating_sub(amount);
-        self.live_handle.get_mut().amount = self.live_handle.get().amount.saturating_sub(amount);
+    }
+
+    pub fn shrink_to(&mut self, amount: u32) {
+        let alloc = self.live_handle.get_mut();
+        
+        let freed = alloc.amount.saturating_sub(amount);
+        alloc.amount -= freed;
+        self.resource_state.reserved -= freed;
     }
 
     pub fn release(self) {
-        self.resource_state.reserved = self.resource_state.reserved.saturating_sub(self.live_handle.get().amount);
+        self.resource_state.reserved -= self.live_handle.get().amount;
         self.live_handle.remove();
     }
 

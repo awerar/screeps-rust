@@ -50,6 +50,7 @@ impl ServicerCreep {
             },
             Self::Repairing(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::Idle) };
+                handle.shrink_to(creep.ticks_to_live() * creep.body().part_count(Part::Work) as u32 * REPAIR_POWER);
 
                 gather_energy(creep, || home.buffer.or_break())?;
 

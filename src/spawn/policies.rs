@@ -5,7 +5,7 @@ use log::warn;
 use ordered_float::OrderedFloat;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part, Source};
 
-use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::FabricatorCreep, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, memory::Memory, movement::requests::TugboatRequests, spawn::roster::{ColonyRoster, RoleSelector, Rosters}, statemachine::{Flow, OrBreak, break_if, run}};
+use crate::{colony::{ColonyBuffer, ColonyView, plan::SourcePlan}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::{FABRICATOR_HORIZON, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, memory::Memory, movement::requests::TugboatRequests, spawn::roster::{ColonyRoster, RoleSelector, Rosters}, statemachine::{Flow, OrBreak, break_if, run}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() {
@@ -193,7 +193,6 @@ fn schedule_tugboat(roster: &mut ColonyRoster, tugged: &Creep) -> Flow {
 }
 
 const MAX_LEVEL_FOR_FABRICATOR_IMPORT: u8 = 4;
-const FABRICATOR_HORIZON: u32 = 300;
 
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
 pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::Result<()> {

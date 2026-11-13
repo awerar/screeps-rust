@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
 
-const MAX_TASK_TICKS: u32 = 100;
 const MAX_IDLE_TICKS: u32 = 10;
+pub const FABRICATOR_HORIZON: u32 = 300;
 
-type TaskExpiration = Expiration<MAX_TASK_TICKS>;
+type TaskExpiration = Expiration<FABRICATOR_HORIZON>;
 
 #[derive(Debug, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<ConstructionSite, S>, Expiration<MAX_IDLE_TICKS, S>, S)]
@@ -46,6 +46,10 @@ impl FabricatorCreep {
     }
 
     fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
+        if creep.pos().room_name() != home.name {
+            creep.approach(home.center, 5)?;
+        }
+
         match self {
             Self::Idle { last_update_tick, ticks_left } => {
                 goto!(if let Some(task) = coordinator.assign_build(creep) { Self::Building(task) });
@@ -57,6 +61,7 @@ impl FabricatorCreep {
             },
             Self::Building(task) => {
                 let Some(mut handle) = coordinator.refresh(creep, &task) else { goto!(Self::idle()) };
+                handle.shrink_to(creep.ticks_to_live() * creep.body().part_count(Part::Work) as u32 * BUILD_POWER);
 
                 gather_energy(creep, || home.buffer.or_break())?;
 
@@ -96,7 +101,7 @@ impl FabricatorCoordinator {
     }
 
     pub fn assign_build(&mut self, creep: &VirtualCreep) -> Option<ObjectId<ConstructionSite>> {
-        let build_amount = creep.ticks_to_live().min(MAX_TASK_TICKS) * creep.body().part_count(Part::Work) as u32 * BUILD_POWER;
+        let build_amount = creep.ticks_to_live().min(FABRICATOR_HORIZON) * creep.body().part_count(Part::Work) as u32 * BUILD_POWER;
 
         self.0.iter_mut()
             .filter(|(_, collab)| collab.unreserved_amount() > 0)

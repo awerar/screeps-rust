@@ -123,7 +123,7 @@ impl ArrivedState {
                 goto!(if let Some(buffer) = import_colony.buffer.as_ref() && buffer.free_energy_capacity() > 0 { Self::StoringAway(*buffer) });
                 goto!(if let Some(consumer) = coordinator.assign_consumer(creep) { Self::ProvidingTo(consumer) });
 
-                creep.approach(import_colony.center, 3)?;
+                creep.approach(import_colony.center, 5)?;
 
                 Flow::Break
             },

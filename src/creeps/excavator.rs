@@ -158,6 +158,8 @@ pub fn update(creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) 
             creep.transfer_energy(dump, None)?;
         } else if !plan.has_built_any_dump() {
             creep.drop_energy(None)?;
+        } else { 
+            creep.cancel_intent(IntentType::Harvest); 
         }
 
         return Flow::Break
