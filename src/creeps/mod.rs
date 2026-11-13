@@ -209,7 +209,7 @@ impl Memory {
             if creep.resolve().pos().room_name() != colony.name { continue; }
 
             let is_consumer = match data.role {
-                CreepRole::Fabricator(_) | CreepRole::Servicer(_) => true,
+                CreepRole::Fabricator(_) | CreepRole::Servicer(_) if data.home == colony.name => true,
                 CreepRole::Seeder | CreepRole::Terraformer => !colony.plan.upgrader_container.is_complete(),
                 _ => false,
             };

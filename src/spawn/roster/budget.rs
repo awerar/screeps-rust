@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::{Add, AddAssign}};
 
 use screeps::{BUILD_POWER, HARVEST_POWER, LINK_LOSS_RATIO, ObjectId, Part, RoomName, Source, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::ColonyView, creeps::CreepRole, domain_traits::EnergyStoreAccessors, spawn::roster::{creeps::GlobalCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
+use crate::{colony::ColonyView, creeps::{CreepRole, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::roster::{creeps::GlobalCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 const SOURCE_POWER: f32 = 10.0;
 
@@ -95,14 +95,15 @@ impl ColonyBudget {
     fn get_local_creep_contribution(&self, proto: &RelativePrototype) -> CreepBudget {
         let work_count = proto.body().part_count(Part::Work) as f32;
         match proto.role() {
+            CreepRole::Fabricator(FabricatorCreep::Scrap(_))
+            | CreepRole::Servicer(ServicerCreep::Scrap(_)) | CreepRole::Flagship(_) | CreepRole::Truck(_)
+            | CreepRole::Tugboat(_) | CreepRole::Scrap(_) => CreepBudget::default(),
             CreepRole::Excavator(source) => excavator_contribution(work_count, &self.sources[&source.screeps_id()]),
             CreepRole::Fabricator(_) => CreepBudget::drain(work_count * BUILD_POWER as f32),
             CreepRole::Servicer(_) => CreepBudget::drain(work_count),
             CreepRole::Terraformer | CreepRole::Seeder => CreepBudget::drain(work_count * UPGRADE_CONTROLLER_POWER as f32),
             CreepRole::ExportTruck(truck) => CreepBudget::drain(truck.power(proto.body())),
-            CreepRole::Flagship(_) | CreepRole::Truck(_)
-            | CreepRole::Tugboat(_) | CreepRole::Scrap(_) => CreepBudget::default(),
-        }
+            }
     }
 
     fn get_nonlocal_creep_contribution(&self, proto: &AbsolutePrototype) -> CreepBudget {

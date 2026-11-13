@@ -133,7 +133,7 @@ pub fn update(creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) 
 
     let harvest_energy = (creep.body().part_count(Part::Work) * 2) as u32;
 
-    let may_work = source.energy() <= source.ticks_to_regeneration().unwrap_or(ENERGY_REGEN_TIME).saturating_sub(1) * harvest_energy;
+    let may_work = source.energy() <= source.ticks_to_regeneration().unwrap_or(ENERGY_REGEN_TIME).min(creep.ticks_to_live()).saturating_sub(1) * harvest_energy;
     let work = may_work.then(|| plan.get_work()).flatten();
 
     let request = plan.get_request();

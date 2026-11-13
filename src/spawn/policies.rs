@@ -193,6 +193,7 @@ fn schedule_tugboat(roster: &mut ColonyRoster, tugged: &Creep) -> Flow {
 }
 
 const MAX_LEVEL_FOR_FABRICATOR_IMPORT: u8 = 4;
+const FABRICATOR_HORIZON: u32 = 300;
 
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
 pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::Result<()> {
@@ -202,7 +203,11 @@ pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::
         let total_work_ticks = coordinator.total_build_work_ticks();
 
         run(|| {
-            let reserved_work_ticks = rosters.get(&colony).local_creeps().part_ticks_left_of_role(RoleSelector::Fabricator, Part::Work);
+            let reserved_work_ticks = rosters.get(&colony).local_creeps()
+                .of_role(RoleSelector::Fabricator)
+                .map(|(creep, proto)| {
+                    creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME).min(FABRICATOR_HORIZON) * proto.body().part_count(Part::Work) as u32
+                }).sum::<u32>();
 
             break_if(reserved_work_ticks >= total_work_ticks)?;
 
@@ -244,11 +249,7 @@ pub fn schedule_servicers(roster: &mut ColonyRoster, coordinator: &ServicerCoord
         let body = SERVICER_TEMPLATE.scaled(roster.future_energy()).or_break()?;
 
         if !need_emergency_servicer {
-            let reserved_work_ticks = roster.local_creeps()
-                .of_role(RoleSelector::Servicer)
-                .map(|(creep , proto)| {
-                    creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(Part::Work) as u32
-                }).sum::<u32>();
+            let reserved_work_ticks = roster.local_creeps().part_ticks_left_of_role(RoleSelector::Servicer, Part::Work);
 
             let work_power = body.part_count(Part::Work) as u32;
             let additional_reserved_work_ticks = body.part_count(Part::Work) as u32 * body.life_time();

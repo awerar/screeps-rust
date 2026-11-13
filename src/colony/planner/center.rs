@@ -179,7 +179,7 @@ pub fn plan_extensions_towers_observer(planner: &mut ColonyPlanner, center_plann
 }
 
 const MIN_ENTRANCE_DIST: usize = 8;
-const MIN_WALL_DIST: usize = 2;
+const MIN_WALL_DIST: usize = 3;
 pub fn find_center(room: &Room) -> anyhow::Result<RoomXY> {
     let terrain = room.get_terrain();
 
