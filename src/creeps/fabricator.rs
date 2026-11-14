@@ -6,7 +6,7 @@ use enum_display::EnumDisplay;
 use screeps::{BUILD_POWER, ConstructionSite, HasPosition, Part, Room, find, game};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::{Colonies, ColonyName, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::{ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}};
 
 const MAX_IDLE_TICKS: u32 = 10;
 pub const FABRICATOR_HORIZON: u32 = 300;
@@ -40,13 +40,14 @@ impl<'de> Deserialize<'de> for FabricatorCreep {
 impl FabricatorCreep {
     fn idle() -> Self { Self::Idle { ticks_left: MAX_IDLE_TICKS, last_update_tick: game::time() } }
 
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> anyhow::Result<()> {
-        *self = step(mem::take(self), |state| state.transition(creep, home, coordinator))?;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: ColonyName, colonies: &mut Colonies) -> anyhow::Result<()> {
+        let (home, coordinators) = colonies.view_mut(home);
+        *self = step(mem::take(self), |state| state.transition(creep, &home, &mut coordinators.fabricators))?;
         Ok(())
     }
 
     fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
-        if creep.pos().room_name() != home.name {
+        if creep.pos().room_name() != home.name.room_name() {
             creep.approach(home.center, 5)?;
         }
 

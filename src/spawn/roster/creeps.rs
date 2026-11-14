@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 
-use screeps::RoomName;
-
 use derive_deref::Deref;
 
-use crate::{domain_traits::CreepId, memory::Memory, spawn::roster::prototype::{AbsolutePrototype, RelativePrototype}};
+use crate::{colony::ColonyName, domain_traits::CreepId, memory::Memory, spawn::roster::prototype::{AbsolutePrototype, RelativePrototype}};
 
 #[derive(Deref)]
 pub struct ColonyCreeps(pub HashMap<CreepId, RelativePrototype>);
 
 impl ColonyCreeps {
-    pub fn new(colony: RoomName, mem: &Memory) -> Self {
+    pub fn new(colony: ColonyName, mem: &Memory) -> Self {
         Self(
             mem.creeps.iter()
                 .filter(|(_, data)| data.home == colony)

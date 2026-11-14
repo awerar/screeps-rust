@@ -6,7 +6,7 @@ use screeps::{HasPosition, Position, ResourceType};
 use serde::Deserialize;
 use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step, break_if}};
+use crate::{check::{Check, CheckFrom}, colony::{Colonies, ColonyName, ColonyView}, coordination::allocations::CreepAllocationHandle, creeps::{truck::{TruckCreep::FillingUpFor, coordinator::TruckCoordinator, stop::{ConsumerTruckStop, ProviderTruckStop}}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step, break_if}};
 
 #[derive(Debug, Default, EnumDisplay)]
 #[derive_where(Serialize, Deserialize, Clone; TruckTask<S>, ConsumerTruckStop<S>, S)]
@@ -56,8 +56,9 @@ impl TruckCreep {
         Self::Idle
     }
 
-    pub fn update(&mut self, truck: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut TruckCoordinator) -> Result<()> {
-        *self = step(mem::take(self), |state| state.transition(truck, home, coordinator))?;
+    pub fn update(&mut self, truck: &mut VirtualCreep, home: ColonyName, colonies: &mut Colonies) -> Result<()> {
+        let (home, coordinators) = colonies.view_mut(home);
+        *self = step(mem::take(self), |state| state.transition(truck, &home, &mut coordinators.trucks))?;
         Ok(())
     }
 

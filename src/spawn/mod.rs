@@ -11,8 +11,7 @@ use roster::Rosters;
 impl Rosters {
     fn for_roster<'a>(&mut self, colonies: &'a Colonies, mut f: impl FnMut(&mut ColonyRoster, ColonyView<'a>)) {
         for (colony, roster) in self.iter_mut() {
-            let Some(view) = colonies.view(*colony) else { continue; };
-            f(roster, view);
+            f(roster, colonies.view(*colony));
         }
     }
 }
@@ -43,7 +42,7 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
         schedule_excavators(roster, &colony).log_failure(format_args!("excavators in {name}"));
         schedule_trucks(roster, &colony).log_failure(format_args!("trucks in {name}"));
         schedule_terraformer(roster, &colony).log_failure(format_args!("terraformer in {name}"));
-        schedule_servicers(roster, mem.servicer_coordinators.entry(name).or_default()).log_failure(format_args!("servicers in {name}"));
+        schedule_servicers(roster, &colonies.coordinators(name).servicers).log_failure(format_args!("servicers in {name}"));
     });
 
 

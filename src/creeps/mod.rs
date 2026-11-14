@@ -1,11 +1,11 @@
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug};
 
 use derive_where::derive_where;
 use log::{error, warn};
 use screeps::{Creep, ResourceType, RoomName, Source, find, game, look, prelude::*};
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
-use crate::{check::{Check, CheckFrom}, colony::ColonyView, creeps::{fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
+use crate::{check::{Check, CheckFrom}, colony::{ColonyName, ColonyView}, creeps::{fabricator::FabricatorCreep, flagship::FlagshipCreep, scrap::ScrapCreep, servicer::ServicerCreep, truck::{CreepStops, ExportTruckCreep, TruckCreep}, virtual_creep::VirtualCreep}, domain_traits::{CreepId, EnergyStoreAccessors, HasId, ObjectId, ResolvableId, Withdrawable}, ids::{CheckState, Checked, Unchecked}, memory::Memory, movement::requests::{MovementRequests, TugboatRequests}, statemachine::{Flow, break_if, run}, utils::adjacent_positions};
 
 pub mod body;
 pub mod flagship;
@@ -22,7 +22,7 @@ pub mod scrap;
 #[derive_where(Deserialize, Serialize, Clone; CreepRole<S>)]
 pub struct CreepData<S: CheckState = Checked> {
     pub role: CreepRole<S>,
-    pub home: RoomName,
+    pub home: ColonyName<Unchecked>,
     pub spawn_room: RoomName
 }
 
@@ -40,15 +40,17 @@ impl CheckFrom for CreepData {
 }
 
 impl CreepData {
-    pub fn new(home: RoomName, spawn_room: RoomName, role: CreepRole) -> Self {
-        CreepData { role, home, spawn_room }
+    pub fn new(home: ColonyName, spawn_room: RoomName, role: CreepRole) -> Self {
+        CreepData { role, home: home.into(), spawn_room }
     }
 
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
-        let home = mem.colonies.view(creep.pos().room_name())
+        let colonies = &mem.colonies;
+        let home = colonies.lookup(creep.pos().room_name())
+            .map(|name| colonies.view(name))
             .filter(|colony| colony.plan.center.spawn.is_complete())
             .or_else(|| 
-                mem.colonies.view_all()
+                colonies.view_all()
                     .filter(|colony| colony.plan.center.spawn.is_complete())
                     .min_by_key(|colony| colony.plan.center.pos.get_range_to(creep.pos()))
             )?;
@@ -72,7 +74,7 @@ impl CreepData {
             _ => CreepRole::Scrap(ScrapCreep::default())
         };
         
-        Some(CreepData::new(home.name, home.name, role))
+        Some(CreepData::new(home.name, home.name.room_name(), role))
     }
 }
 
@@ -150,42 +152,26 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
     let mut movement = MovementRequests::new();
     for creep in &update_creeps {
         let creep_data = mem.creeps.get_mut(&creep.id()).unwrap();
-        let Some(home) = mem.colonies.view(creep_data.home) else { continue; };
+        let Some(home) = mem.colonies.verify(creep_data.home) else { continue; };
+        let colonies = &mut mem.colonies;
 
         let mut vcreep = VirtualCreep::new(creep.clone());
 
         let result = match &mut creep_data.role {
             Flagship(state) => state.update(&mut vcreep, &mut mem.flagship_coordinator),
-            Excavator(source) => excavator::update(&mut vcreep, &source.resolve(), &home).into_result().map(|_| ()),
-            Truck(state) => {
-                let coordinator = mem.truck_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, coordinator)
-            },
-            ExportTruck(state) => {
-                if let Some(import_colony) = mem.colonies.view(state.import_colony()) {
-                    let import_coordinator = mem.truck_coordinators.entry(state.import_colony()).or_default();
-
-                    state.update(&mut vcreep, &home, &import_colony, import_coordinator)
-                } else {
-                    Err(anyhow!("Import colony is no longer a colony"))
-                }
-            }
-            Fabricator(state) => {
-                let coordinator = mem.fabricator_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, coordinator)
-            },
-            Servicer(state) => {
-                let coordinator = mem.servicer_coordinators.entry(creep_data.home).or_default();
-                state.update(&mut vcreep, &home, coordinator)
-            }
-            Terraformer => terraformer::update(&mut vcreep, &home).into_result().map(|_| ()),
-            Seeder => run(|| seeder::transition(&mut vcreep, &home)),
+            Excavator(source) => excavator::update(&mut vcreep, &source.resolve(), home, colonies).into_result().map(|_| ()),
+            Truck(state) => state.update(&mut vcreep, home, colonies),
+            ExportTruck(state) => state.update(&mut vcreep, home, colonies),
+            Fabricator(state) => state.update(&mut vcreep, home, colonies),
+            Servicer(state) => state.update(&mut vcreep, home, colonies),
+            Terraformer => terraformer::update(&mut vcreep, home, colonies).into_result().map(|_| ()),
+            Seeder => run(|| seeder::transition(&mut vcreep, home, colonies)),
             Tugboat(tugged) => {
-                let Some(recycle_spawn) = home.plan.center.spawn.resolve() else { continue; };
+                let Some(recycle_spawn) = colonies.view(home).plan.center.spawn.resolve() else { continue; };
                 movement.do_tugboat(creep, tugged.clone(), &recycle_spawn);
                 Ok(())
             },
-            Scrap(state) => state.update(&mut vcreep, &home),
+            Scrap(state) => state.update(&mut vcreep, home, colonies),
         };
 
         if let Err(e) = result {
@@ -200,27 +186,25 @@ pub fn do_creeps(mem: &mut Memory) -> TugboatRequests {
     movement.perform(&mut mem.movement)
 }
 
-impl Memory {
-    pub fn get_creep_stops(&self, colony: &ColonyView<'_>) -> CreepStops {
-        let mut result = CreepStops { consumers: Vec::new(), providers: Vec::new() };
+pub fn get_creep_stops(creeps: &HashMap<CreepId, CreepData>, colony: &ColonyView<'_>) -> CreepStops {
+    let mut result = CreepStops { consumers: Vec::new(), providers: Vec::new() };
 
-        for (creep, data) in &self.creeps {
-            if creep.resolve().spawning() { continue; }
-            if creep.resolve().pos().room_name() != colony.name { continue; }
+    for (creep, data) in creeps {
+        if creep.resolve().spawning() { continue; }
+        if creep.resolve().pos().room_name() != colony.name.room_name() { continue; }
 
-            let is_consumer = match data.role {
-                CreepRole::Fabricator(_) | CreepRole::Servicer(_) if data.home == colony.name => true,
-                CreepRole::Seeder | CreepRole::Terraformer => !colony.plan.upgrader_container.is_complete(),
-                _ => false,
-            };
-            
-            if is_consumer {
-                result.consumers.push(creep.resolve());
-            }
+        let is_consumer = match data.role {
+            CreepRole::Fabricator(_) | CreepRole::Servicer(_) if data.home == colony.name => true,
+            CreepRole::Seeder | CreepRole::Terraformer => !colony.plan.upgrader_container.is_complete(),
+            _ => false,
+        };
+        
+        if is_consumer {
+            result.consumers.push(creep.resolve());
         }
-
-        result
     }
+
+    result
 }
 
 pub fn gather_energy<P, F>(creep: &mut VirtualCreep, find_structure: F) -> Flow 

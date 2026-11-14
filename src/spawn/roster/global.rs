@@ -1,11 +1,9 @@
 use std::{cell::RefCell, collections::{HashMap, hash_map}, rc::Rc};
 
-use screeps::RoomName;
-
-use crate::{colony::ColonyView, creeps::{CreepRole, body::Body}, memory::Memory, names::UsedNames, spawn::roster::{ColonyRoster, creeps::GlobalCreeps}, statemachine::{Flow, OrBreak}};
+use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, body::Body}, memory::Memory, names::UsedNames, spawn::roster::{ColonyRoster, creeps::GlobalCreeps}, statemachine::{Flow, OrBreak}};
 
 pub struct Rosters {
-    rosters: HashMap<RoomName, ColonyRoster>,
+    rosters: HashMap<ColonyName, ColonyRoster>,
     global_creeps: GlobalCreeps
 }
 
@@ -23,7 +21,7 @@ impl Rosters {
         }
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&RoomName, &mut ColonyRoster)> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&ColonyName, &mut ColonyRoster)> {
         self.rosters.iter_mut()
     }
 
@@ -35,9 +33,9 @@ impl Rosters {
         &self.global_creeps
     }
 
-    pub fn schedule_selected<S, B, R>(&mut self, select: S, make_body: B, make_role: R, home: Option<RoomName>) -> Flow
+    pub fn schedule_selected<S, B, R>(&mut self, select: S, make_body: B, make_role: R, home: Option<ColonyName>) -> Flow
     where
-        S: for<'a> FnOnce(hash_map::Iter<'a, RoomName, ColonyRoster>) -> Flow<RoomName>,
+        S: for<'a> FnOnce(hash_map::Iter<'a, ColonyName, ColonyRoster>) -> Flow<ColonyName>,
         B: FnOnce(&ColonyRoster) -> Flow<Body>,
         R: FnOnce(&ColonyRoster) -> CreepRole
     {
@@ -56,14 +54,14 @@ impl Rosters {
         Flow::Continue(())
     }
 
-    pub fn default_select(iter: hash_map::Iter<'_, RoomName, ColonyRoster>) -> Flow<RoomName> {
+    pub fn default_select(iter: hash_map::Iter<'_, ColonyName, ColonyRoster>) -> Flow<ColonyName> {
         iter.filter(|(_, roster)| roster.has_free())
             .max_by_key(|(_, roster)| roster.energy.future_energy())
             .map(|(room, _)| *room)
             .or_break()
     }
 
-    pub fn schedule<B, R>(&mut self, make_body: B, make_role: R, home: Option<RoomName>) -> Flow
+    pub fn schedule<B, R>(&mut self, make_body: B, make_role: R, home: Option<ColonyName>) -> Flow
     where
         B: FnOnce(&ColonyRoster) -> Flow<Body>,
         R: FnOnce(&ColonyRoster) -> CreepRole

@@ -10,19 +10,19 @@ mod syndrome;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use itertools::Itertools;
-use screeps::{Direction, HasPosition, RoomName, SpawnOptions, Structure, game};
+use screeps::{Direction, HasPosition, SpawnOptions, Structure, game};
 use anyhow::anyhow;
 
-use crate::{colony::ColonyView, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{CreepId, HasId}, memory::Memory, names::UsedNames, statemachine::{Flow, OrBreak}, spawn::roster::{budget::ColonyBudget, creeps::{ColonyCreeps, GlobalCreeps}, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::AbsolutePrototype, spawns::{ColonySpawn, ColonySpawnIterator, ColonySpawnType}, syndrome::ColonySyndrome}};
+use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{CreepId, HasId}, memory::Memory, names::UsedNames, statemachine::{Flow, OrBreak}, spawn::roster::{budget::ColonyBudget, creeps::{ColonyCreeps, GlobalCreeps}, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, prototype::AbsolutePrototype, spawns::{ColonySpawn, ColonySpawnIterator, ColonySpawnType}, syndrome::ColonySyndrome}};
 
 pub use global::Rosters;
 pub use roles::RoleSelector;
 
 pub type SharedUsedNames = Rc<RefCell<UsedNames>>;
-pub type SharedColonyBudgets = Rc<RefCell<HashMap<RoomName, ColonyBudget>>>;
+pub type SharedColonyBudgets = Rc<RefCell<HashMap<ColonyName, ColonyBudget>>>;
 
 pub struct ColonyRoster {
-    name: RoomName,
+    name: ColonyName,
 
     spawns: Vec<ColonySpawn>,
     energy: ColonyEnergy,
@@ -135,19 +135,19 @@ impl ColonyRoster {
         self.energy.future_energy()
     }
 
-    pub fn room(&self) -> RoomName {
+    pub fn room(&self) -> ColonyName {
         self.name
     }
 
     // Not meant to be used by user
-    fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: RoomName) -> Flow<(CreepId, AbsolutePrototype)>
+    fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: ColonyName) -> Flow<(CreepId, AbsolutePrototype)>
     where
         S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Flow<usize>
     {
         let choice = select(ColonySpawnIterator::new(&self.spawns))?;
         let spawn = self.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
 
-        let proto = AbsolutePrototype::new(body, role, home, self.name);
+        let proto = AbsolutePrototype::new(body, role, home.into(), self.name.room_name());
 
         assert!(spawn.is_free());
 
@@ -191,7 +191,7 @@ impl ColonyRoster {
         }
 
         let id = game::creeps().get(name).expect("Creep should exist in Game.creeps right after spawning").id();
-        spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home(), spawn_room: self.name }, dirs);
+        spawn.begin_spawning(id.clone(), CreepData { role: proto.role().clone(), home: proto.home(), spawn_room: self.name.room_name() }, dirs);
 
         Flow::Continue((id, proto))
     }

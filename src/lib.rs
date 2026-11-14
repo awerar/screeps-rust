@@ -21,7 +21,7 @@ use rand::{RngCore, SeedableRng, rngs::StdRng};
 use screeps::{StructureLink, game};
 use wasm_bindgen::prelude::*;
 
-use crate::{colony::update_colonies, creeps::do_creeps, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
+use crate::{colony::update_colonies, creeps::{do_creeps, get_creep_stops}, domain_traits::EnergyStoreAccessors, memory::Memory, spawn::do_spawns, tower::do_towers};
 
 mod logging;
 mod names;
@@ -72,7 +72,7 @@ pub fn game_loop() {
         return;
     }
 
-    update_colonies(&mut mem);
+    update_colonies(&mut mem.colonies);
 
     update_coordinators(&mut mem);
     let tugboat_requests = do_creeps(&mut mem);
@@ -102,12 +102,12 @@ register_custom_getrandom!(custom_getrandom);
 fn update_coordinators(mem: &mut Memory) {
     mem.flagship_coordinator.update();
 
-    for colony in mem.colonies.view_all() {
-        let creep_stops = mem.get_creep_stops(&colony);
+    for (colony, coordinators) in mem.colonies.view_all_mut() {
+        let creep_stops = get_creep_stops(&mem.creeps, &colony);
 
-        mem.truck_coordinators.entry(colony.name).or_default().update(colony.plan, &colony.room, creep_stops);
-        mem.fabricator_coordinators.entry(colony.name).or_default().update(&colony.room);
-        mem.servicer_coordinators.entry(colony.name).or_default().update(&colony.room);
+        coordinators.trucks.update(colony.plan, &colony.room, creep_stops);
+        coordinators.fabricators.update(&colony.room);
+        coordinators.servicers.update(&colony.room);
     }
 }
 

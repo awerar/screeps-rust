@@ -1,34 +1,15 @@
-use std::collections::{HashSet, hash_map};
+use std::collections::HashSet;
 
 use js_sys::JsString;
-use screeps::{HasPosition, OwnedStructureProperties, Room, RoomName, find, game};
+use screeps::{HasPosition, Room, find, game};
 use log::{error, info, warn};
 
-use crate::{colony::{ColonyView, plan::ColonyPlan, steps::ColonyStep}, commands::{Command, handle_commands, pop_command}, memory::Memory, statemachine::step, visuals::{RoomDrawerType, clear_room_visual, draw_in_room_replaced}};
+use crate::{colony::{Colonies, plan::ColonyPlan, registry::is_owned_room, steps::ColonyStep}, commands::{Command, pop_command}, statemachine::step, visuals::{RoomDrawerType, clear_room_visual, draw_in_room_replaced}};
 
-pub fn update_colonies(mem: &mut Memory) {
-    handle_commands(|command| {
-        let Command::ResetColony { room: name } = command else { return false; };
-        let Ok(name) = RoomName::new(name) else { return true; };
-        mem.colonies.0.remove(&name);
-        true
-    });
-
-    let prev_colonies: HashSet<_> = mem.colonies.0.keys().copied().collect();
-    let curr_colonies: HashSet<_> = game::rooms().entries()
-        .filter(|(_, room)| {
-            if let Some(controller) = room.controller() { controller.my() }
-            else { false }
-        }).map(|(name, _)| name).collect();
-
-    let lost_colonies = prev_colonies.difference(&curr_colonies);
-    for room in lost_colonies {
-        mem.colonies.0.remove(room);
-        mem.truck_coordinators.remove(room);
-        mem.fabricator_coordinators.remove(room);
-        mem.servicer_coordinators.remove(room);
-        warn!("Lost colony {room}");
-    }
+pub fn update_colonies(colonies: &mut Colonies) {
+    let curr_colonies: HashSet<_> = game::rooms().keys()
+        .filter(|name| is_owned_room(*name))
+        .collect();
 
     if curr_colonies.len() == 1 {
         let room = curr_colonies.iter().next().unwrap();
@@ -48,46 +29,50 @@ pub fn update_colonies(mem: &mut Memory) {
             }
     }
 
-    for name in curr_colonies {
-        let room = game::rooms().get(name).unwrap();
+    for room_name in curr_colonies {
+        let room = game::rooms().get(room_name).unwrap();
 
-        if let hash_map::Entry::Vacant(e) = mem.colonies.0.entry(name) {
+        let name = if let Some(name) = colonies.lookup(room_name) { name } else {
             let plan = ColonyPlan::create_for(&room);
             let Ok(plan) = plan else {
                 let Err(err) = plan else { unreachable!() };
-                warn!("Unable to create plan for {name}: {err}");
+                warn!("Unable to create plan for {room_name}: {err}");
                 continue;
             };
 
             if !plan.handle_incompatible(&room) { continue; }
 
             let step = plan.get_latest_compatible_step_for(&room);
-            e.insert((plan, step));
-        }
+            let Some(name) = colonies.insert(room_name, plan, step) else { continue; };
+            name
+        };
 
-        if pop_command(Command::ResetColonyStep { room: name.to_string() }) {
-            let (plan, step) = mem.colonies.0.get_mut(&name).unwrap();
-            
-            if plan.handle_incompatible(&room) {
-                *step = plan.get_latest_compatible_step_for(&room);
+        if pop_command(Command::ResetColonyStep { room: room_name.to_string() }) {
+            let colony = colonies.get_mut(name);
+
+            if colony.plan.handle_incompatible(&room) {
+                colony.step = colony.plan.get_latest_compatible_step_for(&room);
             }
         }
 
-        if pop_command(Command::VisualizePlan { room: name.to_string(), animate: false }) {
-            let plan_clone = mem.colonies.0.get(&name).unwrap().0.clone();
-            draw_in_room_replaced(name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
+        if pop_command(Command::VisualizePlan { room: room_name.to_string(), animate: false }) {
+            let plan_clone = colonies.get(name).plan.clone();
+            draw_in_room_replaced(room_name, RoomDrawerType::Plan, move |visuals| plan_clone.draw_until(visuals, None));
         }
 
-        if pop_command(Command::VisualizePlan { room: name.to_string(), animate: true }) {
-            let plan_clone = mem.colonies.0.get(&name).unwrap().0.clone();
-            plan_clone.draw_progression(name);
+        if pop_command(Command::VisualizePlan { room: room_name.to_string(), animate: true }) {
+            let plan_clone = colonies.get(name).plan.clone();
+            plan_clone.draw_progression(room_name);
         }
 
-        let (plan, stp) = mem.colonies.0.get_mut(&name).unwrap();
-        let view = ColonyView::new(room.clone(), plan, *stp);
+        let colony = colonies.get_mut(name);
+        let result = {
+            let view = colony.view();
+            step(colony.step, |stp| stp.update(&room, &view))
+        };
 
-        match step(*stp, |stp| stp.update(&room, &view)) {
-            Ok(new_step) => *stp = new_step,
+        match result {
+            Ok(new_step) => colony.step = new_step,
             Err(e) => error!("Colony {name} failed, falling back to the default step: {e:#}"),
         }
     }

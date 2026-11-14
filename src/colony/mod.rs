@@ -1,25 +1,23 @@
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
 use derive_where::derive_where;
-use screeps::{HasPosition, Position, Room, RoomName, Store, Structure, StructureContainer, StructureController, StructureStorage, game};
-use serde::{Deserialize, Serialize};
+use screeps::{HasPosition, Position, Room, Store, Structure, StructureContainer, StructureController, StructureStorage};
 
 use crate::{check::{Check, CheckFrom}, colony::{plan::ColonyPlan, steps::ColonyStep}, domain_traits::{HasId, HasStore, ObjectId, ResolvableId, Transferable, Withdrawable}, ids::{CheckState, Checked, Unchecked}};
 
 mod lifecycle;
 pub mod plan;
 mod planner;
+mod registry;
 pub mod steps;
 
 pub use lifecycle::update_colonies;
-
-#[derive(Serialize, Deserialize, Default)]
-pub struct Colonies(HashMap<RoomName, (ColonyPlan, ColonyStep)>);
+pub use registry::{Colonies, Colony, ColonyCoordinators, ColonyName};
 
 pub struct ColonyView<'mem> {
     pub plan: &'mem ColonyPlan,
     pub step: ColonyStep,
-    pub name: RoomName,
+    pub name: ColonyName,
     pub room: Room,
     pub controller: StructureController,
     pub buffer: Option<ColonyBuffer>,
@@ -33,35 +31,57 @@ impl Display for ColonyView<'_> {
 }
 
 impl<'mem> ColonyView<'mem> {
-    pub fn new(room: Room, plan: &'mem ColonyPlan, step: ColonyStep) -> Self {
+    pub fn new(name: ColonyName, plan: &'mem ColonyPlan, step: ColonyStep) -> Self {
         let buffer = plan.center.storage.resolve().map(|x| x.id()).map(ColonyBuffer::Storage)
             .or_else(|| plan.center.container_storage.resolve().map(|x| x.id()).map(ColonyBuffer::Container));
 
         ColonyView {
             plan,
             step,
-            name: room.name(),
-            controller: room.controller().expect("Every colony should have a controller"),
-            room,
+            name,
+            controller: name.controller(),
+            room: name.room(),
             buffer,
             center: plan.center.pos
         }
     }
 }
 
+impl Colony {
+    pub fn view(&self) -> ColonyView<'_> {
+        ColonyView::new(self.name(), &self.plan, self.step)
+    }
+
+    pub fn split(&mut self) -> (ColonyView<'_>, &mut ColonyCoordinators) {
+        let name = self.name();
+        let Colony { plan, step, coordinators, .. } = self;
+        (ColonyView::new(name, plan, *step), coordinators)
+    }
+}
+
 impl Colonies {
-    pub fn view(&self, name: RoomName) -> Option<ColonyView<'_>> {
-        let (plan, step) = self.0.get(&name)?;
-        Some(ColonyView::new(game::rooms().get(name)?, plan, *step))
+    pub fn view(&self, name: ColonyName) -> ColonyView<'_> {
+        self.get(name).view()
     }
 
     pub fn view_all(&self) -> impl Iterator<Item = ColonyView<'_>> {
-        self.0.keys().filter_map(|name| self.view(*name))
+        self.iter().map(Colony::view)
     }
 
-    #[expect(unused)]
-    pub fn rooms(&self) -> impl Iterator<Item = RoomName> {
-        self.0.keys().copied()
+    pub fn view_mut(&mut self, name: ColonyName) -> (ColonyView<'_>, &mut ColonyCoordinators) {
+        self.get_mut(name).split()
+    }
+
+    pub fn view_all_mut(&mut self) -> impl Iterator<Item = (ColonyView<'_>, &mut ColonyCoordinators)> {
+        self.iter_mut().map(Colony::split)
+    }
+
+    pub fn view_mut_disjoint<const N: usize>(&mut self, names: [ColonyName; N]) -> [(ColonyView<'_>, &mut ColonyCoordinators); N] {
+        self.get_disjoint_mut(names).map(Colony::split)
+    }
+
+    pub fn coordinators(&self, name: ColonyName) -> &ColonyCoordinators {
+        &self.get(name).coordinators
     }
 }
 

@@ -1,6 +1,6 @@
 use screeps::RoomName;
 
-use crate::{creeps::{CreepData, CreepRole, body::Body}, domain_traits::{CreepId, ResolvableId}};
+use crate::{colony::ColonyName, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{CreepId, ResolvableId}, ids::Unchecked};
 
 #[derive(Clone)]
 pub struct RelativePrototype {
@@ -39,11 +39,11 @@ impl RelativePrototype {
 #[derive(Clone)]
 pub struct AbsolutePrototype {
     proto: RelativePrototype,
-    home: RoomName
+    home: ColonyName<Unchecked>
 }
 
 impl AbsolutePrototype {
-    pub fn new(body: Body, role: CreepRole, home: RoomName, spawn_room: RoomName) -> Self {
+    pub fn new(body: Body, role: CreepRole, home: ColonyName<Unchecked>, spawn_room: RoomName) -> Self {
         Self { proto: RelativePrototype::new(body, role, spawn_room), home }
     }
 
@@ -62,7 +62,7 @@ impl AbsolutePrototype {
         &self.proto.role
     }
 
-    pub fn home(&self) -> RoomName {
+    pub fn home(&self) -> ColonyName<Unchecked> {
         self.home
     }
 

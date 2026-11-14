@@ -108,7 +108,7 @@ pub fn schedule_export_trucks(rosters: &mut Rosters, mem: &mut Memory) -> anyhow
             rosters.schedule_selected(
                 |iter| {
                     iter.filter(|(_, roster)| roster.has_free())
-                        .filter_map(|(name, roster)| Some((mem.colonies.view(*name)?, roster.full_budget())))
+                        .map(|(name, roster)| (mem.colonies.view(*name), roster.full_budget()))
                         .filter(|(export_colony, _)| export_colony.name != import_colony.name)
                         .filter(|(export_colony, _)| matches!(export_colony.buffer, Some(ColonyBuffer::Storage(_))))
                         .filter(|(_, budget)| *budget > EXPORT_BUDGET_LIMIT)
@@ -119,7 +119,7 @@ pub fn schedule_export_trucks(rosters: &mut Rosters, mem: &mut Memory) -> anyhow
                 |roster| EXPORT_TRUCK_TEMPLATE.scaled(roster.future_energy()).or_break(),
                 |roster| {
                     CreepRole::ExportTruck(ExportTruckCreep::new(
-                        &mem.colonies.view(roster.room()).unwrap(),
+                        &mem.colonies.view(roster.room()),
                         &import_colony
                     ))
                 },
@@ -197,7 +197,7 @@ const MAX_LEVEL_FOR_FABRICATOR_IMPORT: u8 = 4;
 static FABRICATOR_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Carry, Move, Work, Carry]) });
 pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::Result<()> {
     for colony in mem.colonies.view_all() {
-        let coordinator = mem.fabricator_coordinators.entry(colony.name).or_default();
+        let coordinator = &mem.colonies.coordinators(colony.name).fabricators;
 
         let total_work_ticks = coordinator.total_build_work_ticks();
 
@@ -217,9 +217,7 @@ pub fn schedule_fabricators(rosters: &mut Rosters, mem: &mut Memory) -> anyhow::
                 |iter| {
                     iter.filter(|(_, other_roster)| {
                         other_roster.room() == colony.name || (may_import && other_roster.has_free())
-                    }).filter_map(|(other_name, other_roster)| {
-                        Some((*other_name, other_roster, mem.colonies.view(*other_name)?))
-                    }).max_by_key(|(_, other_roster, other_colony)| {
+                    }).map(|(other_name, other_roster)| (*other_name, other_roster, mem.colonies.view(*other_name))).max_by_key(|(_, other_roster, other_colony)| {
                         let dist = colony.center.get_range_to(other_colony.center);
 
                         (other_roster.future_energy(), -(dist as i32))

@@ -5,7 +5,7 @@ use enum_display::EnumDisplay;
 use screeps::{HasPosition, StructureSpawn, find, game};
 use serde::Deserialize;
 
-use crate::{check::Check, colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step}};
+use crate::{check::Check, colony::{Colonies, ColonyName, ColonyView}, creeps::virtual_creep::VirtualCreep, domain_traits::{HasId, ObjectId, ResolvableId}, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, step}};
 
 #[derive(Debug, PartialEq, Eq, EnumDisplay, Default)]
 #[derive_where(Serialize, Deserialize, Clone; ObjectId<StructureSpawn, S>, S)]
@@ -25,8 +25,9 @@ impl<'de> Deserialize<'de> for ScrapCreep {
 }
 
 impl ScrapCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>) -> anyhow::Result<()> {
-        *self = step(mem::take(self), |state| state.transition(creep, home))?;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: ColonyName, colonies: &Colonies) -> anyhow::Result<()> {
+        let home = colonies.view(home);
+        *self = step(mem::take(self), |state| state.transition(creep, &home))?;
         Ok(())
     }
 
@@ -35,7 +36,7 @@ impl ScrapCreep {
 
         match self {
             Idle => {
-                goto!(if creep.pos().room_name() == home.name
+                goto!(if creep.pos().room_name() == home.name.room_name()
                     && let Some(spawn) = creep.pos().find_closest_by_path(find::MY_SPAWNS, None) {
                         Going(spawn.id())
                 });

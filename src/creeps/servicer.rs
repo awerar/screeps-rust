@@ -6,7 +6,7 @@ use ordered_float::OrderedFloat;
 use screeps::{HasPosition, Part, REPAIR_POWER, Room, find};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::ColonyView, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}, structure::RepairableStructure};
+use crate::{check::{Check, Expiration, Filtered, deserialize_filter_check}, colony::{Colonies, ColonyName, ColonyView}, coordination::{allocations::{CreepAllocationHandle, CreepAllocations, ResourceAmount}, tasks::{AddedToCollab, Tasks}}, creeps::{gather_energy, scrap::ScrapCreep, virtual_creep::VirtualCreep}, domain_traits::HasHits, ids::{CheckState, Checked, Unchecked}, goto, statemachine::{Flow, OrBreak, step, break_if}, structure::RepairableStructure};
 
 const EMERGENCY_REPAIR_PERCENTAGE: f32 = 0.5;
 const REPAIR_PERCENTAGE: f32 = 0.95;
@@ -35,13 +35,13 @@ impl<'de> Deserialize<'de> for ServicerCreep {
 }
 
 impl ServicerCreep {
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> anyhow::Result<()> {
-        *self = step(mem::take(self), |state| state.transition(creep, home, coordinator))?;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: ColonyName, colonies: &mut Colonies) -> anyhow::Result<()> {
+        let (home, coordinators) = colonies.view_mut(home);
+        *self = step(mem::take(self), |state| state.transition(creep, &home, &mut coordinators.servicers))?;
         Ok(())
     }
 
     fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut ServicerCoordinator) -> Flow<Self> {
-
         match self {
             Self::Idle => {
                 goto!(if let Some(task) = coordinator.assign_repair(creep) { Self::Repairing(task) });

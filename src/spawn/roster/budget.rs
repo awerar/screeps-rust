@@ -1,8 +1,8 @@
 use std::{collections::HashMap, ops::{Add, AddAssign}};
 
-use screeps::{BUILD_POWER, HARVEST_POWER, LINK_LOSS_RATIO, ObjectId, Part, RoomName, Source, UPGRADE_CONTROLLER_POWER};
+use screeps::{BUILD_POWER, HARVEST_POWER, LINK_LOSS_RATIO, ObjectId, Part, Source, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::ColonyView, creeps::{CreepRole, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::roster::{creeps::GlobalCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
+use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::roster::{creeps::GlobalCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 const SOURCE_POWER: f32 = 10.0;
 
@@ -61,7 +61,7 @@ impl AddAssign for CreepBudget {
 
 #[derive(Clone)]
 pub struct ColonyBudget {
-    colony: RoomName,
+    colony: ColonyName,
 
     creep_budget: CreepBudget,
     storage_budget: f32,
@@ -117,7 +117,7 @@ impl ColonyBudget {
     fn get_creep_contribution(&self, proto: &AbsolutePrototype) -> CreepBudget {
         let mut contribution = CreepBudget::default();
 
-        if proto.spawn_room() == self.colony {
+        if proto.spawn_room() == self.colony.room_name() {
             contribution += CreepBudget::drain(proto.body().energy_drain());
         }
 

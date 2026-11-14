@@ -2,16 +2,16 @@ use std::{fmt::Display, mem};
 
 use derive_where::derive_where;
 use enum_display::EnumDisplay;
-use screeps::{CARRY_CAPACITY, HasPosition, Part, ResourceType, RoomName, pathfinder::{self, SearchOptions}};
-use anyhow::Result;
+use screeps::{CARRY_CAPACITY, HasPosition, Part, ResourceType, pathfinder::{self, SearchOptions}};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-use crate::{check::Check, colony::{ColonyBuffer, ColonyView}, creeps::{body::Body, truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, OrBreak, step}};
+use crate::{check::Check, colony::{Colonies, ColonyBuffer, ColonyName, ColonyView}, creeps::{body::Body, truck::{TruckCoordinator, stop::ConsumerTruckStop}, virtual_creep::VirtualCreep}, domain_traits::EnergyStoreAccessors, goto, ids::{CheckState, Checked, Unchecked}, statemachine::{Flow, OrBreak, step}};
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ExportTruckCreep {
     state: State,
-    import_colony: RoomName,
+    import_colony: ColonyName<Unchecked>,
     roundtrip_ticks: u32
 }
 
@@ -56,7 +56,7 @@ impl ExportTruckCreep {
 
         Self { 
             state: State::default(), 
-            import_colony: import_colony.name, 
+            import_colony: import_colony.name.into(), 
             roundtrip_ticks: export2import_ticks + import2export_ticks
         }
     }
@@ -69,12 +69,17 @@ impl ExportTruckCreep {
         (body.part_count(Part::Carry) as f32 * CARRY_CAPACITY as f32) / self.roundtrip_ticks() as f32
     }
 
-    pub fn import_colony(&self) -> RoomName {
+    pub fn import_colony(&self) -> ColonyName<Unchecked> {
         self.import_colony
     }
 
-    pub fn update(&mut self, creep: &mut VirtualCreep, home: &ColonyView<'_>, import_colony: &ColonyView<'_>, import_coordinator: &mut TruckCoordinator) -> Result<()> {
-        self.state = step(mem::take(&mut self.state), |state| state.transition(creep, home, import_colony, import_coordinator))?;
+    pub fn update(&mut self, creep: &mut VirtualCreep, home: ColonyName, colonies: &mut Colonies) -> Result<()> {
+        let Some(import_colony) = colonies.verify(self.import_colony).filter(|import_colony| *import_colony != home) else {
+            return Err(anyhow!("Import colony is no longer a valid colony"));
+        };
+
+        let [(home, _), (import_colony, import_coordinators)] = colonies.view_mut_disjoint([home, import_colony]);
+        self.state = step(mem::take(&mut self.state), |state| state.transition(creep, &home, &import_colony, &mut import_coordinators.trucks))?;
         Ok(())
     }
 }

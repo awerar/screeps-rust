@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use screeps::{ConstructionSite, ENERGY_REGEN_TIME, HasId, HasStore, Part, Position, REPAIR_POWER, ResourceType, Source, Store, StructureContainer, StructureExtension, StructureLink, StructureSpawn};
 
-use crate::{colony::{ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, Transferable}, statemachine::{Flow, OrBreak, Stop, break_if},structure::RepairableStructure};
+use crate::{colony::{Colonies, ColonyName, ColonyView, plan::{SourcePlan, refs::PlannedStructureRef}}, creeps::virtual_creep::{IntentType, VirtualCreep}, domain_traits::{EnergyStoreAccessors, HasHits, ObjectId, Transferable}, statemachine::{Flow, OrBreak, Stop, break_if},structure::RepairableStructure};
 
 impl SourcePlan {
     pub fn get_construction_site(&self) -> Option<ConstructionSite> {
@@ -126,7 +126,8 @@ fn fill_up(creep: &mut VirtualCreep, container: Option<StructureContainer>, amou
     Flow::Continue(())
 }
 
-pub fn update(creep: &mut VirtualCreep, source: &Source, home: &ColonyView<'_>) -> Stop {
+pub fn update(creep: &mut VirtualCreep, source: &Source, home: ColonyName, colonies: &Colonies) -> Stop {
+    let home = colonies.view(home);
     let plan = home.plan.sources.get(&source.id()).ok_or(anyhow!("Source plan doesn't exist"))?;
 
     creep.approach_tugged(plan.container.pos, 0)?;

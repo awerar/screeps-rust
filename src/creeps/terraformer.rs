@@ -1,8 +1,9 @@
 use screeps::{Part, ResourceType, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::ColonyView, creeps::virtual_creep::VirtualCreep, domain_traits::EnergyStoreAccessors, statemachine::{Flow, Stop}};
+use crate::{colony::{Colonies, ColonyName}, creeps::virtual_creep::VirtualCreep, domain_traits::EnergyStoreAccessors, statemachine::{Flow, Stop}};
 
-pub fn update(creep: &mut VirtualCreep, home: &ColonyView<'_>) -> Stop {
+pub fn update(creep: &mut VirtualCreep, home: ColonyName, colonies: &Colonies) -> Stop {
+    let home = colonies.view(home);
     let controller = home.controller.clone();
     let container = &home.plan.upgrader_container;
 
