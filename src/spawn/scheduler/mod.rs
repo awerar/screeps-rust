@@ -10,13 +10,13 @@ mod syndrome;
 use itertools::Itertools;
 use screeps::HasPosition;
 
-use crate::{colony::ColonyView, domain_traits::HasId, memory::Memory, spawn::scheduler::{budget::ColonyBudget, creeps::KnownCreeps, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, spawns::{ColonySpawn, ColonySpawnIterator, ColonySpawnType}, syndrome::ColonySyndrome}, statemachine::{Flow, OrBreak}};
+use crate::{colony::ColonyView, domain_traits::HasId, memory::Memory, spawn::scheduler::{budget::ColonyBudget, creeps::KnownCreeps, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, spawns::{ColonySpawn, ColonySpawnType, ColonySpawns}, syndrome::ColonySyndrome}};
 
 pub use global::{ColonySchedulerMut, ColonyScheduler, SpawnScheduler};
 pub use roles::RoleSelector;
 
 pub struct ColonySchedulerState {
-    spawns: Vec<ColonySpawn>,
+    spawns: ColonySpawns,
     energy: ColonyEnergy,
     syndrome: ColonySyndrome,
     budget: ColonyBudget
@@ -55,51 +55,29 @@ impl ColonySchedulerState {
             ));
         }
 
-        let mut spawns = Vec::new();
-
-        spawns.extend(
-            colony.plan.center.spawn.resolve()
-                .map(|spawn| {
-                    ColonySpawn::new(
-                        spawn,
-                        ColonySpawnType::Central 
-                    )
-                })
-        );
-        
-        spawns.extend(
-            colony.plan.sources.iter()
-                .filter_map(|(source, plan)| {
-                    Some(ColonySpawn::new(
-                        plan.spawn.resolve()?,
-                        ColonySpawnType::Source(source.resolve()?.id(), plan.spawn_direction)
-                    ))
-                })
-        );
+        let spawns = colony.plan.center.spawn.resolve()
+            .map(|spawn| (spawn.id(), ColonySpawn::new(&spawn, ColonySpawnType::Central)))
+            .into_iter()
+            .chain(
+                colony.plan.sources.iter()
+                    .filter_map(|(source, plan)| {
+                        let spawn = plan.spawn.resolve()?;
+                        Some((spawn.id(), ColonySpawn::new(&spawn, ColonySpawnType::Source(source.resolve()?.id(), plan.spawn_direction))))
+                    })
+            )
+            .collect();
 
         Self {
-            spawns,
+            spawns: ColonySpawns::new(spawns),
             energy: ColonyEnergy::new(groups),
             syndrome,
             budget: ColonyBudget::new(colony, creeps)
         }
     }
 
-    fn free_spawns(&self) -> impl Iterator<Item = &ColonySpawn> {
-        self.spawns.iter().filter(|spawn| spawn.is_free())
-    }
-
-    fn has_free(&self) -> bool {
-        self.free_spawns().next().is_some()
-    }
-
     fn gather_new_creeps(self, mem: &mut Memory) {
-        for spawn in self.spawns {
+        for spawn in self.spawns.into_values() {
             spawn.gather_new_creeps(mem);
         }
     }
-}
-
-fn default_select(iter: ColonySpawnIterator<'_>) -> Flow<usize> {
-    iter.max_by_key(|(_, spawn)| spawn.is_central()).map(|(ix, _)| ix).or_break()
 }

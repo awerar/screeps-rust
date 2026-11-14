@@ -2,9 +2,9 @@ use std::{collections::HashMap, ops::Deref};
 
 use anyhow::anyhow;
 use itertools::Itertools;
-use screeps::{Direction, SpawnOptions, Structure, game};
+use screeps::{Direction, SpawnOptions, Structure, StructureSpawn, game};
 
-use crate::{colony::ColonyName, creeps::{CreepData, CreepRole, body::Body}, domain_traits::HasId, memory::Memory, names::UsedNames, spawn::scheduler::{ColonySchedulerState, creeps::{KnownCreeps, HomeCreeps}, default_select, prototype::AbsolutePrototype, spawns::ColonySpawnIterator, syndrome::ColonySyndrome}, statemachine::Flow};
+use crate::{colony::ColonyName, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::scheduler::{ColonySchedulerState, creeps::{KnownCreeps, HomeCreeps}, prototype::AbsolutePrototype, spawns::ColonySpawns, syndrome::ColonySyndrome}, statemachine::{Flow, OrBreak, break_if}};
 
 struct ColonyStates(HashMap<ColonyName, ColonySchedulerState>);
 
@@ -93,12 +93,12 @@ impl<R: Deref<Target = SpawnScheduler>> ColonyScheduler<R> {
         self.name
     }
 
-    pub fn has_free(&self) -> bool {
-        self.colony().has_free()
+    pub fn spawns(&self) -> &ColonySpawns {
+        &self.colony().spawns
     }
 
     pub fn is_available(&self) -> bool {
-        !self.syndrome().any_problems() && self.has_free()
+        !self.syndrome().any_problems() && self.spawns().any_free()
     }
 
     pub fn syndrome(&self) -> &ColonySyndrome {
@@ -127,18 +127,13 @@ impl<R: Deref<Target = SpawnScheduler>> ColonyScheduler<R> {
 }
 
 impl ColonySchedulerMut<'_> {
-    pub fn schedule_selected_for<S>(&mut self, select: S, body: Body, role: CreepRole, home: ColonyName) -> Flow
-    where
-        S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Flow<usize>
-    {
+    fn schedule_selected_for(&mut self, spawn_id: ObjectId<StructureSpawn>, body: Body, role: CreepRole, home: ColonyName) -> Flow {
         let colony = self.scheduler.colonies.get_mut(self.name);
+        let spawn = colony.spawns.get_mut(spawn_id);
 
-        let choice = select(ColonySpawnIterator::new(&colony.spawns))?;
-        let spawn = colony.spawns.get_mut(choice).expect("Spawn selection should return a valid index");
+        break_if(!spawn.is_free())?;
 
         let proto = AbsolutePrototype::new(body, role, home.into(), self.name.room_name());
-
-        assert!(spawn.is_free());
 
         let cost = proto.body().energy_required();
 
@@ -162,7 +157,7 @@ impl ColonySchedulerMut<'_> {
         };
 
         let name = self.scheduler.used_names.generate_new(proto.role());
-        let result = spawn.spawn.spawn_creep_with_options(
+        let result = spawn_id.resolve().spawn_creep_with_options(
             proto.body().parts(),
             &name,
             &SpawnOptions::new()
@@ -187,16 +182,18 @@ impl ColonySchedulerMut<'_> {
         Flow::Continue(())
     }
 
-    pub fn schedule_selected<S>(&mut self, select: S, body: Body, role: CreepRole) -> Flow
-    where
-        S: for<'b> FnOnce(ColonySpawnIterator<'b>) -> Flow<usize>
-    {
+    pub fn schedule_selected(&mut self, spawn_id: ObjectId<StructureSpawn>, body: Body, role: CreepRole) -> Flow {
         let home = self.name;
-        self.schedule_selected_for(select, body, role, home)
+        self.schedule_selected_for(spawn_id, body, role, home)
     }
 
     pub fn schedule_for(&mut self, home: ColonyName, body: Body, role: CreepRole) -> Flow {
-        self.schedule_selected_for(default_select, body, role, home)
+        let spawn_id = self.spawns().free()
+            .max_by_key(|(_, spawn)| spawn.is_central())
+            .map(|(id, _)| id)
+            .or_break()?;
+
+        self.schedule_selected_for(spawn_id, body, role, home)
     }
 
     pub fn schedule(&mut self, body: Body, role: CreepRole) -> Flow {

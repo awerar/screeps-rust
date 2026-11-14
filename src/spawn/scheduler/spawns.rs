@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use screeps::{Direction, Source, StructureSpawn};
 
 use crate::{creeps::CreepData, domain_traits::{CreepId, ObjectId}, memory::Memory};
@@ -14,16 +16,14 @@ pub enum ColonySpawnType {
 }
 
 pub struct ColonySpawn {
-    pub spawn: StructureSpawn,
     state: SpawnState,
     ty: ColonySpawnType
 }
 
 impl ColonySpawn {
-    pub fn new(spawn: StructureSpawn, ty: ColonySpawnType) -> Self {
+    pub fn new(spawn: &StructureSpawn, ty: ColonySpawnType) -> Self {
         Self {
             state: if spawn.spawning().is_some() { SpawnState::Blocked } else { SpawnState::Free },
-            spawn,
             ty
         }
     }
@@ -64,30 +64,28 @@ impl ColonySpawn {
     }
 }
 
-pub struct ColonySpawnIterator<'a> {
-    index: usize,
-    spawns: &'a [ColonySpawn]
-}
+pub struct ColonySpawns(HashMap<ObjectId<StructureSpawn>, ColonySpawn>);
 
-impl<'a> ColonySpawnIterator<'a> {
-    pub fn new(spawns: &'a [ColonySpawn]) -> Self {
-        Self { index: 0, spawns }
+impl ColonySpawns {
+    pub fn new(spawns: HashMap<ObjectId<StructureSpawn>, ColonySpawn>) -> Self {
+        Self(spawns)
     }
-}
 
-impl<'a> Iterator for ColonySpawnIterator<'a> {
-    type Item = (usize, &'a ColonySpawn);
+    pub fn get_mut(&mut self, id: ObjectId<StructureSpawn>) -> &mut ColonySpawn {
+        self.0.get_mut(&id).expect("Spawn should belong to this colony")
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(spawn) = self.spawns.get(self.index) {
-            let index = self.index;
-            self.index += 1;
+    pub fn free(&self) -> impl Iterator<Item = (ObjectId<StructureSpawn>, &ColonySpawn)> {
+        self.0.iter()
+            .filter(|(_, spawn)| spawn.is_free())
+            .map(|(id, spawn)| (*id, spawn))
+    }
 
-            if !spawn.is_free() { continue; }
+    pub fn any_free(&self) -> bool {
+        self.0.values().any(ColonySpawn::is_free)
+    }
 
-            return Some((index, spawn))
-        }
-
-        None
+    pub fn into_values(self) -> impl Iterator<Item = ColonySpawn> {
+        self.0.into_values()
     }
 }

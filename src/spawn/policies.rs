@@ -28,18 +28,14 @@ pub fn schedule_excavators(scheduler: &mut ColonySchedulerMut<'_>, view: &Colony
 }
 
 fn schedule_excavator(scheduler: &mut ColonySchedulerMut<'_>, source: &Source, source_plan: &SourcePlan) -> Flow {
-    break_if(!scheduler.has_free())?;
+    break_if(!scheduler.spawns().any_free())?;
     break_if(scheduler.home_creeps().of_role(RoleSelector::SourceExcavator(source.id())).next().is_some())?;
 
     let body = get_excavator_body(scheduler.future_energy(), source_plan);
     let role = CreepRole::Excavator(source.id());
 
-    if source_plan.spawn.resolve().is_some() {
-        scheduler.schedule_selected(
-            |mut iter| iter.find(|(_, spawn)| spawn.is_source_spawn(&source.id())).map(|(ix, _)| ix).or_break(),
-            body,
-            role
-        )
+    if let Some(spawn) = source_plan.spawn.resolve() {
+        scheduler.schedule_selected(spawn.id(), body, role)
     } else {
         scheduler.schedule(body, role)
     }
@@ -135,7 +131,7 @@ pub fn schedule_flagship(scheduler: &mut SpawnScheduler, mem: &mut Memory) -> an
 
     run(|| {
         let name = scheduler.iter()
-            .filter(ColonyScheduler::has_free)
+            .filter(|candidate| candidate.spawns().any_free())
             .max_by_key(ColonyScheduler::future_energy)
             .map(|candidate| candidate.name())
             .or_break()?;
@@ -177,15 +173,16 @@ pub fn schedule_tugboats(scheduler: &mut ColonySchedulerMut<'_>, tugboat_request
 }
 
 fn schedule_tugboat(scheduler: &mut ColonySchedulerMut<'_>, tugged: &Creep) -> Flow {
-    break_if(!scheduler.has_free())?;
+    break_if(!scheduler.spawns().any_free())?;
     break_if(scheduler.home_creeps().of_role(RoleSelector::TugboatFor(tugged.id())).next().is_some())?;
 
+    let spawn_id = scheduler.spawns().free()
+        .map(|(id, _)| id)
+        .min_by_key(|id| id.resolve().pos().get_range_to(tugged.pos()))
+        .or_break()?;
+
     scheduler.schedule_selected(
-        |iter| {
-            iter.min_by_key(|(_, spawn)| spawn.spawn.pos().get_range_to(tugged.pos()))
-                .map(|(ix, _)| ix)
-                .or_break()
-        },
+        spawn_id,
         get_tugboat_body(scheduler.future_energy(), tugged),
         CreepRole::Tugboat(tugged.id())
     )
