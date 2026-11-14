@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use screeps::{Creep, HasPosition, Source};
 
-use crate::{colony::ColonyView, creeps::{CreepRole, excavator}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, spawn::roster::{RoleSelector, creeps::ColonyCreeps}};
+use crate::{colony::ColonyView, creeps::{CreepRole, excavator}, domain_traits::{CreepId, HasId, ObjectId, ResolvableId}, spawn::scheduler::{RoleSelector, creeps::HomeCreeps}};
 
 pub enum ExcavatorSyndrome {
     NoExcavator,
@@ -16,9 +16,9 @@ pub struct ColonySyndrome {
 }
 
 impl ColonySyndrome {
-    pub fn new(creeps: &ColonyCreeps, view: &ColonyView<'_>) -> Self {
+    pub fn new(creeps: HomeCreeps<'_>, view: &ColonyView<'_>) -> Self {
         Self {
-            any_trucks: creeps.0.values().any(|proto| matches!(proto.role(), CreepRole::Truck(_))),
+            any_trucks: creeps.iter().any(|(_, proto)| matches!(proto.role(), CreepRole::Truck(_))),
             any_excavating_excavators: creeps.iter().any(|(creep, proto)| {
                 let CreepRole::Excavator(source) = proto.role() else { return false; };
                 excavator::is_in_position(creep.resolve().pos(), source, view)
@@ -27,7 +27,7 @@ impl ColonySyndrome {
                 view.plan.sources.keys()
                     .filter_map(|id| Some(id.resolve()?.id()))
                     .filter_map(|source| {
-                        let Some((excavator, _)) = creeps.0.iter().find(|(_, proto)| matches!(proto.role(), CreepRole::Excavator(source2) if source == *source2)) else {
+                        let Some((excavator, _)) = creeps.iter().find(|(_, proto)| matches!(proto.role(), CreepRole::Excavator(source2) if source == *source2)) else {
                             return Some((source, ExcavatorSyndrome::NoExcavator));
                         };
 

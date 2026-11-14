@@ -1,20 +1,12 @@
-mod roster;
+mod scheduler;
 mod policies;
 
 use std::fmt::Display;
 
-use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::{policies::{schedule_seeders, schedule_servicers, schedule_terraformer}, roster::ColonyRoster}};
+use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::policies::{schedule_seeders, schedule_servicers, schedule_terraformer}};
 use log::{error, info};
 use policies::{schedule_excavators, schedule_fabricators, schedule_flagship, schedule_export_trucks, schedule_tugboats, schedule_trucks};
-use roster::Rosters;
-
-impl Rosters {
-    fn for_ok_roster<'a>(&mut self, mut f: impl FnMut(&mut ColonyRoster)) {
-        for roster in self.iter_mut() {
-            if !roster.syndrome().any_problems() { f(roster) }
-        };
-    }
-}
+use scheduler::SpawnScheduler;
 
 trait LogFailure {
     fn log_failure(self, scope: impl Display);
@@ -42,29 +34,30 @@ Critical creeps are spawned first, regardless of budget:
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
-    let mut rosters = Rosters::new(mem);
+    let mut scheduler = SpawnScheduler::new(mem);
 
     let colonies = &mem.colonies;
 
-    rosters.for_roster(colonies, |roster, colony| {
-        let name = colony.name;
-        info!("Budget for {name}: {}", roster.full_budget());
+    for name in scheduler.colonies() {
+        let scheduler = &mut scheduler.get_mut(name);
+        let colony = colonies.view(name);
+        info!("Budget for {name}: {}", scheduler.full_budget());
 
-        schedule_tugboats(roster, &tugboat_requests).log_failure(format_args!("tugboats in {name}"));
-        schedule_excavators(roster, &colony).log_failure(format_args!("excavators in {name}"));
-        schedule_trucks(roster, &colony).log_failure(format_args!("trucks in {name}"));
-        schedule_terraformer(roster, &colony).log_failure(format_args!("terraformer in {name}"));
-        schedule_servicers(roster, &colonies.coordinators(name).servicers).log_failure(format_args!("servicers in {name}"));
-    });
+        schedule_tugboats(scheduler, &tugboat_requests).log_failure(format_args!("tugboats in {name}"));
+        schedule_excavators(scheduler, &colony).log_failure(format_args!("excavators in {name}"));
+        schedule_trucks(scheduler, &colony).log_failure(format_args!("trucks in {name}"));
+        schedule_terraformer(scheduler, &colony).log_failure(format_args!("terraformer in {name}"));
+        schedule_servicers(scheduler, &colonies.coordinators(name).servicers).log_failure(format_args!("servicers in {name}"));
+    }
 
+    schedule_fabricators(&mut scheduler, mem).log_failure("fabricators");
+    schedule_flagship(&mut scheduler, mem).log_failure("flagships");
 
-    schedule_fabricators(&mut rosters, mem).log_failure("fabricators");
-    schedule_flagship(&mut rosters, mem).log_failure("flagships");
+    for name in scheduler.colonies() {
+        schedule_seeders(&mut scheduler.get_mut(name), &mem.colonies.view(name)).log_failure(format_args!("seeders in {name}"));
+    }
 
-    rosters.for_roster(&mem.colonies, |roster, colony|
-        schedule_seeders(roster, &colony).log_failure(format_args!("seeders in {}", colony.name)));
+    schedule_export_trucks(&mut scheduler, mem).log_failure("export trucks");
 
-    schedule_export_trucks(&mut rosters, mem).log_failure("export trucks");
-
-    rosters.gather_new_creeps(mem);
+    scheduler.gather_new_creeps(mem);
 }

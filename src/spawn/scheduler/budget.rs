@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::{Add, AddAssign}};
 
 use screeps::{BUILD_POWER, HARVEST_POWER, LINK_LOSS_RATIO, ObjectId, Part, Source, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::roster::{creeps::GlobalCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
+use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::scheduler::{creeps::KnownCreeps, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 const SOURCE_POWER: f32 = 10.0;
 
@@ -70,7 +70,7 @@ pub struct ColonyBudget {
 }
 
 impl ColonyBudget {
-    pub fn new(colony: &ColonyView<'_>, creeps: &GlobalCreeps) -> Self {
+    pub fn new(colony: &ColonyView<'_>, creeps: &KnownCreeps) -> Self {
         let sources = colony.plan.sources.iter()
             .map(|(id, source_plan)| (*id, SourceState {
                 has_work: source_plan.has_work(),

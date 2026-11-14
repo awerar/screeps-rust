@@ -1,6 +1,6 @@
 use screeps::{CREEP_LIFE_TIME, Part, Source};
 
-use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId, ResolvableId}, spawn::roster::{creeps::{ColonyCreeps, GlobalCreeps}, prototype::{AbsolutePrototype, RelativePrototype}}};
+use crate::{creeps::CreepRole, domain_traits::{CreepId, ObjectId, ResolvableId}, spawn::scheduler::{creeps::{KnownCreeps, HomeCreeps}, prototype::{AbsolutePrototype, RelativePrototype}}};
 
 pub enum RoleSelector {
     SourceExcavator(ObjectId<Source>),
@@ -30,20 +30,20 @@ impl RoleSelector {
     }
 }
 
-impl ColonyCreeps {
-    pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = (&CreepId, &RelativePrototype)> {
+impl<'a> HomeCreeps<'a> {
+    pub fn of_role(self, role: RoleSelector) -> impl Iterator<Item = (&'a CreepId, &'a RelativePrototype)> {
         self.iter().filter(move |(_, proto)| role.matches(proto.role()))
     }
 
-    pub fn any_of_role(&self, role: RoleSelector) -> bool {
-        self.iter().any(move |(_, proto)| role.matches(proto.role()))
+    pub fn any_of_role(self, role: RoleSelector) -> bool {
+        self.of_role(role).next().is_some()
     }
 
-    pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {
+    pub fn part_count(self, role: RoleSelector, part: Part) -> usize {
         self.of_role(role).map(|(_, proto)| proto.body().part_count(part)).sum()
     }
 
-    pub fn part_ticks_left_of_role(&self, role: RoleSelector, part: Part) -> u32 {
+    pub fn part_ticks_left_of_role(self, role: RoleSelector, part: Part) -> u32 {
         self.of_role(role)
             .map(|(creep , proto)| {
                 creep.resolve().ticks_to_live().unwrap_or(CREEP_LIFE_TIME) * proto.body().part_count(part) as u32
@@ -52,13 +52,8 @@ impl ColonyCreeps {
     }
 }
 
-impl GlobalCreeps {
+impl KnownCreeps {
     pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = (&CreepId, &AbsolutePrototype)> {
         self.iter().filter(move |(_, proto)| role.matches(proto.role()))
-    }
-
-    #[expect(unused)]
-    pub fn part_count(&self, role: RoleSelector, part: Part) -> usize {
-        self.of_role(role).map(|(_, proto)| proto.body().part_count(part)).sum()
     }
 }
