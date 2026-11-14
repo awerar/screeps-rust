@@ -41,6 +41,30 @@ fn schedule_excavator(scheduler: &mut ColonySchedulerMut<'_>, source: &Source, s
     }
 }
 
+pub fn schedule_for_syndrome(scheduler: &mut ColonySchedulerMut<'_>, view: &ColonyView<'_>) -> anyhow::Result<()> {
+    let result = run(|| {
+        let syndrome = scheduler.syndrome();
+
+        if syndrome.any_trucks {
+            if let Some(excavator) = syndrome.get_tugboatless_excavator() {
+                schedule_tugboat(scheduler, &excavator.resolve())
+            } else if let Some(source) = syndrome.get_missing_excavator() {
+                let source_plan = view.plan.sources.get(&source.screeps_id()).unwrap();
+                schedule_excavator(scheduler, &source.resolve(), source_plan)
+            } else {
+                Flow::Break
+            }
+        } else {
+            let body = get_truck_body(scheduler.future_energy()).expect("It should always be possible to construct a truck body from the future energy");
+            scheduler.schedule(body, CreepRole::Truck(TruckCreep::default()))
+        }
+    });
+
+    if scheduler.syndrome().any_problems() { scheduler.block_all(); }
+
+    result
+}
+
 // Truck capacity C = 50y energy
 // Roundtrip time T = 2x ticks
 // Production P = 10 energy per tick
@@ -71,11 +95,7 @@ pub fn schedule_trucks(scheduler: &mut ColonySchedulerMut<'_>, colony: &ColonyVi
         .map(|source_plan| source_plan.distance as f32 * TRUCK_SOURCE_CARRY_PER_DIST)
         .sum::<f32>();
 
-    let target_carry = if scheduler.syndrome().any_problems() {
-        1
-    } else {
-        ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize
-    };
+    let target_carry = ((1.0 + TRUCK_CARRY_MARGIN) * (total_carry_for_sources + TRUCK_CENTER_CARRY + TRUCK_FABRICATOR_CARRY)).ceil() as usize;
 
     run(|| {
         break_if(scheduler.home_creeps().part_count(RoleSelector::Truck, Part::Carry) >= target_carry)?;
@@ -101,7 +121,7 @@ pub fn schedule_export_trucks(scheduler: &mut SpawnScheduler, mem: &mut Memory) 
             break_if(scheduler.get(import_colony.name).income() > IMPORT_BUDGET_LIMIT)?;
 
             let export_name = scheduler.iter()
-                .filter(|candidate| candidate.is_available() && candidate.name() != import_colony.name)
+                .filter(|candidate| candidate.spawns().any_free() && candidate.name() != import_colony.name)
                 .filter(|candidate| matches!(mem.colonies.view(candidate.name()).buffer, Some(ColonyBuffer::Storage(_))))
                 .map(|candidate| (candidate.name(), candidate.full_budget()))
                 .filter(|(_, budget)| *budget > EXPORT_BUDGET_LIMIT)
@@ -157,13 +177,11 @@ fn get_tugboat_body(energy: u32, tugged: &Creep) -> Body {
 }
 
 pub fn schedule_tugboats(scheduler: &mut ColonySchedulerMut<'_>, tugboat_requests: &TugboatRequests) -> anyhow::Result<()> {
-    let tugged = scheduler.syndrome().tugged_order()
-        .unwrap_or_else(|| {
-            tugboat_requests.iter()
-            .filter(|tugged| scheduler.home_creeps().contains(&tugged.id()))
-            .cloned()
-            .collect_vec()
-        });
+    let tugged = tugboat_requests.iter()
+        .filter(|tugged| scheduler.home_creeps().contains(&tugged.id()))
+        .filter(|tugged| !scheduler.home_creeps().any_of_role(RoleSelector::TugboatFor(tugged.id())))
+        .cloned()
+        .collect_vec();
 
     for tugged in tugged {
         schedule_tugboat(scheduler, &tugged).into_result()?;
@@ -173,9 +191,6 @@ pub fn schedule_tugboats(scheduler: &mut ColonySchedulerMut<'_>, tugboat_request
 }
 
 fn schedule_tugboat(scheduler: &mut ColonySchedulerMut<'_>, tugged: &Creep) -> Flow {
-    break_if(!scheduler.spawns().any_free())?;
-    break_if(scheduler.home_creeps().of_role(RoleSelector::TugboatFor(tugged.id())).next().is_some())?;
-
     let spawn_id = scheduler.spawns().free()
         .map(|(id, _)| id)
         .min_by_key(|id| id.resolve().pos().get_range_to(tugged.pos()))
@@ -210,7 +225,7 @@ pub fn schedule_fabricators(scheduler: &mut SpawnScheduler, mem: &mut Memory) ->
             let may_import = colony.step.controller_level() <= MAX_LEVEL_FOR_FABRICATOR_IMPORT;
 
             let spawn_name = scheduler.iter()
-                .filter(|candidate| candidate.is_available() && (candidate.name() == colony.name || may_import))
+                .filter(|candidate| candidate.spawns().any_free() && (candidate.name() == colony.name || may_import))
                 .max_by_key(|candidate| {
                     let dist = colony.center.get_range_to(mem.colonies.view(candidate.name()).center);
                     (candidate.future_energy(), -(dist as i32))
@@ -230,8 +245,6 @@ pub fn schedule_fabricators(scheduler: &mut SpawnScheduler, mem: &mut Memory) ->
 
 static SERVICER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Move, Work]) });
 pub fn schedule_servicers(scheduler: &mut ColonySchedulerMut<'_>, coordinator: &ServicerCoordinator) -> anyhow::Result<()> {
-    if scheduler.syndrome().any_problems() { return Ok(()) }
-
     let total_work_ticks = coordinator.total_work_ticks();
 
     run(|| {
@@ -280,7 +293,6 @@ fn calculate_target_upgrade_work(colony: &ColonyView<'_>, scheduler: &ColonySche
 }
 
 pub fn schedule_terraformer(scheduler: &mut ColonySchedulerMut<'_>, colony: &ColonyView<'_>) -> anyhow::Result<()> {
-    if scheduler.syndrome().any_problems() { return Ok(()); }
     if scheduler.home_creeps().any_of_role(RoleSelector::Terraformer) { return Ok(()); }
 
     let mut energy = scheduler.future_energy();
@@ -299,7 +311,6 @@ pub fn schedule_terraformer(scheduler: &mut ColonySchedulerMut<'_>, colony: &Col
 
 static SEEDER_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Carry, Work, Move, Work, Work]) });
 pub fn schedule_seeders(scheduler: &mut ColonySchedulerMut<'_>, colony: &ColonyView<'_>) -> anyhow::Result<()> {
-    if scheduler.syndrome().any_problems() { return Ok(()); }
     if !scheduler.home_creeps().any_of_role(RoleSelector::Terraformer) { return Ok(()); }
 
     run(|| {

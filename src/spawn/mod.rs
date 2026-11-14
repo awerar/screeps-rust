@@ -3,7 +3,7 @@ mod policies;
 
 use std::fmt::Display;
 
-use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::policies::{schedule_seeders, schedule_servicers, schedule_terraformer}};
+use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::policies::{schedule_for_syndrome, schedule_seeders, schedule_servicers, schedule_terraformer}};
 use log::{error, info};
 use policies::{schedule_excavators, schedule_fabricators, schedule_flagship, schedule_export_trucks, schedule_tugboats, schedule_trucks};
 use scheduler::SpawnScheduler;
@@ -42,6 +42,8 @@ pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {
         let scheduler = &mut scheduler.get_mut(name);
         let colony = colonies.view(name);
         info!("Budget for {name}: {}", scheduler.full_budget());
+
+        schedule_for_syndrome(scheduler, &colony).log_failure(format_args!("for syndrome in {name}"));
 
         schedule_tugboats(scheduler, &tugboat_requests).log_failure(format_args!("tugboats in {name}"));
         schedule_excavators(scheduler, &colony).log_failure(format_args!("excavators in {name}"));

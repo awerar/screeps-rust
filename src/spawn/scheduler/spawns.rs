@@ -49,7 +49,9 @@ impl ColonySpawn {
     }
 
     pub fn block(&mut self) {
-        self.state = SpawnState::Blocked;
+        if matches!(self.state, SpawnState::Free) {
+            self.state = SpawnState::Blocked;
+        }
     }
 
     pub fn begin_spawning(&mut self, id: CreepId, data: CreepData, dirs: Vec<Direction>) {
@@ -87,5 +89,11 @@ impl ColonySpawns {
 
     pub fn into_values(self) -> impl Iterator<Item = ColonySpawn> {
         self.0.into_values()
+    }
+
+    pub fn block_all(&mut self) {
+        for spawn in self.0.values_mut() {
+            spawn.block();
+        }
     }
 }

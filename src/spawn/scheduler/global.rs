@@ -97,10 +97,6 @@ impl<R: Deref<Target = SpawnScheduler>> ColonyScheduler<R> {
         &self.colony().spawns
     }
 
-    pub fn is_available(&self) -> bool {
-        !self.syndrome().any_problems() && self.spawns().any_free()
-    }
-
     pub fn syndrome(&self) -> &ColonySyndrome {
         &self.colony().syndrome
     }
@@ -177,6 +173,8 @@ impl ColonySchedulerMut<'_> {
             colony.budget.add_creep(&proto);
         }
 
+        self.scheduler.colonies.get_mut(home).syndrome.update(&id, proto.relative());
+
         self.scheduler.creeps.insert(id, proto);
 
         Flow::Continue(())
@@ -199,5 +197,9 @@ impl ColonySchedulerMut<'_> {
     pub fn schedule(&mut self, body: Body, role: CreepRole) -> Flow {
         let home = self.name;
         self.schedule_for(home, body, role)
+    }
+
+    pub fn block_all(&mut self) {
+        self.scheduler.colonies.get_mut(self.name).spawns.block_all();
     }
 }

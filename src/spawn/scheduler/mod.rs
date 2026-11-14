@@ -26,6 +26,10 @@ impl ColonySchedulerState {
     pub fn new(colony: &ColonyView<'_>, creeps: &KnownCreeps) -> Self {
         let syndrome = ColonySyndrome::new(creeps.of_home(colony.name), colony);
 
+        let any_ok_excavator = colony.plan.sources.keys()
+            .filter_map(|source| source.resolve().map(|x| x.id()))
+            .any(|source| !syndrome.excavators.contains_key(&source));
+
         let mut groups = Vec::new();
 
         groups.push(EnergyGroup::new(
@@ -37,7 +41,7 @@ impl ColonySchedulerState {
                     .sorted_by_cached_key(|extension| extension.pos().get_range_to(colony.center))
                     .map(|ext| EnergyStructure::Extension(ext.id()))
                 ).collect(),
-            syndrome.any_excavating_excavators && syndrome.any_trucks
+            any_ok_excavator && syndrome.any_trucks
         ));
 
         for (source, source_plan) in &colony.plan.sources {
