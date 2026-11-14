@@ -2,7 +2,7 @@ use std::{collections::{HashMap, VecDeque}, mem};
 
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use screeps::{Creep, Direction, HasPosition, Part};
+use screeps::{Creep, Direction, HasPosition, Part, look};
 
 use crate::{creeps::body::Body, domain_traits::{CreepId, HasId}, movement::{MoveTarget, SpawningID}};
 
@@ -142,6 +142,13 @@ impl RawTrain {
             if !targets.is_empty() {
                 must_move = true;
             }
+
+            let on_obstacle_site = segment.pos()
+                .look_for(look::CONSTRUCTION_SITES)
+                .ok().into_flat_iter()
+                .any(|site| site.my() && site.structure_type().is_obstacle());
+
+            if on_obstacle_site { must_move = true }
         }
 
         let target = targets.pop_back().unwrap_or_else(|| self.0.first().1.clone());

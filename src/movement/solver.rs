@@ -219,6 +219,12 @@ impl<'m> MovementSolver<'m> {
                     }
                 }
 
+                for site in room.find(find::MY_CONSTRUCTION_SITES, None) {
+                    if site.structure_type().is_obstacle() {
+                        cm.set_xy(site.pos().xy(), 255);
+                    }
+                }
+
                 for creep in room.find(find::CREEPS, None) {
                     if !creep.my() {
                         cm.set_xy(creep.pos().xy(), 255);
@@ -282,7 +288,7 @@ impl<'m> MovementSolver<'m> {
         let is_road = structures.iter().any(|structure| matches!(structure.structure_type(), StructureType::Road));
 
         let sites = pos.look_for(look::CONSTRUCTION_SITES).unwrap_or_default();
-        if sites.iter().any(|structure| structure.structure_type().is_obstacle()) { return None }
+        if sites.iter().any(|site| site.my() && site.structure_type().is_obstacle()) { return None }
 
         let creeps = pos.look_for(look::CREEPS).unwrap_or_default();
         let (my_creeps, enemy_creeps) = creeps.into_iter().partition::<Vec<_>, _>(Creep::my);
