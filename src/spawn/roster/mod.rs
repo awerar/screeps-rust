@@ -139,6 +139,10 @@ impl ColonyRoster {
         self.name
     }
 
+    pub fn is_avaliable(&self) -> bool {
+        !self.syndrome().any_problems() && self.has_free()
+    }
+
     // Not meant to be used by user
     fn schedule_selected_absolute<S>(&mut self, select: S, body: Body, role: CreepRole, home: ColonyName) -> Flow<(CreepId, AbsolutePrototype)>
     where

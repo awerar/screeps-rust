@@ -3,16 +3,16 @@ mod policies;
 
 use std::fmt::Display;
 
-use crate::{colony::{Colonies, ColonyView}, memory::Memory, movement::requests::TugboatRequests, spawn::{policies::{schedule_seeders, schedule_servicers, schedule_terraformer}, roster::ColonyRoster}};
+use crate::{memory::Memory, movement::requests::TugboatRequests, spawn::{policies::{schedule_seeders, schedule_servicers, schedule_terraformer}, roster::ColonyRoster}};
 use log::{error, info};
 use policies::{schedule_excavators, schedule_fabricators, schedule_flagship, schedule_export_trucks, schedule_tugboats, schedule_trucks};
 use roster::Rosters;
 
 impl Rosters {
-    fn for_roster<'a>(&mut self, colonies: &'a Colonies, mut f: impl FnMut(&mut ColonyRoster, ColonyView<'a>)) {
-        for (colony, roster) in self.iter_mut() {
-            f(roster, colonies.view(*colony));
-        }
+    fn for_ok_roster<'a>(&mut self, mut f: impl FnMut(&mut ColonyRoster)) {
+        for roster in self.iter_mut() {
+            if !roster.syndrome().any_problems() { f(roster) }
+        };
     }
 }
 
@@ -27,6 +27,18 @@ impl LogFailure for anyhow::Result<()> {
         }
     }
 }
+
+/*
+
+How spawning is handled:
+If a syndrome is detected, special spawning policy is used for colony
+Colony with syndrome is not a valid colony choice and will not run any further policies
+
+Critical creeps are spawned first, regardless of budget:
+    Tugboats
+    Trucks
+
+*/
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn do_spawns(mem: &mut Memory, tugboat_requests: TugboatRequests) {

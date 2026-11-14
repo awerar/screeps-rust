@@ -1,6 +1,8 @@
-use std::{cell::RefCell, collections::{HashMap, hash_map}, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, body::Body}, memory::Memory, names::UsedNames, spawn::roster::{ColonyRoster, creeps::GlobalCreeps}, statemachine::{Flow, OrBreak}};
+use anyhow::anyhow;
+
+use crate::{colony::ColonyName, creeps::{CreepRole, body::Body}, memory::Memory, names::UsedNames, spawn::roster::{ColonyRoster, creeps::GlobalCreeps}, statemachine::{Flow, OrBreak}};
 
 pub struct Rosters {
     rosters: HashMap<ColonyName, ColonyRoster>,
@@ -21,52 +23,45 @@ impl Rosters {
         }
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&ColonyName, &mut ColonyRoster)> {
-        self.rosters.iter_mut()
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut ColonyRoster> {
+        self.rosters.values_mut()
     }
 
-    pub fn get(&self, colony: &ColonyView<'_>) -> &ColonyRoster {
-        self.rosters.get(&colony.name).unwrap()
+    pub fn iter(&self) -> impl Iterator<Item = &ColonyRoster> {
+        self.rosters.values()
+    }
+
+    pub fn get(&self, name: ColonyName) -> &ColonyRoster {
+        self.rosters.get(&name).expect("Rosters should contain one roster for each colony")
+    }
+
+    pub fn get_mut(&mut self, name: ColonyName) -> &mut ColonyRoster {
+        self.rosters.get_mut(&name).expect("Rosters should contain one roster for each colony")
     }
 
     pub fn global_creeps(&self) -> &GlobalCreeps {
         &self.global_creeps
     }
 
-    pub fn schedule_selected<S, B, R>(&mut self, select: S, make_body: B, make_role: R, home: Option<ColonyName>) -> Flow
-    where
-        S: for<'a> FnOnce(hash_map::Iter<'a, ColonyName, ColonyRoster>) -> Flow<ColonyName>,
-        B: FnOnce(&ColonyRoster) -> Flow<Body>,
-        R: FnOnce(&ColonyRoster) -> CreepRole
-    {
-        let choice = select(self.rosters.iter())?;
-        let home = home.unwrap_or(choice);
-        assert!(self.rosters.contains_key(&home), "{home} is not a valid home colony");
+    pub fn schedule_selected(&mut self, spawn: ColonyName, body: Body, role: CreepRole, home: ColonyName) -> Flow {
+        if !self.get(spawn).is_avaliable() { return Flow::Fail(anyhow!("Can only select avaliable rosters")) }
 
-        let roster = self.rosters.get_mut(&choice).expect("Room selection should return a valid room");
+        let roster = self.get_mut(spawn); 
 
-        let body = make_body(roster)?;
-        let role = make_role(roster);
         let (id, proto) = roster.schedule_selected_absolute(ColonyRoster::default_select, body, role, home)?;
-
-        self.rosters.get_mut(&home).expect("Home was validated before spawning").local_creeps.0.insert(id, proto.relative().clone());
+        roster.local_creeps.0.insert(id, proto.relative().clone());
 
         Flow::Continue(())
     }
 
-    pub fn default_select(iter: hash_map::Iter<'_, ColonyName, ColonyRoster>) -> Flow<ColonyName> {
-        iter.filter(|(_, roster)| roster.has_free())
-            .max_by_key(|(_, roster)| roster.energy.future_energy())
-            .map(|(room, _)| *room)
-            .or_break()
-    }
+    pub fn schedule(&mut self, body: Body, role: CreepRole, home: Option<ColonyName>) -> Flow {
+        let spawn = self.iter()
+            .filter(|roster| roster.has_free())
+            .max_by_key(|roster| roster.energy.future_energy())
+            .map(|roster| roster.room())
+            .or_break()?;
 
-    pub fn schedule<B, R>(&mut self, make_body: B, make_role: R, home: Option<ColonyName>) -> Flow
-    where
-        B: FnOnce(&ColonyRoster) -> Flow<Body>,
-        R: FnOnce(&ColonyRoster) -> CreepRole
-    {
-        self.schedule_selected(Self::default_select, make_body, make_role, home)
+        self.schedule_selected(spawn, body, role, home.unwrap_or(spawn))
     }
 
     pub fn gather_new_creeps(self, mem: &mut Memory) {
