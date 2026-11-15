@@ -7,17 +7,19 @@ use screeps::{CREEP_CLAIM_LIFE_TIME, CREEP_LIFE_TIME, Creep, MAX_CREEP_SIZE, Par
 pub struct Body(Vec<Part>);
 
 #[derive(Clone, Copy)]
-pub enum ScaleStopCondition {
+pub enum ScaleStopCondition<'a> {
     PartCount(Part, u32),
-    None
+    Drain { max_drain: f32, part_drains: &'a [(Part, f32)] }
 }
 
 impl Body {
     pub fn scaled(&self, energy: u32) -> Option<Body> {
-        self.scaled_with_stop(energy, ScaleStopCondition::None)
+        self.scaled_with_stop(energy, &[])
     }
 
-    pub fn scaled_with_stop(&self, energy: u32, stop_condition: ScaleStopCondition) -> Option<Body> {   
+    pub fn scaled_with_stop(&self, energy: u32, stop_conditions: &[ScaleStopCondition<'_>]) -> Option<Body> {
+        let life_time = self.life_time();
+
         let mut part_type_counts: HashMap<_, u32> = HashMap::new();
         let mut part_types_left: HashSet<_> = self.parts().iter().unique().copied().collect();
 
@@ -29,10 +31,19 @@ impl Body {
             for (i, part )in self.0.iter().enumerate() {
                 cost += part.cost();
 
-                let stop_condition_trigged = match stop_condition {
+                let stop_condition_trigged = stop_conditions.iter().any(|condition| match *condition {
                     ScaleStopCondition::PartCount(part, max_part_count) => part_type_counts.get(&part).is_some_and(|part_type_count| *part_type_count >= max_part_count),
-                    ScaleStopCondition::None => false,
-                };
+                    ScaleStopCondition::Drain { max_drain, part_drains } => {
+                        let parts_drain = part_drains.iter()
+                            .map(|(drain_part, part_drain)| {
+                                let count_with_next = part_type_counts.get(drain_part).copied().unwrap_or_default() + u32::from(part == drain_part);
+                                count_with_next as f32 * part_drain
+                            })
+                            .sum::<f32>();
+
+                        cost as f32 / life_time as f32 + parts_drain > max_drain
+                    }
+                });
 
                 if part_count >= MAX_CREEP_SIZE || energy < cost || stop_condition_trigged  {
                     return part_types_left.is_empty().then(|| {

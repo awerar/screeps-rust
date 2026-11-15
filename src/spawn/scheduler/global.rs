@@ -115,10 +115,6 @@ impl<R: Deref<Target = SpawnScheduler>> ColonyScheduler<R> {
 }
 
 impl ColonySchedulerMut<'_> {
-    pub fn as_shared(&self) -> ColonySchedulerRef<'_> {
-        ColonyScheduler { scheduler: &*self.scheduler, name: self.name }
-    }
-
     fn schedule_selected_for(&mut self, spawn_id: ObjectId<StructureSpawn>, body: Body, role: CreepRole, home: ColonyName) -> Flow {
         let colony = self.scheduler.colonies.get_mut(self.name);
         let spawn = colony.spawns.get_mut(spawn_id);

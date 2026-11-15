@@ -118,8 +118,8 @@ impl ColonyBudget {
     }
 
     // How much energy we can spend on seeders each tick
-    pub fn seeder(&self) -> f32 {
-        self.income - self.general_drain - self.upgrade_drain
+    pub fn seeder(&self, upgrade_coeff: f32) -> f32 {
+        upgrade_coeff * self.upgrade() - self.upgrade_drain
     }
 
     pub fn income(&self) -> f32 {

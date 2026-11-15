@@ -9,8 +9,8 @@ pub enum RoleSelector {
     TugboatFor(CreepId),
     Fabricator,
     Servicer,
-    Seeder,
-    Terraformer
+    Terraformer,
+    Upgrader
 }
 
 impl RoleSelector {
@@ -22,8 +22,8 @@ impl RoleSelector {
             RoleSelector::TugboatFor(tugged) => matches!(role, CreepRole::Tugboat(tugged2) if *tugged2 == *tugged),
             RoleSelector::Fabricator => matches!(role, CreepRole::Fabricator(_)),
             RoleSelector::Servicer => matches!(role, CreepRole::Servicer(_)),
-            RoleSelector::Seeder => matches!(role, CreepRole::Seeder),
-            RoleSelector::Terraformer => matches!(role, CreepRole::Terraformer)
+            RoleSelector::Terraformer => matches!(role, CreepRole::Terraformer),
+            RoleSelector::Upgrader => matches!(role, CreepRole::Terraformer | CreepRole::Seeder)
         }
     }
 }

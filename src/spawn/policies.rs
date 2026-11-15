@@ -5,7 +5,7 @@ use log::warn;
 use ordered_float::OrderedFloat;
 use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part, Source, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{Colonies, ColonyBuffer, ColonyName, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::{FABRICATOR_HORIZON, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, memory::Memory, movement::requests::TugboatRequests, spawn::scheduler::{ColonyScheduler, ColonySchedulerMut, ColonySchedulerRef, RoleSelector, SpawnScheduler}, statemachine::{Flow, OrBreak, break_if, run}};
+use crate::{colony::{Colonies, ColonyBuffer, ColonyName, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::{FABRICATOR_HORIZON, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, memory::Memory, movement::requests::TugboatRequests, spawn::scheduler::{ColonyScheduler, ColonySchedulerMut, RoleSelector, SpawnScheduler}, statemachine::{Flow, OrBreak, break_if, run}};
 
 fn get_excavator_body(energy: u32, source_plan: &SourcePlan) -> Body {
     let target_excavator_works = if source_plan.get_construction_site().is_some() {
@@ -238,7 +238,7 @@ pub fn schedule_fabricators(scheduler: &mut SpawnScheduler, mem: &mut Memory) ->
 
             let max_work = scheduler.get(colony.name).budget().general() as u32 / BUILD_POWER;
             let mut colony_scheduler = scheduler.get_mut(spawn_name);
-            let body = FABRICATOR_TEMPLATE.scaled_with_stop(colony_scheduler.future_energy(), ScaleStopCondition::PartCount(Part::Work, max_work)).or_break()?;
+            let body = FABRICATOR_TEMPLATE.scaled_with_stop(colony_scheduler.future_energy(), &[ScaleStopCondition::PartCount(Part::Work, max_work)]).or_break()?;
 
             colony_scheduler.schedule_for(colony.name, body, CreepRole::Fabricator(FabricatorCreep::default()))
         })?;
@@ -278,23 +278,26 @@ pub const BASELINE_UPGRADE_WORKS: u32 = BASELINE_UPGRADE_POWER.div_ceil(UPGRADE_
 pub static BASELINE_TERRAFORMER_BODY: LazyLock<Body> = LazyLock::new(|| Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, BASELINE_UPGRADE_WORKS as usize));
 
 const TARGET_BUFFER_FULLNESS: f32 = 0.8;
-fn calculate_target_upgrade_works(colony: &ColonyView<'_>, scheduler: &ColonySchedulerRef<'_>) -> u32 {
-    let budget_coeff = match colony.buffer {
+
+// Controls how much energy is not used each tick
+pub fn upgrade_budget_coeff(colony: &ColonyView<'_>) -> f32 {
+    match colony.buffer {
         Some(ColonyBuffer::Storage(storage)) => {
             let storage = storage.resolve();
             let buffer_fullness = storage.used_energy_capacity() as f32 / storage.energy_capacity() as f32;
 
             buffer_fullness / TARGET_BUFFER_FULLNESS
         },
-        None | Some(ColonyBuffer::Container(_)) => {
-            1.0
-        },
-    };
+        None | Some(ColonyBuffer::Container(_)) => 1.0,
+    }
+}
 
-    let mut target_works = BASELINE_UPGRADE_WORKS + (budget_coeff * scheduler.budget().upgrade()) as u32;
-    if colony.controller.level() == 8 { target_works = target_works.min(CONTROLLER_MAX_UPGRADE_PER_TICK) }
-
-    target_works
+fn max_upgrade_works(colony: &ColonyView<'_>, current_works: u32) -> u32 {
+    if colony.controller.level() == 8 {
+        CONTROLLER_MAX_UPGRADE_PER_TICK.saturating_sub(current_works)
+    } else {
+        u32::MAX
+    }
 }
 
 pub fn schedule_terraformer(scheduler: &mut ColonySchedulerMut<'_>, colony: &ColonyView<'_>) -> anyhow::Result<()> {
@@ -309,8 +312,12 @@ pub fn schedule_terraformer(scheduler: &mut ColonySchedulerMut<'_>, colony: &Col
     let baseline_body = Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, baseline_works as usize);
 
     let extra_energy = scheduler.future_energy() - baseline_body.energy_required();
-    let target_extra_work = calculate_target_upgrade_works(colony, &scheduler.as_shared()) - baseline_works;
-    let extra_work = target_extra_work.min(extra_energy / Part::Work.cost());
+    let extra_work_drain = UPGRADE_CONTROLLER_POWER as f32 + Body::of_part(Part::Work, 1).energy_drain();
+    let budget_extra_work = (upgrade_budget_coeff(colony) * scheduler.budget().upgrade() / extra_work_drain).max(0.0) as u32;
+
+    let extra_work = budget_extra_work
+        .min(extra_energy / Part::Work.cost())
+        .min(max_upgrade_works(colony, baseline_works));
 
     scheduler.schedule(
         baseline_body + Body::of_part(Part::Work, extra_work as usize),
@@ -331,22 +338,27 @@ pub fn schedule_seeders(scheduler: &mut SpawnScheduler, colonies: &Colonies) -> 
 
             break_if(!home_creeps.any_of_role(RoleSelector::Terraformer))?;
 
-            let target_work = calculate_target_upgrade_works(&colony, &colony_scheduler);
-            let target_seeder_work = target_work.saturating_sub(home_creeps.part_count(RoleSelector::Terraformer, Part::Work) as u32);
-            let missing_seeder_work = target_seeder_work.saturating_sub(home_creeps.part_count(RoleSelector::Seeder, Part::Work) as u32);
-            let missing_seeder_work = missing_seeder_work.min(colony_scheduler.budget().seeder() as u32);
+            let available = colony_scheduler.budget().seeder(upgrade_budget_coeff(&colony));
+            break_if(available < UPGRADE_CONTROLLER_POWER as f32)?;
 
-            break_if(missing_seeder_work == 0)?;
-    
+            let current_works = home_creeps.part_count(RoleSelector::Upgrader, Part::Work) as u32;
+            let rcl_stop = ScaleStopCondition::PartCount(Part::Work, max_upgrade_works(&colony, current_works));
+
             let spawn_name = if colony.should_import_energy() {
                 scheduler.closest_creep_export_colony(colony_name, colonies).or_break()?
             } else {
                 colony_name
             };
 
+            let budget_stop = if spawn_name == colony_name {
+                ScaleStopCondition::Drain { max_drain: available, part_drains: &[(Part::Work, UPGRADE_CONTROLLER_POWER as f32)] }
+            } else {
+                ScaleStopCondition::PartCount(Part::Work, (available / UPGRADE_CONTROLLER_POWER as f32) as u32)
+            };
+
             let mut spawn_scheduler = scheduler.get_mut(spawn_name);
-    
-            let body = SEEDER_TEMPLATE.scaled_with_stop(spawn_scheduler.future_energy(), ScaleStopCondition::PartCount(Part::Work, missing_seeder_work)).or_break()?;
+            let body = SEEDER_TEMPLATE.scaled_with_stop(spawn_scheduler.future_energy(), &[budget_stop, rcl_stop]).or_break()?;
+
             spawn_scheduler.schedule(body, CreepRole::Seeder)
         })?;
     }
