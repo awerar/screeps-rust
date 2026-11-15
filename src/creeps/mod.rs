@@ -45,16 +45,6 @@ impl CreepData {
     }
 
     pub fn try_recover_from(creep: &Creep, mem: &Memory) -> Option<Self> {
-        let colonies = &mem.colonies;
-        let home = colonies.lookup(creep.pos().room_name())
-            .map(|name| colonies.view(name))
-            .filter(|colony| colony.plan.center.spawn.is_complete())
-            .or_else(|| 
-                colonies.view_all()
-                    .filter(|colony| colony.plan.center.spawn.is_complete())
-                    .min_by_key(|colony| colony.plan.center.pos.get_range_to(creep.pos()))
-            )?;
-
         let role = match creep.name().split_ascii_whitespace().next()? {
             "Flagship" => CreepRole::Flagship(FlagshipCreep::default()),
             "Truck" => CreepRole::Truck(TruckCreep::default()),
@@ -73,7 +63,21 @@ impl CreepData {
             },
             _ => CreepRole::Scrap(ScrapCreep::default())
         };
-        
+
+        let colonies = &mem.colonies;
+        let local_colony = colonies.lookup(creep.pos().room_name()).map(|name| colonies.view(name));
+        let home = match &role {
+            CreepRole::Excavator(source) => colonies.view_all().find(|colony| colony.plan.sources.contains_key(&source.screeps_id()))?,
+            CreepRole::Terraformer => local_colony?,
+            _ => local_colony
+                .filter(|colony| colony.plan.center.spawn.is_complete())
+                .or_else(||
+                    colonies.view_all()
+                        .filter(|colony| colony.plan.center.spawn.is_complete())
+                        .min_by_key(|colony| colony.plan.center.pos.get_range_to(creep.pos()))
+                )?
+        };
+
         Some(CreepData::new(home.name, home.name.room_name(), role))
     }
 }

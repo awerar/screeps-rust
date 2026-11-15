@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use derive_deref::Deref;
 
-use crate::{colony::ColonyName, domain_traits::CreepId, memory::Memory, spawn::scheduler::prototype::{AbsolutePrototype, RelativePrototype}};
+use crate::{colony::ColonyName, creeps::body::Body, domain_traits::{CreepId, ResolvableId}, memory::Memory, spawn::scheduler::prototype::{AbsolutePrototype, RelativePrototype}};
 
 #[derive(Deref)]
 pub struct KnownCreeps(HashMap<CreepId, AbsolutePrototype>);
@@ -10,7 +10,12 @@ pub struct KnownCreeps(HashMap<CreepId, AbsolutePrototype>);
 impl KnownCreeps {
     pub fn new(mem: &Memory) -> Self {
         Self(mem.creeps.iter()
-            .map(|(id, data)| (id.clone(), AbsolutePrototype::from_creep(id, data)))
+            .filter(|(id, _)| {
+                let creep = id.resolve();
+                let body = Body::of_creep(&creep);
+
+                creep.ticks_to_live().unwrap_or(body.life_time()) > body.spawn_ticks()
+            }).map(|(id, data)| (id.clone(), AbsolutePrototype::from_creep(id, data)))
             .collect())
     }
 

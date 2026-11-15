@@ -82,6 +82,10 @@ impl Body {
     pub fn life_time(&self) -> u32 {
         if self.part_count(Part::Claim) > 0 { CREEP_CLAIM_LIFE_TIME } else { CREEP_LIFE_TIME }
     }
+
+    pub fn spawn_ticks(&self) -> u32 {
+        3 * self.0.len() as u32
+    }
 }
 
 impl Mul<usize> for Body {

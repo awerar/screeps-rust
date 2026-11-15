@@ -205,11 +205,13 @@ pub fn find_center(room: &Room) -> anyhow::Result<RoomXY> {
         .find(|flag| flag.name().to_lowercase().contains("center"));
 
     if let Some(center_flag) = center_flag.map(|f| f.pos().xy()) { 
-        if candidates.iter().find(|candidate| **candidate == center_flag).is_some() {
+        return Ok(center_flag) 
+
+        /*if candidates.iter().find(|candidate| **candidate == center_flag).is_some() {
             return Ok(center_flag) 
         }
         
-        info!("Found a center flag, but it is not a valid center");
+        info!("Found a center flag, but it is not a valid center");*/
     }
 
     let mut points_of_interest = Vec::new();
