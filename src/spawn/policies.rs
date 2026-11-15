@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use itertools::Itertools;
 use log::warn;
 use ordered_float::OrderedFloat;
-use screeps::{BUILD_POWER, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part, Source, UPGRADE_CONTROLLER_POWER};
+use screeps::{BUILD_POWER, CARRY_CAPACITY, CONTROLLER_MAX_UPGRADE_PER_TICK, CREEP_LIFE_TIME, Creep, HasPosition, Part, Source, UPGRADE_CONTROLLER_POWER};
 
 use crate::{colony::{Colonies, ColonyBuffer, ColonyName, ColonyView, plan::SourcePlan, steps::ColonyStep}, creeps::{CreepRole, body::{Body, ScaleStopCondition}, fabricator::{FABRICATOR_HORIZON, FabricatorCreep}, flagship::FlagshipCreep, servicer::{ServicerCoordinator, ServicerCreep}, truck::{ExportTruckCreep, TruckCreep}}, domain_traits::{EnergyStoreAccessors, HasId, HasName, ResolvableId}, memory::Memory, movement::requests::TugboatRequests, spawn::scheduler::{ColonyScheduler, ColonySchedulerMut, RoleSelector, SpawnScheduler}, statemachine::{Flow, OrBreak, break_if, run}};
 
@@ -107,7 +107,6 @@ impl ColonyView<'_> {
 }
 
 const IMPORT_BUDGET_LIMIT: f32 = 100.0;
-const EXPORT_MIN_FREE_BUDGET: f32 = 10.0;
 
 static EXPORT_TRUCK_TEMPLATE: LazyLock<Body> = LazyLock::new(|| { use Part::*; Body::from(vec![Move, Carry]) });
 pub fn schedule_export_trucks(scheduler: &mut SpawnScheduler, mem: &mut Memory) -> anyhow::Result<()> {
@@ -121,18 +120,18 @@ pub fn schedule_export_trucks(scheduler: &mut SpawnScheduler, mem: &mut Memory) 
                 .filter(|candidate| candidate.spawns().any_free() && candidate.name() != import_colony.name)
                 .filter(|candidate| matches!(mem.colonies.view(candidate.name()).buffer, Some(ColonyBuffer::Storage(_))))
                 .map(|candidate| (candidate.name(), candidate.budget().general()))
-                .filter(|(_, budget)| *budget > EXPORT_MIN_FREE_BUDGET)
                 .max_by_key(|(_, budget)| OrderedFloat(*budget))
                 .map(|(name, _)| name)
                 .or_break()?;
 
-            let mut scheduler = scheduler.get_mut(export_name);
-            let body = EXPORT_TRUCK_TEMPLATE.scaled(scheduler.future_energy()).or_break()?;
+            let truck = ExportTruckCreep::new(&mem.colonies.view(export_name), &import_colony);
+            let carry_drain = CARRY_CAPACITY as f32 / truck.roundtrip_ticks() as f32;
 
-            scheduler.schedule(
-                body,
-                CreepRole::ExportTruck(ExportTruckCreep::new(&mem.colonies.view(export_name), &import_colony))
-            )
+            let mut scheduler = scheduler.get_mut(export_name);
+            let budget_stop = ScaleStopCondition::Drain { max_drain: scheduler.budget().general(), part_drains: &[(Part::Carry, carry_drain)] };
+            let body = EXPORT_TRUCK_TEMPLATE.scaled_with_stop(scheduler.future_energy(), &[budget_stop]).or_break()?;
+
+            scheduler.schedule(body, CreepRole::ExportTruck(truck))
         })?;
     }
 
@@ -236,9 +235,15 @@ pub fn schedule_fabricators(scheduler: &mut SpawnScheduler, mem: &mut Memory) ->
                 colony.name
             };
 
-            let max_work = scheduler.get(colony.name).budget().general() as u32 / BUILD_POWER;
+            let budget = scheduler.get(colony.name).budget().general();
+            let budget_stop = if spawn_name == colony.name {
+                ScaleStopCondition::Drain { max_drain: budget, part_drains: &[(Part::Work, BUILD_POWER as f32)] }
+            } else {
+                ScaleStopCondition::PartCount(Part::Work, budget as u32 / BUILD_POWER)
+            };
+
             let mut colony_scheduler = scheduler.get_mut(spawn_name);
-            let body = FABRICATOR_TEMPLATE.scaled_with_stop(colony_scheduler.future_energy(), &[ScaleStopCondition::PartCount(Part::Work, max_work)]).or_break()?;
+            let body = FABRICATOR_TEMPLATE.scaled_with_stop(colony_scheduler.future_energy(), &[budget_stop]).or_break()?;
 
             colony_scheduler.schedule_for(colony.name, body, CreepRole::Fabricator(FabricatorCreep::default()))
         })?;
@@ -254,16 +259,15 @@ pub fn schedule_servicers(scheduler: &mut ColonySchedulerMut<'_>, coordinator: &
     run(|| {
         let need_emergency_servicer = !scheduler.home_creeps().any_of_role(RoleSelector::Servicer) && coordinator.any_emergency_repair();
 
-        let body = SERVICER_TEMPLATE.scaled(scheduler.future_energy()).or_break()?;
+        let max_drain = if need_emergency_servicer { f32::INFINITY } else { scheduler.budget().general() };
+        let budget_stop = ScaleStopCondition::Drain { max_drain, part_drains: &[(Part::Work, 1.0)] };
+        let body = SERVICER_TEMPLATE.scaled_with_stop(scheduler.future_energy(), &[budget_stop]).or_break()?;
 
         if !need_emergency_servicer {
             let reserved_work_ticks = scheduler.home_creeps().part_ticks_left_of_role(RoleSelector::Servicer, Part::Work);
-
-            let work_power = body.part_count(Part::Work) as u32;
             let additional_reserved_work_ticks = body.part_count(Part::Work) as u32 * body.life_time();
 
             break_if(reserved_work_ticks + additional_reserved_work_ticks >= total_work_ticks)?;
-            break_if(work_power as f32 > scheduler.budget().general())?;
         }
 
         scheduler.schedule(
