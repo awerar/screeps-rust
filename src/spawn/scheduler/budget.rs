@@ -2,7 +2,7 @@ use std::{collections::HashMap};
 
 use screeps::{BUILD_POWER, HARVEST_POWER, LINK_LOSS_RATIO, ObjectId, Part, Source, UPGRADE_CONTROLLER_POWER};
 
-use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, body::Body, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::{policies::BASELINE_UPGRADE_WORKS, scheduler::{creeps::KnownCreeps, prototype::{AbsolutePrototype, RelativePrototype}}}};
+use crate::{colony::{ColonyName, ColonyView}, creeps::{CreepRole, fabricator::FabricatorCreep, servicer::ServicerCreep}, domain_traits::EnergyStoreAccessors, spawn::{policies::{BASELINE_TERRAFORMER_BODY, BASELINE_UPGRADE_WORKS},scheduler::{creeps::KnownCreeps, prototype::{AbsolutePrototype, RelativePrototype}}}};
 
 const SOURCE_POWER: u32 = 10;
 const HARVEST_WORKS: u32 = SOURCE_POWER.div_exact(HARVEST_POWER).unwrap();
@@ -38,7 +38,7 @@ impl ColonyBudget {
         let mut budget = Self {
             colony: colony.name,
             income: 0.0,
-            general_drain: 0.0,
+            general_drain: (BASELINE_UPGRADE_WORKS * UPGRADE_CONTROLLER_POWER) as f32 + BASELINE_TERRAFORMER_BODY.energy_drain(),
             upgrade_drain: 0.0,
             storage_budget: colony.buffer.map_or_default(|buffer| buffer.used_energy_capacity() as f32 / 1500.0),
             sources
@@ -51,30 +51,13 @@ impl ColonyBudget {
         budget
     }
 
-    fn split_terraformer_works(works: u32) -> (u32, u32) {
-        let baseline_work = works.min(BASELINE_UPGRADE_WORKS);
-        let extra_work = works - baseline_work;
-
-        (baseline_work, extra_work)
-    }
-
     fn add_local_creep_contribution(&mut self, proto: &RelativePrototype) {
         let works = proto.body().part_count(Part::Work) as u32;
 
         if proto.spawn_room() == self.colony.room_name() {
             match proto.role() {
                 CreepRole::Seeder => self.upgrade_drain += proto.body().energy_drain(),
-                CreepRole::Terraformer => {
-                    let (baseline_works, extra_works) = Self::split_terraformer_works(works);
-
-                    let base_body = Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, baseline_works as usize);
-                    let extra_body = Body::of_part(Part::Work, extra_works as usize);
-
-                    assert!(proto.body().has_same_composition_as(&(base_body.clone() + extra_body.clone())));
-
-                    self.general_drain += base_body.energy_drain();
-                    self.upgrade_drain += extra_body.energy_drain();
-                },
+                CreepRole::Terraformer => self.upgrade_drain += proto.body().energy_drain() - BASELINE_TERRAFORMER_BODY.energy_drain(),
                 _ => self.general_drain += proto.body().energy_drain()
             }
         }
@@ -101,12 +84,7 @@ impl ColonyBudget {
             },
             CreepRole::Fabricator(_) => self.general_drain += (works * BUILD_POWER) as f32,
             CreepRole::Servicer(_) => self.general_drain += works as f32,
-            CreepRole::Terraformer => {
-                let (baseline_work, extra_work) = Self::split_terraformer_works(works);
-
-                self.general_drain += (baseline_work * UPGRADE_CONTROLLER_POWER) as f32;
-                self.upgrade_drain += (extra_work * UPGRADE_CONTROLLER_POWER) as f32;
-            },
+            CreepRole::Terraformer => self.upgrade_drain += (works as f32 - BASELINE_UPGRADE_WORKS as f32) * UPGRADE_CONTROLLER_POWER as f32,
             CreepRole::Seeder => self.upgrade_drain += (works * UPGRADE_CONTROLLER_POWER) as f32,
             CreepRole::ExportTruck(truck) => self.general_drain += truck.power(proto.body()),
         }
@@ -124,9 +102,9 @@ impl ColonyBudget {
 
     pub fn add_creep(&mut self, proto: &AbsolutePrototype) {
         if proto.home() == self.colony {
-            self.add_local_creep_contribution(proto.relative())
+            self.add_local_creep_contribution(proto.relative());
         } else {
-            self.add_nonlocal_creep_contribution(proto)
+            self.add_nonlocal_creep_contribution(proto);
         }
     }
 

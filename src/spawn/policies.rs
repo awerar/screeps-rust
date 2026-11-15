@@ -275,6 +275,7 @@ pub fn schedule_servicers(scheduler: &mut ColonySchedulerMut<'_>, coordinator: &
 
 pub const BASELINE_UPGRADE_POWER: u32 = 2;
 pub const BASELINE_UPGRADE_WORKS: u32 = BASELINE_UPGRADE_POWER.div_ceil(UPGRADE_CONTROLLER_POWER);
+pub static BASELINE_TERRAFORMER_BODY: LazyLock<Body> = LazyLock::new(|| Body::of_part(Part::Carry, 1) + Body::of_part(Part::Work, BASELINE_UPGRADE_WORKS as usize));
 
 const TARGET_BUFFER_FULLNESS: f32 = 0.8;
 fn calculate_target_upgrade_works(colony: &ColonyView<'_>, scheduler: &ColonySchedulerRef<'_>) -> u32 {

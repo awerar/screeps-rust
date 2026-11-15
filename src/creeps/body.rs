@@ -86,10 +86,6 @@ impl Body {
     pub fn spawn_ticks(&self) -> u32 {
         3 * self.0.len() as u32
     }
-
-    pub fn has_same_composition_as(&self, other: &Body) -> bool {
-        self.0.iter().counts() == other.0.iter().counts()
-    }
 }
 
 impl Mul<usize> for Body {
