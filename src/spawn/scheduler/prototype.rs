@@ -30,7 +30,6 @@ impl RelativePrototype {
         &self.role
     }
 
-    #[expect(unused)]
     pub fn spawn_room(&self) -> RoomName {
         self.spawn_room
     }

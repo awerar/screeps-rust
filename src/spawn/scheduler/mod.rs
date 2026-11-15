@@ -12,7 +12,7 @@ use screeps::HasPosition;
 
 use crate::{colony::ColonyView, domain_traits::HasId, memory::Memory, spawn::scheduler::{budget::ColonyBudget, creeps::KnownCreeps, energy::{ColonyEnergy, EnergyGroup, EnergyStructure}, spawns::{ColonySpawn, ColonySpawnType, ColonySpawns}, syndrome::ColonySyndrome}};
 
-pub use global::{ColonySchedulerMut, ColonyScheduler, SpawnScheduler};
+pub use global::{ColonySchedulerRef, ColonySchedulerMut, ColonyScheduler, SpawnScheduler};
 pub use roles::RoleSelector;
 
 pub struct ColonySchedulerState {

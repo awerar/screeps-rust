@@ -9,7 +9,6 @@ pub enum RoleSelector {
     TugboatFor(CreepId),
     Fabricator,
     Servicer,
-    Upgrader,
     Seeder,
     Terraformer
 }
@@ -23,7 +22,6 @@ impl RoleSelector {
             RoleSelector::TugboatFor(tugged) => matches!(role, CreepRole::Tugboat(tugged2) if *tugged2 == *tugged),
             RoleSelector::Fabricator => matches!(role, CreepRole::Fabricator(_)),
             RoleSelector::Servicer => matches!(role, CreepRole::Servicer(_)),
-            RoleSelector::Upgrader => matches!(role, CreepRole::Terraformer | CreepRole::Seeder),
             RoleSelector::Seeder => matches!(role, CreepRole::Seeder),
             RoleSelector::Terraformer => matches!(role, CreepRole::Terraformer)
         }
@@ -55,5 +53,9 @@ impl<'a> HomeCreeps<'a> {
 impl KnownCreeps {
     pub fn of_role(&self, role: RoleSelector) -> impl Iterator<Item = (&CreepId, &AbsolutePrototype)> {
         self.iter().filter(move |(_, proto)| role.matches(proto.role()))
+    }
+
+    pub fn any_of_role(&self, role: RoleSelector) -> bool {
+        self.of_role(role).next().is_some()
     }
 }

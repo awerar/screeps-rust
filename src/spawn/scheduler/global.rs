@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use screeps::{Direction, SpawnOptions, Structure, StructureSpawn, game};
 
-use crate::{colony::ColonyName, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::scheduler::{ColonySchedulerState, creeps::{KnownCreeps, HomeCreeps}, prototype::AbsolutePrototype, spawns::ColonySpawns, syndrome::ColonySyndrome}, statemachine::{Flow, OrBreak, break_if}};
+use crate::{colony::ColonyName, creeps::{CreepData, CreepRole, body::Body}, domain_traits::{HasId, ObjectId, ResolvableId}, memory::Memory, names::UsedNames, spawn::scheduler::{ColonySchedulerState, budget::ColonyBudget, creeps::{HomeCreeps, KnownCreeps}, prototype::AbsolutePrototype, spawns::ColonySpawns, syndrome::ColonySyndrome}, statemachine::{Flow, OrBreak, break_if}};
 
 struct ColonyStates(HashMap<ColonyName, ColonySchedulerState>);
 
@@ -109,20 +109,16 @@ impl<R: Deref<Target = SpawnScheduler>> ColonyScheduler<R> {
         self.scheduler.creeps.of_home(self.name)
     }
 
-    pub fn full_budget(&self) -> f32 {
-        self.colony().budget.full()
-    }
-
-    pub fn sustainable_budget(&self) -> f32 {
-        self.colony().budget.sustainable()
-    }
-
-    pub fn income(&self) -> f32 {
-        self.colony().budget.income()
+    pub fn budget(&self) -> &ColonyBudget {
+        &self.colony().budget
     }
 }
 
 impl ColonySchedulerMut<'_> {
+    pub fn as_shared(&self) -> ColonySchedulerRef<'_> {
+        ColonyScheduler { scheduler: &*self.scheduler, name: self.name }
+    }
+
     fn schedule_selected_for(&mut self, spawn_id: ObjectId<StructureSpawn>, body: Body, role: CreepRole, home: ColonyName) -> Flow {
         let colony = self.scheduler.colonies.get_mut(self.name);
         let spawn = colony.spawns.get_mut(spawn_id);
