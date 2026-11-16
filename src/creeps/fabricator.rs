@@ -47,7 +47,7 @@ impl FabricatorCreep {
     }
 
     fn transition(self, creep: &mut VirtualCreep, home: &ColonyView<'_>, coordinator: &mut FabricatorCoordinator) -> Flow<Self> {
-        if creep.pos().room_name() != home.name.room_name() {
+        if creep.pos().room_name() != home.name.room_name() || creep.pos().is_room_edge() {
             creep.approach(home.center, 5)?;
         }
 

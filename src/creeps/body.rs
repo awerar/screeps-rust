@@ -32,7 +32,7 @@ impl Body {
                 cost += part.cost();
 
                 let stop_condition_trigged = stop_conditions.iter().any(|condition| match *condition {
-                    ScaleStopCondition::PartCount(part, max_part_count) => part_type_counts.get(&part).is_some_and(|part_type_count| *part_type_count >= max_part_count),
+                    ScaleStopCondition::PartCount(part, max_part_count) => part_type_counts.get(&part).copied().unwrap_or_default() >= max_part_count,
                     ScaleStopCondition::Drain { max_drain, part_drains } => {
                         let parts_drain = part_drains.iter()
                             .map(|(drain_part, part_drain)| {
